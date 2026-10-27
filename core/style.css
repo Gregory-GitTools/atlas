@@ -840,3 +840,28 @@ html, body {
 .panel-body .set-title + .chips {
   margin-bottom: 4px;
 }
+
+/* прогноз ветра в окне */
+.wx-table {
+  margin: 6px 0;
+  font-size: 12px;
+}
+
+.wx-row {
+  display: grid;
+  grid-template-columns: 42px 18px 70px 1fr;
+  align-items: center;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--panel-hover);
+}
+
+.wx-dir {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 15px;
+  text-align: center;
+}
+
+.wx-temp {
+  color: var(--muted);
+}

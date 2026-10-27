@@ -10,7 +10,8 @@ import * as settings from "./settings.js";
 const LAYERS_ICON = `<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="m12 16.54-7.38-5.73L3 12.07l9 7 9-7-1.63-1.27zM12 14l7.36-5.73L21 7l-9-7-9 7 1.63 1.27z"/></svg>`;
 const SECTIONS = [
   { title: "Места", match: (m) => m.group === "places" },
-  { title: "Слои", match: (m) => !m.group },
+  { title: "Погода", match: (m) => m.id.startsWith("weather/") },
+  { title: "Слои", match: (m) => !m.group && !m.id.startsWith("weather/") },
 ];
 
 export function initLayersPanel(ctx) {

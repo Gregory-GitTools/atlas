@@ -249,16 +249,39 @@ try {
     await run(`(async () => { await atlas.toggle("layers/beaches", false); await atlas.toggle("layers/surf", false); return true; })()`);
   }
 
+  // погода: стрелки ветра с силой в узлах, прогноз по щелчку, радар осадков
+  if (mods.some((m) => m.id === "weather/wind")) {
+    await run(`atlas.map.jumpTo({ center: [24.7, 59.45], zoom: 9 }); atlas.toggle("weather/wind", true).then(() => true)`);
+    for (let i = 0; i < 20 && !(await run(`atlas.map.getLayer("wind") && atlas.map.queryRenderedFeatures({ layers: ["wind"] }).length > 0`)); i++) await sleep(1000);
+    const w = await run(`atlas.map.queryRenderedFeatures({ layers: ["wind"] }).map((f) => f.properties.kn)`);
+    check("ветер: стрелки", w.length > 0, `${w.length} стрелок, ${w.slice(0, 5).join(", ")} уз`);
+    // стрелка ближе к центру — у краёв её закрывают строка поиска и кнопки
+    const p = await run(`(() => { const c = atlas.map.project(atlas.map.getCenter()); return atlas.map.queryRenderedFeatures({ layers: ["wind"] })
+      .map((f) => atlas.map.project(f.geometry.coordinates)).sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y))[0]; })()`);
+    await clickAt(p.x, p.y);
+    for (let i = 0; i < 10 && !(await run(`document.querySelectorAll(".wx-row").length > 0`)); i++) await sleep(500);
+    check("ветер: прогноз по щелчку", await run(`document.querySelectorAll(".wx-row").length > 0`));
+    await shot("90-wind");
+    await run(`document.querySelector(".maplibregl-popup")?.remove(); atlas.toggle("weather/wind", false).then(() => true)`);
+    await run(`atlas.map.jumpTo({ center: [15, 52], zoom: 4 }); atlas.toggle("weather/radar", true).then(() => true)`);
+    await sleep(3000);
+    const frames = await run(`atlas.map.getStyle().layers.filter((l) => l.id.startsWith("radar-")).length`);
+    check("осадки: кадры радара", frames > 0, `${frames}`);
+    await idle();
+    await shot("91-radar");
+    await run(`atlas.toggle("weather/radar", false).then(() => true)`);
+  }
+
   for (const id of ["layers", "settings"]) {
     await run(`document.querySelector('[data-panel=${id}]') ? true : false`).then((has) => check(`панель «${id}» есть`, has));
   }
   await run(`document.querySelector(".top-right").click(); true`);
   await sleep(500);
-  await shot("90-panel-layers");
+  await shot("95-panel-layers");
   await run(`document.querySelector(".maplibregl-ctrl-bottom-right button[title=Настройки]").click(); true`);
   await sleep(800);
   check("одновременно открыта одна панель", await run(`document.querySelectorAll(".panel:not([hidden])").length === 1`));
-  await shot("91-panel-settings");
+  await shot("96-panel-settings");
 } catch (err) {
   errors.push("проверка прервалась: " + err.message);
 }

@@ -24,6 +24,7 @@ export const MODULES = [
   "../layers/trails.js",
   "../layers/outdoor.js",
   "../layers/terrain.js",
+  "../layers/weather.js",
 ];
 
 const registry = new Map();
