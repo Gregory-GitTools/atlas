@@ -1,6 +1,7 @@
 // Ядро Atlas: карта-глобус и загрузка модулей. Всё остальное — модули (см. modules.js)
 import * as maplibregl from "https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.mjs";
 import { loadAll, modules, toggle, available } from "./modules.js";
+import { initLayersPanel } from "./layers-panel.js";
 
 const status = (text) => { document.getElementById("status").textContent = text || ""; };
 
@@ -17,6 +18,7 @@ map.addControl(new maplibregl.NavigationControl(), "bottom-right");
 const ctx = { map, status, maplibregl };
 window.atlas = { map, modules, toggle: (id, on) => toggle(id, ctx, on) }; // для отладки из консоли
 
+initLayersPanel(ctx);
 await loadAll();
 map.once("load", () => {
   const usable = modules().filter(available);

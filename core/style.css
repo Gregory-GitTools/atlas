@@ -89,3 +89,131 @@ html, body {
   opacity: 0.45;
   cursor: default;
 }
+
+/* кнопка справа вверху (слои) */
+.top-right {
+  position: fixed;
+  top: calc(var(--top-inset) + var(--gap));
+  right: var(--gap);
+  z-index: 20;
+}
+
+/* окно-панель: одно на всё приложение, одновременно открыта одна */
+.panel {
+  position: fixed;
+  top: calc(var(--top-inset) + var(--gap) + var(--button) + 8px);
+  right: var(--gap);
+  z-index: 15;
+  width: 340px;
+  max-height: calc(100vh - var(--top-inset) - 160px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 6px 6px 12px;
+  border-bottom: 1px solid var(--panel-hover);
+}
+
+.panel.min .panel-head {
+  border-bottom: none;
+}
+
+.panel.min .panel-body {
+  display: none;
+}
+
+.panel-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.panel-btn:hover {
+  background: var(--panel-hover);
+}
+
+.panel-body {
+  overflow-y: auto;
+  padding: 10px 12px 12px;
+}
+
+/* чипы — включаемые пункты (слои и т. п.) */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid #dadce0;
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: var(--panel-hover);
+}
+
+.chip.on {
+  background: var(--active);
+  border-color: var(--active);
+  color: #fff;
+}
+
+.chip.on:hover {
+  background: var(--active-dark);
+}
+
+.chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* телефон: панель во всю ширину под верхней строкой */
+@media (max-width: 600px) {
+  .panel {
+    left: var(--gap);
+    right: var(--gap);
+    width: auto;
+    max-height: 45vh;
+  }
+}
