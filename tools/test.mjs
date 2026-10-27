@@ -168,6 +168,35 @@ try {
     check("окно закрывается при движении карты", await run(`!document.querySelector(".maplibregl-popup")`));
   } else check("подпись города на карте", false);
 
+  // места: в центре Таллина «Рестораны» — флажки; «Музеи» выключают «Рестораны»; щелчок по флажку — окно
+  if (mods.some((m) => m.id === "places/food")) {
+    await run(`atlas.map.jumpTo({ center: [24.745, 59.437], zoom: 16 }); document.querySelector(".top-right").click(); true`);
+    await sleep(500);
+    const chipFor = (title) => `[...document.querySelectorAll("[data-panel=layers] .chip, [data-panel=layers] .chip-main")].find((c) => c.textContent.trim() === ${JSON.stringify(title)})`;
+    await run(`${chipFor("Рестораны")}.click(); true`);
+    await sleep(800);
+    await idle();
+    const pins = await run(`atlas.map.queryRenderedFeatures({ layers: ["places-poi"] }).length`);
+    check("места: флажки ресторанов", pins > 0, `${pins}`);
+    await shot("80-places-food");
+    await run(`${chipFor("Музеи")}.click(); true`);
+    await sleep(800);
+    const excl = await run(`({ food: atlas.modules().find((m) => m.id === "places/food").active, museums: atlas.modules().find((m) => m.id === "places/museums").active })`);
+    check("места: одна категория за раз", !excl.food && excl.museums, JSON.stringify(excl));
+    await run(`${chipFor("Музеи")}.click(); ${chipFor("Рестораны")}.click(); document.querySelector("[data-panel=layers] .panel-btn[title=Закрыть]").click(); true`);
+    await sleep(800);
+    await idle();
+    const pt = await run(`(() => { const f = atlas.map.queryRenderedFeatures({ layers: ["places-poi"] })[0]; if (!f) return null; const p = atlas.map.project(f.geometry.coordinates); return { x: p.x, y: p.y - 15 }; })()`);
+    if (pt) {
+      await clickAt(pt.x, pt.y);
+      await sleep(3500);
+      const pop = await run(`document.querySelector(".maplibregl-popup .popup-title")?.textContent || ""`);
+      check("места: щелчок по флажку — окно", !!pop, pop);
+      await shot("81-places-popup");
+    }
+    await run(`atlas.toggle("places/food", false); true`);
+  }
+
   for (const id of ["layers", "settings"]) {
     await run(`document.querySelector('[data-panel=${id}]') ? true : false`).then((has) => check(`панель «${id}» есть`, has));
   }

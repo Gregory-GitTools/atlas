@@ -797,3 +797,46 @@ html, body {
   font-size: 13px;
   cursor: pointer;
 }
+
+/* чип из двух частей: название включает, стрелка — меню (магазины) */
+.chip-split {
+  padding: 0;
+  overflow: hidden;
+}
+
+.chip-split .chip-main,
+.chip-split .chip-arrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chip-split .chip-main {
+  padding: 6px 4px 6px 12px;
+}
+
+.chip-split .chip-arrow {
+  padding: 6px 8px 6px 4px;
+}
+
+.chip-split .chip-main:disabled,
+.chip-split .chip-arrow:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.chip-menu {
+  position: fixed;
+  z-index: 30;
+  width: 220px;
+  max-height: 60vh;
+}
+
+.panel-body .set-title + .chips {
+  margin-bottom: 4px;
+}

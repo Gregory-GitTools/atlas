@@ -18,3 +18,12 @@ export function closeAll() {
 export function initPopups(map) {
   map.on("movestart", closeAll);
 }
+
+// Свои кликабельные слои модулей (флажки мест, значки экскурсий…): щелчок по ним обрабатывает сам
+// модуль, общее «окно места» по такому щелчку не открывается
+const own = new Set();
+export const claimLayers = (...ids) => ids.forEach((id) => own.add(id));
+export const ownHit = (map, point) => {
+  const layers = [...own].filter((id) => map.getLayer(id));
+  return layers.length > 0 && map.queryRenderedFeatures(point, { layers }).length > 0;
+};

@@ -7,7 +7,7 @@
 import { register, modules, allowed } from "./modules.js";
 import { uiLanguage } from "./labels.js";
 import { emit } from "./events.js";
-import { track, anyOpen as popupOpen, closeAll } from "./popups.js";
+import { track, anyOpen as popupOpen, closeAll, ownHit } from "./popups.js";
 
 register({
   id: "core/place-info",
@@ -90,7 +90,7 @@ const linkRow = (href, text) => {
   return row;
 };
 
-async function featureContent(f) {
+export async function featureContent(f) {
   const p = f.properties;
   const name = p[`name:${uiLanguage()}`] || p.name;
   const kind = [kindOf(f), p.ele && `${Math.round(p.ele).toLocaleString("ru")} м`].filter(Boolean).join(" · ");
@@ -152,7 +152,7 @@ export function initPlaceInfo({ map, maplibregl }) {
 
   map.on("click", async (e) => {
     if (e.originalEvent.target !== map.getCanvas() || !onEarth(e.point)) return;
-    if (e.defaultPrevented) return; // щелчок забрал модуль (свой значок)
+    if (ownHit(map, e.point)) return; // свой значок модуля — у него своё окно
     if (anyOpen()) { closeAll(); return; }
     const f = hit(e.point);
     const n = ++click;
@@ -169,7 +169,7 @@ export function initPlaceInfo({ map, maplibregl }) {
   let pending = null;
   map.on("mousemove", (e) => {
     if (e.originalEvent.buttons) return;
-    if (!pending) requestAnimationFrame(() => { map.getCanvas().style.cursor = hit(pending) ? "default" : ""; pending = null; });
+    if (!pending) requestAnimationFrame(() => { map.getCanvas().style.cursor = hit(pending) || ownHit(map, pending) ? "default" : ""; pending = null; });
     pending = e.point;
   });
   map.on("mouseout", () => { map.getCanvas().style.cursor = ""; });
