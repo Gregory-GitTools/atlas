@@ -102,6 +102,42 @@ try {
     check("режим «без сети» выключает модуль и не даёт включить", offline.off === false && offline.refused === false && offline.back === true, JSON.stringify(offline));
   }
 
+  // подложки: каждая загружается без ошибок, и язык подписей ставится заново
+  const basemaps = await run(`[...document.querySelectorAll(".basemap-row .basemap-item")].map((b) => b.title)`);
+  check("переключатель карт", basemaps.length >= 5, `${basemaps.length} карт`);
+  for (let i = 0; i < basemaps.length; i++) {
+    await run(`document.querySelectorAll(".basemap-row .basemap-item")[${i}].click(); true`);
+    await sleep(500);
+    await idle();
+    if (i === 0) await shot("50-satellite");
+    const ok = await run(`atlas.map.isStyleLoaded() && atlas.map.getStyle().layers.length > 0`);
+    check(`карта «${basemaps[i]}»`, ok);
+  }
+  await run(`document.querySelectorAll(".basemap-row .basemap-item")[1].click(); true`);
+  await idle();
+
+  // язык подписей: English → у подписей name:en; потом обратно русский
+  const lang = await run(`(async () => { const b = document.querySelector(".lang-btn"); b.click();
+    [...document.querySelectorAll(".lang-menu .menu-item")].find((i) => i.textContent === "English").click();
+    await new Promise((r) => setTimeout(r, 300));
+    const en = atlas.map.getStyle().layers.some((l) => JSON.stringify(l.layout?.["text-field"] || "").includes("name:en"));
+    b.click(); [...document.querySelectorAll(".lang-menu .menu-item")].find((i) => i.textContent === "Русский").click();
+    return { en, label: b.textContent }; })()`);
+  check("язык подписей переключается", lang.en && lang.label === "Ру", JSON.stringify(lang));
+
+  // поиск: запрос → список → выбор → маркер и запись в историю
+  const search = await run(`(async () => { const i = document.querySelector(".search-box input"); i.value = "Tallinn";
+    i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    for (let t = 0; t < 40 && !document.querySelector(".search-results .search-item"); t++) await new Promise((r) => setTimeout(r, 250));
+    const n = document.querySelectorAll(".search-results .search-item").length;
+    document.querySelector(".search-results .search-item")?.click();
+    await new Promise((r) => setTimeout(r, 300));
+    return { n, marker: !!document.querySelector(".maplibregl-marker"), history: JSON.parse(localStorage.getItem("atlas.search.history") || "[]").length }; })()`);
+  check("поиск мест", search.n > 0 && search.marker && search.history === 1, JSON.stringify(search));
+  await sleep(2800);
+  await idle();
+  await shot("60-search");
+
   for (const id of ["layers", "settings"]) {
     await run(`document.querySelector('[data-panel=${id}]') ? true : false`).then((has) => check(`панель «${id}» есть`, has));
   }

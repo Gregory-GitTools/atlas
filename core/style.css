@@ -358,3 +358,336 @@ html, body {
 .install-manual p {
   margin: 6px 0 2px;
 }
+
+/* выпадающий список — один на всё (поиск, язык подписей) */
+.menu {
+  background: var(--panel);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow-y: auto;
+}
+
+.menu[hidden] {
+  display: none;
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: var(--panel-hover);
+}
+
+.menu-item.active {
+  background: var(--active);
+  color: #fff;
+}
+
+/* строка поиска слева вверху */
+.search {
+  position: fixed;
+  top: calc(var(--top-inset) + var(--gap));
+  left: var(--gap);
+  z-index: 20;
+  width: 360px;
+  max-width: calc(100vw - 2 * var(--gap) - var(--button) - var(--gap));
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 4px 0 16px;
+  background: var(--panel);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+}
+
+.search-box input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px; /* 16px — иначе телефон приближает страницу при вводе */
+}
+
+.search-box input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.search-box > button {
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.search-box > button:hover {
+  background: var(--panel-hover);
+}
+
+.search-box > button[hidden] {
+  display: none;
+}
+
+.search-results {
+  margin-top: 6px;
+  max-height: calc(100vh - 200px);
+}
+
+.search-item {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-item:hover,
+.search-item.active {
+  background: var(--panel-hover);
+}
+
+.search-item-title {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.search-item-sub {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-history-row {
+  display: flex;
+  align-items: center;
+}
+
+.search-history-row .search-item {
+  padding-left: 4px;
+}
+
+.search-drag {
+  padding: 8px 4px 8px 10px;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  display: grid;
+}
+
+.search-history-row.dragging {
+  background: var(--panel-hover);
+}
+
+.search-delete {
+  width: 32px;
+  height: 32px;
+  margin-right: 6px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.search-delete:hover {
+  background: var(--panel-hover);
+}
+
+.search-history-clear,
+.search-note {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  border-top: 1px solid var(--panel-hover);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.search-history-clear {
+  cursor: pointer;
+}
+
+.search-history-clear:hover {
+  color: var(--text);
+}
+
+.popup-title {
+  font-weight: 600;
+}
+
+.popup-sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* язык подписей — кнопка внутри строки поиска */
+.lang {
+  position: relative;
+}
+
+.lang-btn {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 6px 0 10px;
+  margin-left: 2px;
+  border: none;
+  border-left: 1px solid #dadce0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.lang-menu {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  z-index: 25;
+  width: 200px;
+  max-height: 60vh;
+}
+
+/* переключатель карт в правом нижнем углу; ряд карт раскрывается влево */
+.basemaps {
+  position: fixed;
+  right: var(--gap);
+  bottom: var(--gap);
+  z-index: 10;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.basemap-main,
+.basemap-item {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.basemap-main {
+  width: 76px;
+  height: 76px;
+  border: 2px solid #fff;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.basemap-main img,
+.basemap-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.basemap-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px 4px 4px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.basemap-row {
+  display: none;
+  gap: 2px;
+  padding: 2px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+/* :hover — только где есть мышь: на сенсорном экране он «залипает» (опыт travel-earth) */
+@media (hover: hover) {
+  .basemaps:hover .basemap-row {
+    display: flex;
+  }
+}
+
+.basemaps.open .basemap-row,
+.basemaps:has(:focus-visible) .basemap-row {
+  display: flex;
+}
+
+.basemap-item {
+  width: 72px;
+  height: 72px;
+  border: none;
+  border-radius: 6px;
+}
+
+/* рамка выбора — поверх снимка, размер плитки не меняется */
+.basemap-item::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 3px solid transparent;
+  border-radius: 6px;
+}
+
+.basemap-item:hover::after {
+  border-color: var(--active);
+}
+
+.basemap-item.active::after {
+  border-color: var(--accent);
+}
+
+/* кнопки карты — над плиткой карт */
+.maplibregl-ctrl-bottom-right {
+  bottom: 88px;
+}
+
+/* телефон: ряд карт — над плиткой, с прокруткой */
+@media (max-width: 600px) {
+  .basemap-row {
+    position: absolute;
+    right: 0;
+    bottom: 84px;
+    max-width: calc(100vw - 2 * var(--gap));
+    overflow-x: auto;
+  }
+}
