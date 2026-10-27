@@ -197,6 +197,27 @@ try {
     await run(`atlas.toggle("places/food", false); true`);
   }
 
+  // пешие тропы (Валь-Гардена): с зума 11 — линии с номерами, с 14 — полная геометрия маршрутов
+  if (mods.some((m) => m.id === "trails/hiking")) {
+    const stats = `atlas.modules().find((m) => m.id === "trails/hiking").stats()`;
+    await run(`atlas.map.jumpTo({ center: [11.765, 46.585], zoom: 12.5 }); atlas.toggle("trails/hiking", true)`);
+    for (let i = 0; i < 30 && !(await run(`${stats}.segs > 0`)); i++) await sleep(1000);
+    await sleep(2000);
+    await idle();
+    const s1 = await run(stats);
+    check("тропы: маршруты и линии", s1.segs > 0 && s1.routes > 0, JSON.stringify(s1));
+    await run(`atlas.map.jumpTo({ center: [11.765, 46.585], zoom: 15 }); true`);
+    await idle();
+    await shot("85-trails-simplified");
+    for (let i = 0; i < 30 && !(await run(`${stats}.full > 0`)); i++) { await run(`atlas.map.triggerRepaint(); true`); await sleep(1000); }
+    await sleep(3000);
+    await idle();
+    const s2 = await run(stats);
+    check("тропы: вблизи — полная геометрия", s2.full > 0 && s2.fullPoints > 0, JSON.stringify(s2));
+    await shot("86-trails-full");
+    await run(`atlas.toggle("trails/hiking", false)`);
+  }
+
   for (const id of ["layers", "settings"]) {
     await run(`document.querySelector('[data-panel=${id}]') ? true : false`).then((has) => check(`панель «${id}» есть`, has));
   }
