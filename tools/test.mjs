@@ -79,6 +79,9 @@ try {
   await run(`new Promise((r) => { const c = () => window.atlas?.map?.loaded() ? r(true) : setTimeout(c, 200); c(); })`);
   await idle();
   check("карта загрузилась", true, await run(`atlas.map.getProjection()?.type`));
+  const extras = await run(`({ stars: document.querySelector("canvas.stars")?.width > 0, scale: document.querySelector(".maplibregl-ctrl-scale")?.textContent,
+    geo: !!document.querySelector(".geo-btn"), order: [...document.querySelectorAll(".maplibregl-ctrl-bottom-right .maplibregl-ctrl")].map((c) => c.querySelector("button")?.title || c.className.split(" ").pop()) })`);
+  check("звёзды, шкала, «Где я»", extras.stars && /км|м$/.test(extras.scale || "") && extras.geo, JSON.stringify(extras));
   await shot("00-start");
 
   const mods = await run(`atlas.modules().map((m) => ({ id: m.id, kind: m.kind, title: m.title }))`);
@@ -137,6 +140,33 @@ try {
   await sleep(2800);
   await idle();
   await shot("60-search");
+
+  // окно места: щелчок по пустой точке — координаты; щелчок по подписи города — название и вид;
+  // щелчок при открытом окне — только закрывает
+  const clickAt = async (x, y) => {
+    for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
+  };
+  await run(`document.querySelector(".search-clear").click(); document.activeElement.blur(); document.body.click(); atlas.map.jumpTo({ center: [24.75, 59.437], zoom: 11 }); true`);
+  await idle();
+  await clickAt(40, 400);
+  await sleep(2500);
+  const empty = await run(`document.querySelector(".maplibregl-popup .popup-coords")?.textContent || ""`);
+  check("щелчок по карте — координаты", /^\d+\.\d+, \d+\.\d+$/.test(empty), empty);
+  await clickAt(40, 400);
+  await sleep(400);
+  check("второй щелчок закрывает окно", await run(`!document.querySelector(".maplibregl-popup")`));
+  const city = await run(`(() => { const f = atlas.map.queryRenderedFeatures().find((f) => f.sourceLayer === "place" && f.properties.class === "city");
+    if (!f) return null; const p = atlas.map.project(f.geometry.coordinates); return { x: p.x, y: p.y, name: f.properties["name:ru"] || f.properties.name }; })()`);
+  if (city) {
+    await clickAt(city.x, city.y);
+    await sleep(4000);
+    const info = await run(`({ title: document.querySelector(".maplibregl-popup .popup-title")?.textContent, sub: document.querySelector(".maplibregl-popup .popup-sub")?.textContent, wiki: !!document.querySelector(".maplibregl-popup .popup-wiki") })`);
+    check("щелчок по подписи города — окно места", !!info.title, JSON.stringify(info));
+    await shot("70-place");
+    await run(`atlas.map.panBy([5, 5]); true`);
+    await sleep(500);
+    check("окно закрывается при движении карты", await run(`!document.querySelector(".maplibregl-popup")`));
+  } else check("подпись города на карте", false);
 
   for (const id of ["layers", "settings"]) {
     await run(`document.querySelector('[data-panel=${id}]') ? true : false`).then((has) => check(`панель «${id}» есть`, has));

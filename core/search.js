@@ -8,6 +8,7 @@ import { register, modules, allowed } from "./modules.js";
 import { emit } from "./events.js";
 import * as settings from "./settings.js";
 import { uiLanguage, languageButton } from "./labels.js";
+import { track } from "./popups.js";
 
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
 const HISTORY_KEY = "search.history";
@@ -151,7 +152,7 @@ export function initSearch({ map, maplibregl }) {
     content.append(Object.assign(document.createElement("div"), { className: "popup-title", textContent: title }),
       Object.assign(document.createElement("div"), { className: "popup-sub", textContent: r.display_name }));
     marker = new maplibregl.Marker({ color: "#e53935" }).setLngLat(lngLat)
-      .setPopup(new maplibregl.Popup({ offset: 30 }).setDOMContent(content)).addTo(map);
+      .setPopup(track(new maplibregl.Popup({ offset: 30 }).setDOMContent(content))).addTo(map);
     const [s, n, w, e] = r.boundingbox.map(Number); // boundingbox: юг, север, запад, восток
     map.fitBounds([[w, s], [e, n]], { padding: 80, maxZoom: 16, duration: 2500 });
     emit("place", { lngLat, title, address: r.display_name });

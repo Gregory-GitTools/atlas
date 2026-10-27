@@ -691,3 +691,109 @@ html, body {
     overflow-x: auto;
   }
 }
+
+/* звёздное небо — под прозрачным холстом карты */
+.stars {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#map {
+  background: transparent;
+}
+
+/* шкала — слева внизу, без подложки, белым с тёмной обводкой (читается и на звёздах) */
+.maplibregl-ctrl-bottom-left .maplibregl-ctrl-scale {
+  margin: 0 0 16px var(--gap);
+  background: none;
+  border-color: #fff;
+  color: #fff;
+  font-size: 12px;
+  text-shadow: 0 0 3px #000, 0 0 3px #000;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+}
+
+/* «Где я»: пустой центр — выкл., синий — карта следует за мной, серый — сдвинули рукой */
+.geo-btn .geo-center {
+  fill: transparent;
+}
+
+.geo-btn.on .geo-center {
+  fill: var(--muted);
+}
+
+.geo-btn.follow {
+  color: var(--accent);
+}
+
+.geo-btn.follow .geo-center {
+  fill: var(--accent);
+}
+
+.geo-dot {
+  position: relative;
+  isolation: isolate;
+  width: 16px;
+  height: 16px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.geo-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 50%;
+  background: rgba(26, 115, 232, 0.5);
+  animation: geo-pulse 2s ease-out infinite;
+}
+
+@keyframes geo-pulse {
+  from { transform: scale(1); opacity: 0.5; }
+  to { transform: scale(3.25); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .geo-dot::after { animation: none; opacity: 0; }
+}
+
+/* окна на карте — скруглённые */
+.maplibregl-popup-content {
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  font-family: var(--font);
+  color: var(--text);
+}
+
+.popup-wiki {
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 6px 0;
+  font-size: 13px;
+}
+
+.popup-row {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.popup-row a {
+  color: var(--accent);
+}
+
+.popup-coords {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
