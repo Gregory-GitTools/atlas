@@ -8,6 +8,8 @@
 //   tour-stop  — текущая остановка экскурсии { tour, n }
 //   language   — язык страны, которую смотрим { code, name }
 //   panel      — открыта панель { id } или null
+//   module     — модуль включён или выключен { id, on, keep } (keep — выключен запретом сети, а не рукой)
+//   modules    — изменились разрешения сети: перерисовать списки модулей
 
 const handlers = new Map();
 const last = new Map();

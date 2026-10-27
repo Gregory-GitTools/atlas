@@ -14,6 +14,9 @@
 //   load()    — тяжёлое грузится здесь, при первом включении, а не при старте
 //   enable(ctx) / disable(ctx) — включить и выключить; ctx = { map, status }
 
+import * as settings from "./settings.js";
+import { emit } from "./events.js";
+
 export const MODULES = [
   "../layers/terrain.js",
 ];
@@ -44,16 +47,42 @@ export function isMobile() {
 
 export const available = (mod) => (mod.needs || []).every((n) => CAN[n]?.() ?? true);
 
-export async function toggle(id, ctx, on) {
+// Сеть: режим «без сети» и запрет по модулю (экран «Что уходит в сеть»). Модуль, которому сеть
+// запрещена, на этом устройстве есть, но выключен — его кнопка видна и неактивна (правило недоступного)
+export const offline = () => !!settings.get("net.offline");
+export const isBlocked = (id) => settings.get("net.blocked", []).includes(id);
+export const allowed = (mod) => !mod.sends || (!offline() && !isBlocked(mod.id));
+
+async function applyNetwork(ctx) {
+  for (const m of registry.values()) if (m.active && !allowed(m)) await toggle(m.id, ctx, false, { keep: true });
+  emit("modules", null);
+}
+
+export async function setOffline(on, ctx) {
+  settings.set("net.offline", on || null);
+  await applyNetwork(ctx);
+}
+
+export async function setBlocked(id, blocked, ctx) {
+  const list = new Set(settings.get("net.blocked", []));
+  blocked ? list.add(id) : list.delete(id);
+  settings.set("net.blocked", list.size ? [...list] : null);
+  await applyNetwork(ctx);
+}
+
+// keep — выключение не по воле пользователя (запрет сети): панели помнят, что модуль был включён
+export async function toggle(id, ctx, on, { keep = false } = {}) {
   const mod = registry.get(id);
   if (!mod || !available(mod)) return false;
   on ??= !mod.active;
+  if (on && !allowed(mod)) return false;
   if (on && !mod.loaded) {
     await mod.load?.(ctx);
     mod.loaded = true;
   }
   await (on ? mod.enable : mod.disable)?.(ctx);
   mod.active = on;
+  emit("module", { id, on, keep });
   return on;
 }
 

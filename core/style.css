@@ -217,3 +217,83 @@ html, body {
     max-height: 45vh;
   }
 }
+
+/* кнопка в столбике кнопок карты (шестерёнка) */
+.ctrl-icon {
+  display: grid !important;
+  place-items: center;
+  color: var(--text);
+}
+
+/* окно настроек */
+.set-title {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.set-title:first-child {
+  margin-top: 0;
+}
+
+.set-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.set-hint {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.set-switch {
+  display: block;
+  margin: 4px 0 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.set-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.set-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--panel-hover);
+}
+
+.set-item-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.set-item-title {
+  font-size: 13px;
+}
+
+.set-item-sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* текстовая кнопка — одна на всё приложение */
+.text-btn {
+  padding: 6px 12px;
+  border: 1px solid #dadce0;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.text-btn:hover {
+  background: var(--panel-hover);
+}
