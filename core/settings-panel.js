@@ -5,6 +5,7 @@ import { createPanel } from "./panel.js";
 import { modules, available, toggle, onRegister, isBlocked, setBlocked, offline, setOffline } from "./modules.js";
 import * as settings from "./settings.js";
 import { usage, models, removeModel, formatBytes, persist } from "./storage.js";
+import { installSection, openedForInstall } from "./install.js";
 
 const GEAR_ICON = `<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54a7.4 7.4 0 0 0-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58a7.07 7.07 0 0 0 0 1.88l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54a7.4 7.4 0 0 0 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.48.48 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>`;
 
@@ -30,6 +31,8 @@ export function initSettingsPanel(ctx) {
 
   async function render() {
     const body = [];
+
+    body.push(h("h3", "set-title", "Установка"), installSection());
 
     // перенос
     body.push(h("h3", "set-title", "Перенос на другое устройство"));
@@ -97,4 +100,10 @@ export function initSettingsPanel(ctx) {
   };
 
   onRegister(() => !panel.el.hidden && render());
+
+  // пришли по кнопке «Установить» из другого браузера — сразу настройки
+  if (openedForInstall()) {
+    history.replaceState(null, "", location.pathname);
+    ctx.map.once("load", () => { panel.open(); render(); });
+  }
 }

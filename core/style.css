@@ -297,3 +297,64 @@ html, body {
 .text-btn:hover {
   background: var(--panel-hover);
 }
+
+/* установка */
+.install-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.install-lead {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.install-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.install-btn[hidden] {
+  display: none;
+}
+
+.install-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.logo {
+  width: 16px;
+  height: 16px;
+  vertical-align: -3px;
+  margin-right: 3px;
+}
+
+.install-btn .logo {
+  margin: 0;
+}
+
+.install-manual {
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.install-manual summary {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.install-manual ol {
+  margin: 4px 0;
+  padding-left: 20px;
+  line-height: 1.5;
+}
+
+.install-manual p {
+  margin: 6px 0 2px;
+}
