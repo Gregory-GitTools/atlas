@@ -22,6 +22,7 @@ import { emit } from "./events.js";
 export const MODULES = [
   "../layers/places.js",
   "../layers/trails.js",
+  "../layers/outdoor.js",
   "../layers/terrain.js",
 ];
 
@@ -86,7 +87,7 @@ export async function toggle(id, ctx, on, { keep = false } = {}) {
   }
   await (on ? mod.enable : mod.disable)?.(ctx);
   mod.active = on;
-  emit("module", { id, on, keep });
+  emit("module", { id, on, keep, ctx });
   return on;
 }
 

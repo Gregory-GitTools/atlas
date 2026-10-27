@@ -52,11 +52,17 @@ await new Promise((r) => (ws.onopen = r));
 let nextId = 0;
 const pending = new Map();
 const errors = [];
+let netFails = 0;
 ws.onmessage = (m) => {
   const d = JSON.parse(m.data);
   if (pending.has(d.id)) { pending.get(d.id)(d.result); pending.delete(d.id); }
   if (d.method === "Runtime.exceptionThrown") errors.push("исключение: " + (d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text).split("\n")[0]);
-  if (d.method === "Runtime.consoleAPICalled" && d.params.type === "error") errors.push("console.error: " + d.params.args.map((a) => a.value ?? a.description).join(" ").slice(0, 200));
+  if (d.method === "Runtime.consoleAPICalled" && d.params.type === "error") {
+    const text = d.params.args.map((a) => a.value ?? a.description).join(" ");
+    // сбои чужих серверов (плитка не пришла или пришла пустой) — не ошибка программы, только счёт
+    if (/Failed to fetch|AJAXError|could not be decoded/.test(text)) netFails++;
+    else errors.push("console.error: " + text.slice(0, 200));
+  }
 };
 const send = (method, params = {}) => new Promise((r) => { const id = ++nextId; pending.set(id, r); ws.send(JSON.stringify({ id, method, params })); });
 const run = async (expr) => {
@@ -218,6 +224,31 @@ try {
     await run(`atlas.toggle("trails/hiking", false)`);
   }
 
+  // рельеф и горизонтали в горах: линии высот появились, 3D включается
+  if (mods.some((m) => m.id === "layers/contours")) {
+    await run(`atlas.map.jumpTo({ center: [11.85, 46.55], zoom: 13 }); (async () => { await atlas.toggle("layers/hillshade", true); await atlas.toggle("layers/contours", true); return true; })()`);
+    for (let i = 0; i < 20 && !(await run(`atlas.map.getLayer("contours") ? atlas.map.queryRenderedFeatures({ layers: ["contours"] }).length > 0 : false`)); i++) await sleep(1000);
+    await idle();
+    const n = await run(`atlas.map.getLayer("contours") ? atlas.map.queryRenderedFeatures({ layers: ["contours"] }).length : -1`);
+    check("горизонтали", n > 0, `${n} линий`);
+    await shot("87-contours");
+    const t3d = await run(`(async () => { await atlas.toggle("layers/terrain3d", true); atlas.map.jumpTo({ pitch: 60 }); await new Promise((r) => setTimeout(r, 4000)); const on = !!atlas.map.getTerrain(); return on; })()`);
+    await shot("88-terrain3d");
+    check("3D-рельеф", t3d);
+    await run(`(async () => { atlas.map.jumpTo({ pitch: 0 }); for (const id of ["layers/terrain3d", "layers/contours", "layers/hillshade"]) await atlas.toggle(id, false); return true; })()`);
+  }
+
+  // пляжи и кайт (QLever): у Таллина — значки пляжей; сёрфинг — по всему миру и споты Грегори
+  if (mods.some((m) => m.id === "layers/beaches")) {
+    await run(`atlas.map.jumpTo({ center: [24.65, 59.47], zoom: 10.5 }); (async () => { await atlas.toggle("layers/beaches", true); await atlas.toggle("layers/surf", true); return true; })()`);
+    const count = (id) => `(atlas.map.getSource(${JSON.stringify(id)})?._data?.features?.length ?? atlas.map.getSource(${JSON.stringify(id)})?.serialize?.().data?.features?.length ?? 0)`;
+    for (let i = 0; i < 45 && !(await run(`atlas.map.getLayer("beaches") && atlas.map.queryRenderedFeatures({ layers: ["beaches"] }).length > 0`)); i++) await sleep(1000);
+    const b = await run(`({ beaches: atlas.map.queryRenderedFeatures({ layers: ["beaches"] }).length, surf: atlas.map.queryRenderedFeatures({ layers: ["surf"] }).length })`);
+    check("пляжи и сёрфинг", b.beaches > 0 && b.surf > 0, JSON.stringify(b));
+    await shot("89-beaches-surf");
+    await run(`(async () => { await atlas.toggle("layers/beaches", false); await atlas.toggle("layers/surf", false); return true; })()`);
+  }
+
   for (const id of ["layers", "settings"]) {
     await run(`document.querySelector('[data-panel=${id}]') ? true : false`).then((has) => check(`панель «${id}» есть`, has));
   }
@@ -233,6 +264,7 @@ try {
 }
 
 console.log(report.join("\n"));
+if (netFails) console.log(`\nСбоев загрузки с чужих серверов: ${netFails} (не считаются ошибкой)`);
 console.log(errors.length ? `\nОшибки (${errors.length}):\n` + errors.map((e) => "  " + e).join("\n") : "\nОшибок нет");
 console.log(`Снимки экрана: ${path.relative(process.cwd(), OUT)}`);
 ws.close();
