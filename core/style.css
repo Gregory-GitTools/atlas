@@ -1,0 +1,91 @@
+/* Общий стиль Atlas: все цвета, шрифты, размеры и скругления — только через эти переменные.
+   Модули своих цветов не заводят, а берут отсюда (правило «один стиль на всё») */
+:root {
+  --font: "Poppins", system-ui, sans-serif;
+
+  /* светлые панели поверх карты */
+  --panel: #fff;
+  --panel-hover: #f1f3f4;
+  --text: #3c4043;
+  --muted: #70757a;
+  --accent: #1a73e8;
+
+  /* нажатая кнопка — приглушённая заливка, не белый и не прозрачный фон */
+  --active: #b7bdc3;
+  --active-dark: #a2a8ae;
+
+  /* тёмные окна (просмотр, правка фото) */
+  --dark-bg: #1b1b1f;
+  --dark-panel: #26262c;
+  --dark-text: #e8e8ec;
+  --dark-muted: #9a9aa5;
+  --dark-accent: #4da3ff;
+
+  /* цвета разделов */
+  --tour: #e53935;
+  --lang: #81c784;
+  --my: #7c4dff;
+  --photo: #e91e63;
+
+  --radius: 10px;
+  --button: 40px;
+  --gap: 10px;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --top-inset: env(titlebar-area-height, 0px);
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  font-family: var(--font);
+  color: var(--text);
+  background: #000;
+}
+
+#map {
+  position: fixed;
+  inset: 0;
+}
+
+/* строка состояния внизу по центру — без подложки, белым с тёмной обводкой */
+.status {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  color: #fff;
+  font-size: 13px;
+  text-shadow: 0 0 3px #000, 0 0 3px #000;
+  pointer-events: none;
+}
+
+/* общая кнопка — один класс на всё приложение */
+.btn {
+  width: var(--button);
+  height: var(--button);
+  border: none;
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.btn:hover {
+  background: var(--panel-hover);
+}
+
+.btn.on {
+  background: var(--active);
+}
+
+.btn.on:hover {
+  background: var(--active-dark);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
