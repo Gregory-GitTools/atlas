@@ -216,6 +216,26 @@ try {
     const cable = await run(`({ lines: atlas.map.queryRenderedFeatures({ layers: ["places-lift-line"] }).length, stations: atlas.map.queryRenderedFeatures({ layers: ["places-cable"] }).length })`);
     check("транспорт: канатная дорога (трос и станции)", cable.lines > 0 && cable.stations > 0, JSON.stringify(cable));
     await shot("83-cable");
+    // виды транспорта из меню: «Метро» — только красные «М», «Фуникулёры и канатные дороги» — без метро
+    const pick = async (title) => run(`(async () => {
+      document.querySelector(".top-right").click(); await new Promise((r) => setTimeout(r, 300));
+      const box = [...document.querySelectorAll("[data-panel=layers] .chip-split")].find((c) => /Транспорт|Метро|Поезда|Трамваи|Автобусы|Паромы|Фуникул|Аэропорт|Весь/.test(c.textContent));
+      box.querySelector(".chip-arrow").click(); await new Promise((r) => setTimeout(r, 300));
+      const items = [...document.querySelectorAll(".chip-menu .menu-item")].map((i) => i.textContent);
+      [...document.querySelectorAll(".chip-menu .menu-item")].find((i) => i.textContent === ${JSON.stringify(title)}).click();
+      await new Promise((r) => setTimeout(r, 1500));
+      document.querySelector("[data-panel=layers] .panel-btn[title=Закрыть]")?.click();
+      return items; })()`);
+    const items = await pick("Метро");
+    await idle();
+    const metro = await run(`[...new Set(atlas.map.queryRenderedFeatures({ layers: ["places-poi", "places-stops", "places-cable", "places-lift-line"] }).map((f) => f.properties.subclass + (f.layer.id === "places-poi" ? "" : "@" + f.layer.id)))]`);
+    check("транспорт: меню видов, «Метро» — только метро", items.length === 8 && metro.length > 0 && metro.every((s) => s === "subway"), `${items.join(" / ")} → ${metro.join(", ")}`);
+    await pick("Фуникулёры и канатные дороги");
+    await idle();
+    const lifts = await run(`({ poi: [...new Set(atlas.map.queryRenderedFeatures({ layers: ["places-poi"] }).map((f) => f.properties.class))], lines: atlas.map.queryRenderedFeatures({ layers: ["places-lift-line"] }).length })`);
+    check("транспорт: «Фуникулёры и канатные дороги»", lifts.lines > 0 && !lifts.poi.includes("subway") && lifts.poi.every((c) => c !== "bus"), JSON.stringify(lifts));
+    await shot("84-transport-lifts");
+    await pick("Весь транспорт");
     await run(`atlas.toggle("places/transport", false)`);
   }
 

@@ -68,6 +68,24 @@ const SHOP_PROFILES = [
 ];
 SHOP_PROFILES.unshift({ id: "all", name: "Все магазины", subclasses: [...new Set(SHOP_PROFILES.flatMap((s) => s.subclasses))] });
 
+// Транспорт — меню видов, как у магазинов (Грегори, 2026-10-28: «каждый транспорт отдельно
+// выпадающим списком»). Поля вида: subclasses — точки из тайлов, stops — остановки (со «100 м»),
+// airports — аэропорты, far — что видно издалека из QLever, cable — тросы и станции канаток,
+// lifts — точка в тайлах только станции канаток и фуникулёров, rail — только железная дорога
+// (станции канаток в тайлах тоже station)
+const ALL_STOPS = ["bus_stop", "tram_stop"];
+const TRANSPORT_PROFILES = [
+  { id: "all", name: "Весь транспорт", subclasses: ["bus_station", "station", "halt", "subway", "ferry_terminal"], stops: ALL_STOPS,
+    airports: true, far: ["station", "halt", "funicular"], cable: true },
+  { id: "trains", name: "Поезда и вокзалы", subclasses: ["station", "halt"], rail: true, far: ["station", "halt"] },
+  { id: "metro", name: "Метро", subclasses: ["subway"] },
+  { id: "tram", name: "Трамваи", subclasses: [], stops: ["tram_stop"] },
+  { id: "bus", name: "Автобусы", subclasses: ["bus_station"], stops: ["bus_stop"] },
+  { id: "ferry", name: "Паромы", subclasses: ["ferry_terminal"] },
+  { id: "lifts", name: "Фуникулёры и канатные дороги", subclasses: ["station", "halt"], lifts: true, far: ["funicular"], cable: true },
+  { id: "air", name: "Аэропорты", subclasses: [], airports: true },
+];
+
 const CATEGORIES = [
   { id: "food", title: "Рестораны", color: "#f57c00", icon: icon("M11 9H9V2H7v7H5V2H3v7c0 2.12 1.66 3.84 3.75 3.97V22h2.5v-9.03C11.34 12.84 13 11.12 13 9V2h-2v7zm5-3v8h2.5v8H21V2c-2.76 0-5 2.24-5 4z"),
     subclasses: ["restaurant", "cafe", "fast_food", "food_court", "bar", "pub", "biergarten", "ice_cream"] },
@@ -77,8 +95,7 @@ const CATEGORIES = [
     subclasses: ["attraction", "viewpoint", "theme_park", "zoo", "petting_zoo", "aquarium", "castle", "monument", "theatre", "cinema", "arts_centre", "escape_game"] },
   { id: "museums", title: "Музеи", color: "#3949ab", icon: icon("M4 10v7h3v-7H4zm6 0v7h3v-7h-3zM2 22h19v-3H2v3zm14-12v7h3v-7h-3zm-4.5-9L2 6v2h19V6l-9.5-5z"),
     subclasses: ["museum", "gallery"] },
-  { id: "transport", title: "Транспорт", color: "#00897b", icon: icon(GLYPHS.bus), airports: true,
-    subclasses: ["bus_station", "station", "halt", "subway", "ferry_terminal"], stops: ["bus_stop", "tram_stop"],
+  { id: "transport", title: "Транспорт", color: "#00897b", icon: icon(GLYPHS.bus), profiles: TRANSPORT_PROFILES,
     modes: [
       { subclass: "funicular", ...FUNICULAR_PIN },
       { subclass: "subway", glyph: "metro", color: "#e53935" },
@@ -188,7 +205,7 @@ async function loadCableStations(map, lineId) {
 
 // тросы в кадре → их станции (раз на трос)
 function updateCables(map) {
-  if (!active?.modes || !map.getLayer("places-cable") || map.getZoom() >= FULL_ZOOM || map.getZoom() < MIN_ZOOM) return;
+  if (!active?.cable || !map.getLayer("places-cable") || map.getZoom() >= FULL_ZOOM || map.getZoom() < MIN_ZOOM) return;
   for (const f of map.querySourceFeatures(SOURCE, { sourceLayer: "transportation", filter: ["in", ["get", "subclass"], ["literal", CABLE_LINE_CLASSES]] })) {
     if (f.id != null && f.id % 10 === 2 && !cableStations.has(f.id)) loadCableStations(map, f.id);
   }
@@ -207,12 +224,12 @@ const transportLoader = cellLoader(TRANSPORT_CELL, async (box) => {
       properties: { class: "railway", subclass: funicular ? "funicular" : b.kind.value } });
   }
   transportMap?.getSource("places-transport")?.setData(transportData());
-  if (newFunicular && transportMap && active?.modes) apply(transportMap);
+  if (newFunicular && transportMap && active?.far) apply(transportMap);
 }, () => transportMap && updateTransport(transportMap));
 
 function updateTransport(map) {
   transportMap = map;
-  if (!active?.modes) return;
+  if (!active?.far) return;
   const far = zoomForScale(map, TRANSPORT_FAR_M);
   if (map.getLayer("places-transport-far")) map.setLayerZoomRange("places-transport-far", Math.min(far, MIN_ZOOM), MIN_ZOOM);
   if (map.getZoom() >= far) transportLoader.request(cellsInView(map, TRANSPORT_CELL, 1));
@@ -221,12 +238,12 @@ function updateTransport(map) {
 function apply(map) {
   if (!map.getLayer("places-poi")) return;
   const vis = (id, on) => map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
-  vis("places-poi", !!active);
+  vis("places-poi", !!active?.subclasses?.length);
   vis("places-stops", !!active?.stops);
   vis("places-air", !!active?.airports);
-  vis("places-transport-far", !!active?.modes);
-  vis("places-cable", !!active?.modes);
-  vis("places-lift-line", !!active?.modes);
+  vis("places-transport-far", !!active?.far);
+  vis("places-cable", !!active?.cable);
+  vis("places-lift-line", !!active?.cable);
   if (!active) return;
   const img = modeIcon(map, active);
   map.setLayoutProperty("places-poi", "icon-image", img);
@@ -234,7 +251,14 @@ function apply(map) {
   map.setLayoutProperty("places-air", "icon-image", pin(map, AIRPORT_PIN.color, AIRPORT_PIN.glyph));
   map.setLayoutProperty("places-transport-far", "icon-image", img);
   map.setLayoutProperty("places-cable", "icon-image", pin(map, CABLE_PIN.color, CABLE_PIN.glyph, CABLE_PIN.ink));
-  map.setFilter("places-poi", ["in", ["get", "subclass"], ["literal", active.subclasses]]);
+  const funicular = ["in", ["id"], ["literal", [...funicularIds]]];
+  const bySubclass = ["in", ["get", "subclass"], ["literal", active.subclasses || []]];
+  // вид «фуникулёры и канатные дороги»: станции канаток и станции фуникулёров (по id из QLever);
+  // «поезда»: только железная дорога, без станций канаток и фуникулёров
+  map.setFilter("places-poi", active.lifts ? ["all", bySubclass, ["any", ["==", ["get", "class"], "aerialway"], funicular]]
+    : active.rail ? ["all", bySubclass, ["==", ["get", "class"], "railway"], ["!", funicular]]
+    : bySubclass);
+  map.setFilter("places-transport-far", ["in", ["get", "subclass"], ["literal", active.far || []]]);
   map.setFilter("places-stops", ["in", ["get", "subclass"], ["literal", active.stops || []]]);
   scaleZooms(map);
 }
@@ -250,7 +274,12 @@ function updateStatus(map, status) {
   if (!active) return;
   const name = (active.profile?.id !== "all" && active.profile?.name) || active.title;
   const zoomIn = `Приблизьте карту, чтобы увидеть: ${name.toLowerCase()}`;
-  const min = active.airports ? Math.min(MIN_ZOOM, zoomForScale(map, AIRPORT_MAX_M_PER_100PX), zoomForScale(map, TRANSPORT_FAR_M)) : MIN_ZOOM;
+  // с какого масштаба что-то видно: аэропорты и дальний транспорт — раньше, вид «только остановки» — позже
+  const min = Math.min(
+    active.subclasses?.length ? MIN_ZOOM : Infinity,
+    active.stops?.length ? Math.max(MIN_ZOOM, zoomForScale(map, STOP_MAX_M_PER_100PX)) : Infinity,
+    active.airports ? zoomForScale(map, AIRPORT_MAX_M_PER_100PX) : Infinity,
+    active.far ? zoomForScale(map, TRANSPORT_FAR_M) : Infinity);
   if (map.getZoom() < min) { status(zoomIn); return; }
   if (!map.areTilesLoaded()) return;
   const found = map.queryRenderedFeatures({ layers: LAYERS.filter((id) => map.getLayer(id)) }).length;
@@ -285,7 +314,8 @@ for (const cat of CATEGORIES) {
   const withProfile = () => {
     if (!cat.profiles) return cat;
     const profile = cat.profiles.find((p) => p.id === settings.get(profileKey)) || cat.profiles[0];
-    return { ...cat, profile, subclasses: profile.subclasses };
+    const { id, name, ...fields } = profile;
+    return { ...cat, profile, ...fields };
   };
   register({
     id: `places/${cat.id}`,
@@ -295,7 +325,7 @@ for (const cat of CATEGORIES) {
     icon: cat.icon,
     needs: ["network"],
     sends: "район карты (тайлы OpenFreeMap), по щелчку — место (OpenStreetMap, Википедия)",
-    // меню у чипа (магазины): профили
+    // меню у чипа (магазины, транспорт): виды
     menu: cat.profiles && {
       items: () => cat.profiles.map((p) => ({ id: p.id, title: p.name, active: p.id === withProfile().profile.id })),
       label: () => (withProfile().profile.id === "all" ? cat.title : withProfile().profile.name),
