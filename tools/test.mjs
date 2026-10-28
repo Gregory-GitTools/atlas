@@ -1,4 +1,4 @@
-// Проверка Atlas: node tools/test.mjs [--phone]
+// Проверка Atlas: node tools/test.mjs [--phone] [--only=photo]
 // Поднимает свой сервер на свободном порту, открывает приложение в Chrome без окна (headless),
 // включает и выключает каждый модуль из реестра, открывает панели, снимает экраны в test-output/
 // и собирает ошибки. Код выхода 1 — если были ошибки. Только встроенное в Node, без пакетов.
@@ -12,6 +12,9 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(ROOT, "test-output");
 const PHONE = process.argv.includes("--phone");
+// --only=photo — проверить только разделы модулей, в id которых есть это слово (быстро при отладке)
+const ONLY = process.argv.find((a) => a.startsWith("--only="))?.slice(7);
+const want = (id) => !ONLY || id.includes(ONLY);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const CHROME = [
@@ -186,10 +189,10 @@ try {
     return true; })()`;
   const closeLayers = `(() => { if (!document.querySelector(".layers-list").hidden) document.querySelector(".layers-menu > .layers-cell .layers-circle").click(); return true; })()`;
   // кнопка в столбике кружка по названию
-  const itemFor = (title) => `[...document.querySelectorAll(".layers-sub .layers-item")].find((c) => c.textContent.trim() === ${JSON.stringify(title)})`;
+  const itemFor = (title) => `[...document.querySelectorAll(".layers-sub .layers-item")].find((c) => c.firstChild.textContent === ${JSON.stringify(title)})`;
 
   // места: в центре Таллина «Рестораны» — флажки; «Музеи» выключают «Рестораны»; щелчок по флажку — окно
-  if (mods.some((m) => m.id === "places/food")) {
+  if (want("places/food") && mods.some((m) => m.id === "places/food")) {
     await run(`atlas.map.jumpTo({ center: [24.745, 59.437], zoom: 16 }); true`);
     await run(openLayers("places"));
     await sleep(500);
@@ -207,7 +210,7 @@ try {
     // несколько категорий сразу: рестораны остаются, музеи добавились, на чипах обе отмечены
     const both = await run(`({ food: atlas.modules().find((m) => m.id === "places/food").active, museums: atlas.modules().find((m) => m.id === "places/museums").active,
       foodPins: atlas.map.queryRenderedFeatures({ layers: ["places-poi-food"] }).length, museumPins: atlas.map.queryRenderedFeatures({ layers: ["places-poi-museums"] }).length,
-      chipsOn: [...document.querySelectorAll(".layers-sub .layers-item.on")].map((c) => c.textContent.trim()) })`);
+      chipsOn: [...document.querySelectorAll(".layers-sub .layers-item.on")].map((c) => c.firstChild.textContent) })`);
     check("места: несколько категорий сразу", both.food && both.museums && both.foodPins > 0 && both.museumPins > 0, JSON.stringify(both));
     await shot("80b-places-food-museums");
     await run(`${chipFor("Музеи")}.click(); true`);
@@ -226,7 +229,7 @@ try {
   }
 
   // транспорт издалека (QLever): у Барселоны на «3 км» — вокзалы и фуникулёр Монжуика зелёной булавкой
-  if (mods.some((m) => m.id === "places/transport")) {
+  if (want("places/transport") && mods.some((m) => m.id === "places/transport")) {
     await run(`atlas.map.jumpTo({ center: [2.16, 41.38], zoom: 10.5 }); atlas.toggle("places/transport", true)`);
     for (let i = 0; i < 45 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["places-transport-far"] }).length > 0`)); i++) await sleep(1000);
     const far = await run(`(() => { const fs = atlas.map.queryRenderedFeatures({ layers: ["places-transport-far"] }); return { n: fs.length, funicular: fs.filter((f) => f.properties.subclass === "funicular").length }; })()`);
@@ -244,7 +247,7 @@ try {
     // виды транспорта из меню: «Метро» — только красные «М», «Фуникулёры и канатные дороги» — без метро
     const pick = async (title) => run(`(async () => {
       await ${openLayers("places/transport")};
-      const items = [...document.querySelectorAll(".layers-sub .layers-item")].map((i) => i.textContent.trim());
+      const items = [...document.querySelectorAll(".layers-sub .layers-item")].map((i) => i.firstChild.textContent);
       ${itemFor(title)}.click();
       await new Promise((r) => setTimeout(r, 1500));
       // столбик кнопок не закрывается после выбора
@@ -254,9 +257,9 @@ try {
     const { items, open } = await pick("Метро");
     await idle();
     const metro = await run(`[...new Set(atlas.map.queryRenderedFeatures({ layers: ["places-poi-transport", "places-stops", "places-cable", "places-lift-line"] }).map((f) => f.properties.subclass + (f.layer.id === "places-poi-transport" ? "" : "@" + f.layer.id)))]`);
-    check("транспорт: меню видов, «Метро» — только метро, список остаётся", open && items.length === 8 && metro.length > 0 && metro.every((s) => s === "subway"), `${items.join(" / ")} → ${metro.join(", ")}`);
+    check("транспорт: меню видов, «Метро» — только метро, список остаётся", open && items.length === 7 && metro.length > 0 && metro.every((s) => s === "subway"), `${items.join(" / ")} → ${metro.join(", ")}`);
     // второй вид добавляется к первому: метро и канатки вместе; снять «Метро» — останутся канатки
-    await pick("Фуникулёры и канатные дороги");
+    await pick("Канатные дороги");
     await idle();
     const multi = await run(`({ subway: atlas.map.queryRenderedFeatures({ layers: ["places-poi-transport"] }).some((f) => f.properties.subclass === "subway"),
       lines: atlas.map.queryRenderedFeatures({ layers: ["places-lift-line"] }).length,
@@ -267,12 +270,23 @@ try {
     const lifts = await run(`({ poi: [...new Set(atlas.map.queryRenderedFeatures({ layers: ["places-poi-transport"] }).map((f) => f.properties.class))], lines: atlas.map.queryRenderedFeatures({ layers: ["places-lift-line"] }).length })`);
     check("транспорт: «Фуникулёры и канатные дороги»", lifts.lines > 0 && !lifts.poi.includes("subway") && lifts.poi.every((c) => c !== "bus"), JSON.stringify(lifts));
     await shot("84-transport-lifts");
-    await pick("Весь транспорт");
+    // крестик у кружка «Транспорт» снимает всё: слой выключен, виды забыты
+    const cleared = await run(`(async () => {
+      await ${openLayers("places/transport")};
+      const x = document.querySelector('.layers-circle[data-key="places/transport"]').parentElement.querySelector(".layers-clear");
+      const shown = !x.hidden;
+      x.click(); await new Promise((r) => setTimeout(r, 800));
+      const res = { shown, off: !atlas.modules().find((m) => m.id === "places/transport").active,
+        noneMarked: !document.querySelector(".layers-sub .layers-item.on"),
+        rings: [...document.querySelectorAll(".layers-sub .layers-icon.ring")].length };
+      ${closeLayers};
+      return res; })()`);
+    check("транспорт: крестик снимает всё, у видов кольца цвета", cleared.shown && cleared.off && cleared.noneMarked && cleared.rings === 7, JSON.stringify(cleared));
     await run(`atlas.toggle("places/transport", false)`);
   }
 
   // пешие тропы (Валь-Гардена): с зума 11 — линии с номерами, с 14 — полная геометрия маршрутов
-  if (mods.some((m) => m.id === "trails/hiking")) {
+  if (want("trails/hiking") && mods.some((m) => m.id === "trails/hiking")) {
     const stats = `atlas.modules().find((m) => m.id === "trails/hiking").stats()`;
     await run(`atlas.map.jumpTo({ center: [11.765, 46.585], zoom: 12.5 }); atlas.toggle("trails/hiking", true)`);
     for (let i = 0; i < 30 && !(await run(`${stats}.segs > 0`)); i++) await sleep(1000);
@@ -302,16 +316,16 @@ try {
     await run(`localStorage.removeItem("atlas.trails.hiking.profile"); atlas.toggle("trails/hiking", true).then(() => true)`);
     await idle();
     const all = await run(`[...new Set(atlas.map.queryRenderedFeatures({ layers: ["trails-hiking-line"] }).map((f) => f.properties.rank))]`);
-    check("тропы: «Все тропы» — снова все", all.length > 1, JSON.stringify(all));
+    check("тропы: ничего не отмечено — все", all.length > 1, JSON.stringify(all));
     await run(`atlas.toggle("trails/hiking", false)`);
   }
 
   // велодорожки: одна кнопка в разделе «Тропы», вид — в меню; «Маунтинбайк» оставляет только МТБ
-  if (mods.some((m) => m.id === "trails/cycling")) {
+  if (want("trails/cycling") && mods.some((m) => m.id === "trails/cycling")) {
     const bike = await run(`(async () => {
       await ${openLayers("trails/cycling")};
       const circles = [...document.querySelectorAll(".layers-list .layers-circle")].map((c) => c.title.split(":")[0]);
-      const items = [...document.querySelectorAll(".layers-sub .layers-item")].map((i) => i.textContent.trim());
+      const items = [...document.querySelectorAll(".layers-sub .layers-item")].map((i) => i.firstChild.textContent);
       ${itemFor("Маунтинбайк")}.click();
       await new Promise((r) => setTimeout(r, 1500));
       const layers = { cycling: !!atlas.map.getLayer("trails-cycling-line"), mtb: !!atlas.map.getLayer("trails-mtb-line") };
@@ -320,17 +334,15 @@ try {
       ${itemFor("Маунтинбайк")}.click();
       await new Promise((r) => setTimeout(r, 800));
       const off = !atlas.modules().find((m) => m.id === "trails/cycling").active && !atlas.map.getLayer("trails-mtb-line");
-      ${itemFor("Все велодорожки")}.click();
-      await new Promise((r) => setTimeout(r, 800));
-      await atlas.toggle("trails/cycling", false);
+      localStorage.removeItem("atlas.trails.cycling.profile");
       ${closeLayers};
       return { circles, items, layers, label, off };
     })()`);
-    check("велодорожки: свой кружок, виды кнопками, повторный щелчок выключает", bike.circles.includes("Велодорожки") && bike.items.length === 3 && bike.layers.mtb && !bike.layers.cycling && bike.label === "Велодорожки: Маунтинбайк" && bike.off, JSON.stringify(bike));
+    check("велодорожки: свой кружок, виды кнопками, повторный щелчок выключает", bike.circles.includes("Велодорожки") && bike.items.length === 2 && bike.layers.mtb && !bike.layers.cycling && bike.label === "Велодорожки: Маунтинбайк" && bike.off, JSON.stringify(bike));
   }
 
   // дороги: у Таллина — линии по классам; «Грунтовые» — только без покрытия
-  if (mods.some((m) => m.id === "layers/roads")) {
+  if (want("layers/roads") && mods.some((m) => m.id === "layers/roads")) {
     await run(`atlas.map.jumpTo({ center: [24.75, 59.4], zoom: 12 }); atlas.toggle("layers/roads", true).then(() => true)`);
     await idle();
     const classes = await run(`[...new Set(atlas.map.queryRenderedFeatures({ layers: ["road", "road-unpaved", "road-tunnel"] }).map((f) => f.properties.class))]`);
@@ -345,8 +357,37 @@ try {
     await run(`localStorage.removeItem("atlas.roads.profile"); atlas.toggle("layers/roads", false).then(() => true)`);
   }
 
+  // фото: у Таллина — значки снимков Commons; веб-камеры — по всему миру (QLever)
+  if (want("photo/commons") && mods.some((m) => m.id === "photo/commons")) {
+    await run(`atlas.map.jumpTo({ center: [24.745, 59.437], zoom: 14 }); atlas.toggle("photo/commons", true).then(() => true)`);
+    for (let i = 0; i < 50 && !(await run(`atlas.map.getLayer("photo-commons") && atlas.map.queryRenderedFeatures({ layers: ["photo-commons"] }).length > 0`)); i++) await sleep(1000);
+    const n = await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-commons"] }).length`);
+    const st = await run(`atlas.modules().find((m) => m.id === "photo/commons").stats()`);
+    check("фото: снимки Commons", n > 0, `${n} на экране, ${JSON.stringify(st)}`);
+    const p = await run(`(() => { const c = atlas.map.project(atlas.map.getCenter()); return atlas.map.queryRenderedFeatures({ layers: ["photo-commons"] })
+      .map((f) => atlas.map.project(f.geometry.coordinates)).sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y))[0]; })()`);
+    if (p) {
+      await clickAt(p.x, p.y);
+      await sleep(2500);
+      check("фото: щелчок — снимок в окне", await run(`!!document.querySelector(".maplibregl-popup .popup-photo")`));
+      await shot("92-photo-commons");
+      // в центре города квадрат с 500 снимками делится — снимков больше 500
+      for (let i = 0; i < 40 && (await run(`atlas.modules().find((m) => m.id === "photo/commons").stats().photos`)) <= 500; i++) await sleep(1000);
+      const st2 = await run(`atlas.modules().find((m) => m.id === "photo/commons").stats()`);
+      check("фото: густой квадрат делится", st2.photos > 500, `${st2.photos} снимков, квадратов ${st2.cells.length}`);
+      await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
+    }
+    await run(`atlas.toggle("photo/commons", false).then(() => true)`);
+    await run(`atlas.map.jumpTo({ center: [10, 50], zoom: 4 }); atlas.toggle("photo/webcams", true).then(() => true)`);
+    for (let i = 0; i < 45 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-webcams"] }).length > 0`)); i++) await sleep(1000);
+    const cams = await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-webcams"] }).length`);
+    check("веб-камеры: по всему миру", cams > 0, `${cams}`);
+    await shot("93-webcams");
+    await run(`atlas.toggle("photo/webcams", false).then(() => true)`);
+  }
+
   // рельеф и горизонтали в горах: линии высот появились, 3D включается
-  if (mods.some((m) => m.id === "layers/contours")) {
+  if (want("layers/contours") && mods.some((m) => m.id === "layers/contours")) {
     await run(`atlas.map.jumpTo({ center: [11.85, 46.55], zoom: 13 }); (async () => { await atlas.toggle("layers/contours", true); return true; })()`);
     for (let i = 0; i < 20 && !(await run(`atlas.map.getLayer("contours") ? atlas.map.queryRenderedFeatures({ layers: ["contours"] }).length > 0 : false`)); i++) await sleep(1000);
     await idle();
@@ -360,7 +401,7 @@ try {
   }
 
   // пляжи и кайт (QLever): у Таллина — значки пляжей; сёрфинг — по всему миру и споты Грегори
-  if (mods.some((m) => m.id === "layers/beaches")) {
+  if (want("layers/beaches") && mods.some((m) => m.id === "layers/beaches")) {
     await run(`atlas.map.jumpTo({ center: [24.65, 59.47], zoom: 10.5 }); (async () => { await atlas.toggle("layers/beaches", true); await atlas.toggle("layers/surf", true); return true; })()`);
     const count = (id) => `(atlas.map.getSource(${JSON.stringify(id)})?._data?.features?.length ?? atlas.map.getSource(${JSON.stringify(id)})?.serialize?.().data?.features?.length ?? 0)`;
     for (let i = 0; i < 45 && !(await run(`atlas.map.getLayer("beaches") && atlas.map.queryRenderedFeatures({ layers: ["beaches"] }).length > 0`)); i++) await sleep(1000);
@@ -371,7 +412,7 @@ try {
   }
 
   // погода: стрелки ветра с силой в м/с, прогноз по щелчку, радар осадков
-  if (mods.some((m) => m.id === "weather/wind")) {
+  if (want("weather/wind") && mods.some((m) => m.id === "weather/wind")) {
     await run(`atlas.map.jumpTo({ center: [24.7, 59.45], zoom: 9 }); atlas.toggle("weather/wind", true).then(() => true)`);
     for (let i = 0; i < 20 && !(await run(`atlas.map.getLayer("wind") && atlas.map.queryRenderedFeatures({ layers: ["wind"] }).length > 0`)); i++) await sleep(1000);
     const w = await run(`atlas.map.queryRenderedFeatures({ layers: ["wind"] }).map((f) => f.properties.ms)`);
@@ -398,13 +439,14 @@ try {
   await run(`atlas.toggle("layers/railways", true).then(() => true)`);
   await run(openLayers("layers/roads"));
   const lm = await run(`({ groups: [...document.querySelectorAll(".layers-list .layers-circle")].map((c) => c.title.split(":")[0]),
-    sub: [...document.querySelectorAll(".layers-sub .layers-item")].map((c) => c.textContent.trim()),
+    sub: [...document.querySelectorAll(".layers-sub .layers-item")].map((c) => c.firstChild.textContent),
     on: [...document.querySelectorAll(".layers-list .layers-circle.on")].map((c) => c.title) })`);
-  check("«Слои»: кружки с подписями, «Дороги» — виды и железные дороги", ["Места", "Транспорт", "Магазины", "Тропы", "Велодорожки", "Дороги", "Рельеф", "Погода"].every((g) => lm.groups.includes(g))
+  check("«Слои»: кружки, «Дороги» — виды и железные дороги, «Фото»", ["Места", "Транспорт", "Магазины", "Тропы", "Велодорожки", "Дороги", "Рельеф", "Погода", "Фото"].every((g) => lm.groups.includes(g))
+    && !lm.groups.includes("Пляжи и сёрфинг") && lm.sub.length === 5
     && lm.sub.includes("Железные дороги") && lm.on.includes("Дороги"), JSON.stringify(lm));
   await shot("95-panel-layers");
   await run(openLayers("relief"));
-  const relief = await run(`[...document.querySelectorAll(".layers-sub .layers-item")].map((c) => c.textContent.trim())`);
+  const relief = await run(`[...document.querySelectorAll(".layers-sub .layers-item")].map((c) => c.firstChild.textContent)`);
   check("«Рельеф»: тени и 3D + высоты", relief.includes("Высоты") && relief.length === 2, JSON.stringify(relief));
   await run(`atlas.toggle("layers/railways", false).then(() => true)`);
   await run(`document.querySelector(".maplibregl-ctrl-bottom-right button[title=Настройки]").click(); true`);

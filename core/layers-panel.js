@@ -1,16 +1,18 @@
 // «Слои» — как меню слоёв Windy (Грегори, 2026-10-28, со скриншотами): справа вверху круглая
-// кнопка «Слои», по щелчку под ней выпадает столбик кружков; название — мелкой подписью под
-// кружком, между кнопками (Грегори: «Места, Слои, Тропы можно вписать между кнопок»). Щелчок по
-// кружку — слева от него столбик кнопок, прижатых вправо, значок справа от названия; без окна и
-// заголовка. Всё на глубине одного щелчка:
-//  • кружок раздела (поле group модуля: Места, Рельеф, Погода…) — кнопки-переключатели его слоёв;
+// кнопка «Слои», по щелчку под ней выпадает столбик кружков без подписей — название во
+// всплывающей подсказке. Щелчок по кружку — слева от него столбик кнопок, прижатых вправо, значок
+// справа от названия; без окна и заголовка. Всё на глубине одного щелчка:
+//  • кружок раздела (поле group модуля: Места, Рельеф, Погода, Фото…) — переключатели его слоёв;
 //  • модуль с видами (поле menu: Транспорт, Магазины, Тропы, Велодорожки, Дороги) — свой кружок,
-//    кнопки — его виды, отмечать можно несколько (Грегори: «выбор может быть не одиночным»);
-//    снят последний вид — слой выключается. После щелчка столбик кнопок остаётся открытым.
-//    Если название модуля совпадает с названием раздела («Дороги», «Тропы»), остальные слои
-//    раздела (железные дороги) — в том же кружке, под видами.
-// Ядро слоёв по именам не знает: новый модуль появляется сам; без известного раздела — в «Ещё».
-// Включённые слои помнятся. Открылся столбик — открытая панель закрывается, и наоборот.
+//    кнопки — его виды, отмечать можно несколько; снят последний вид — слой выключается.
+//    Если название модуля совпадает с названием раздела («Дороги»), остальные слои раздела
+//    (железные дороги) — в том же кружке, под видами.
+//  • пункта «Все…» нет: у кружка, где что-то включено, справа вверху крестик — снимает всё в нём.
+//  • где цвет на карте что-то значит (значимость троп, класс дорог, вид транспорта, флажки мест) —
+//    значок кнопки в кольце этого цвета (поле color у вида или модуля) — без длинных описаний.
+// После щелчка столбик кнопок остаётся открытым. Ядро слоёв по именам не знает: новый модуль
+// появляется сам; без известного раздела — в «Ещё». Включённые слои помнятся. Открылся столбик —
+// открытая панель закрывается, и наоборот; кнопки карты справа внизу на это время прячутся.
 import { closeOpen } from "./panel.js";
 import { modules, toggle, available, allowed, onRegister } from "./modules.js";
 import { on } from "./events.js";
@@ -24,23 +26,23 @@ const GROUPS = [
   { id: "trails", title: "Тропы" },
   { id: "roads", title: "Дороги" },
   { id: "relief", title: "Рельеф", icon: svg('<path d="M14 6l-3.75 5 2.85 3.8-1.6 1.2C9.81 13.75 7 10 7 10l-6 8h22L14 6z"/>') },
-  { id: "weather", title: "Погода" },
-  { id: "water", title: "Пляжи и сёрфинг" },
+  { id: "weather", title: "Погода", icon: svg('<circle cx="8.5" cy="7.5" r="3.6"/><path d="M8.5 1.2v1.6M2.2 7.5h1.6M4 3l1.1 1.1M13 3l-1.1 1.1M4 12l1.1-1.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none"/><path d="M18.4 12.6A5 5 0 0 0 9 11.3a4 4 0 0 0 .5 8H18a3.4 3.4 0 0 0 .4-6.7z" stroke="#fff" stroke-width="1.2"/>') },
+  { id: "photo", title: "Фото", icon: svg('<path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM9 2 7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/>') },
   { id: "other", title: "Ещё" },
 ];
-// подпись под кружком — короткая, чтобы влезла (полное название — в подсказке)
-const SHORT = { "Пляжи и сёрфинг": "Пляжи", "Велодорожки": "Вело" };
 const groupOf = (m) => (GROUPS.some((g) => g.id === m.group) ? m.group : "other");
 const BLOCKED = "Выключено в настройках: обращается в интернет";
 
 export function initLayersPanel(ctx) {
   const root = Object.assign(document.createElement("div"), { className: "layers-menu top-right" });
-  // кружок с подписью под ним; ключ — для поиска кружка (и в проверке)
-  const circleBtn = (title, icon, short = title) => {
+  // кружок; у кружков разделов — крестик «снять всё» справа вверху (виден, когда что-то включено)
+  const circleBtn = (title, icon) => {
     const wrap = Object.assign(document.createElement("div"), { className: "layers-cell" });
     const c = Object.assign(document.createElement("button"), { className: "btn layers-circle", innerHTML: icon, title });
-    wrap.append(c, Object.assign(document.createElement("span"), { className: "layers-caption", textContent: short }));
-    return { wrap, c };
+    const x = Object.assign(document.createElement("button"), { className: "layers-clear", title: "Снять всё", hidden: true,
+      innerHTML: '<svg viewBox="0 0 24 24" width="12" height="12"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>' });
+    wrap.append(c, x);
+    return { wrap, c, x };
   };
   const head = circleBtn("Слои", LAYERS_ICON);
   const list = Object.assign(document.createElement("div"), { className: "layers-list", hidden: true });
@@ -88,12 +90,13 @@ export function initLayersPanel(ctx) {
     render();
   };
 
-  // кнопка в столбике: название, значок справа
-  const item = ({ title, icon, on: isOn, blocked, hint, click }) => {
+  // кнопка в столбике: название, значок справа (в кольце цвета слоя на карте, если цвет что-то значит)
+  const item = ({ title, icon, color, on: isOn, blocked, hint, click }) => {
     const b = Object.assign(document.createElement("button"), { className: "layers-item" + (isOn ? " on" : ""), disabled: blocked,
       title: blocked ? BLOCKED : hint || "" });
-    b.innerHTML = `<span></span>${icon || ""}`;
+    b.innerHTML = `<span></span><i class="layers-icon${color ? " ring" : ""}">${icon || ""}</i>`;
     b.firstChild.textContent = title;
+    if (color) b.lastChild.style.borderColor = color;
     b.addEventListener("click", () => { b.disabled = true; click(); });
     return b;
   };
@@ -121,12 +124,12 @@ export function initLayersPanel(ctx) {
     if (!e) { sub.hidden = true; return; }
     const m = e.module;
     sub.replaceChildren(
-      ...(m ? m.menu.items().map((it) => item({ title: it.title, icon: m.icon, on: m.active && it.active, blocked: !allowed(m),
+      ...(m ? m.menu.items().map((it) => item({ title: it.title, icon: it.icon || m.icon, color: it.color, on: m.active && it.active, blocked: !allowed(m),
         click: () => {
           if (!m.active) { m.menu.choose(it.id); switchTo(m, true); } // слой был выключен — только этот вид
           else switchTo(m, m.menu.toggle(it.id)); // отметить ещё один или снять; не осталось ни одного — выключить
         } })) : []),
-      ...e.plain.map((p) => item({ title: p.title, icon: p.icon, on: p.active, blocked: !allowed(p), hint: p.hint, click: () => switchTo(p, !p.active) })),
+      ...e.plain.map((p) => item({ title: p.title, icon: p.icon, color: p.color, on: p.active, blocked: !allowed(p), hint: p.hint, click: () => switchTo(p, !p.active) })),
     );
     sub.hidden = false;
     // слева от кружка, по его верхнему краю; не выходит за низ экрана
@@ -138,12 +141,22 @@ export function initLayersPanel(ctx) {
   const render = () => {
     circles.clear();
     list.replaceChildren(...entries().map((e) => {
-      const { wrap, c } = circleBtn(e.title, e.icon || LAYERS_ICON, SHORT[e.title] || e.title);
+      const { wrap, c, x } = circleBtn(e.title, e.icon || LAYERS_ICON);
       // у модуля с видами в подсказке — выбранный вид
       const label = e.module?.menu.label();
       if (label && label !== e.title) c.title = `${e.title}: ${label}`;
       c.dataset.key = e.key;
-      c.classList.toggle("on", !!e.module?.active || e.plain.some((m) => m.active));
+      const anyOn = !!e.module?.active || e.plain.some((m) => m.active);
+      c.classList.toggle("on", anyOn);
+      x.hidden = !anyOn;
+      // крестик: выключить всё в кружке и забыть отмеченные виды
+      x.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        x.disabled = true;
+        for (const m of [e.module, ...e.plain]) if (m?.active) await switchTo(m, false);
+        e.module?.menu.clear?.();
+        render();
+      });
       c.addEventListener("click", (ev) => { ev.stopPropagation(); show(openKey === e.key ? null : e.key); });
       circles.set(e.key, c);
       return wrap;

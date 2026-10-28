@@ -794,14 +794,14 @@ html, body {
   background: var(--panel-hover);
 }
 
-/* «Слои» — столбик кружков, как у Windy (Грегори, 2026-10-28): без окон и заголовков; название —
-   мелко под кружком, между кнопками; кнопки кружка — столбиком слева, прижаты вправо */
+/* «Слои» — столбик кружков, как у Windy (Грегори, 2026-10-28): без окон, заголовков и подписей
+   (название — в подсказке); кнопки кружка — столбиком слева, прижаты вправо */
 .layers-menu,
 .layers-list {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: 10px;
 }
 
 .layers-list[hidden] {
@@ -809,23 +809,33 @@ html, body {
 }
 
 .layers-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: calc(var(--button) + 16px);
+  position: relative;
 }
 
-/* подпись — тёмным со светлой обводкой, читается на любой карте */
-.layers-caption {
-  max-width: 100%;
-  margin-top: 1px;
+/* крестик «снять всё» — маленький кружок справа вверху кружка раздела */
+.layers-clear {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--panel);
   color: var(--text);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.2;
-  text-align: center;
-  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff;
-  pointer-events: none;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.layers-clear[hidden] {
+  display: none;
+}
+
+.layers-clear:hover {
+  background: var(--panel-hover);
 }
 
 /* столбик открыт — кнопки карты справа внизу (кроме строки источников) уступают место */
@@ -860,7 +870,7 @@ body.layers-open .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group {
   align-items: center;
   gap: 8px;
   height: 36px;
-  padding: 0 10px 0 14px;
+  padding: 0 6px 0 14px;
   border: none;
   border-radius: 18px;
   background: var(--panel);
@@ -883,6 +893,23 @@ body.layers-open .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group {
 
 .layers-item.on:hover {
   background: var(--active-dark);
+}
+
+/* значок кнопки; где цвет на карте что-то значит — в кольце этого цвета */
+.layers-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  box-sizing: border-box;
+  font-style: normal;
+}
+
+.layers-icon.ring {
+  background: var(--panel);
+  color: var(--text);
 }
 
 .layers-item:disabled {

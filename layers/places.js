@@ -75,24 +75,22 @@ const SHOP_PROFILES = [
   { id: "gifts", name: "Сувениры и книги", subclasses: ["gift", "souvenir", "books", "antiques", "art", "toys", "stationery", "music"] },
   { id: "alcohol", name: "Алкоголь и напитки", subclasses: ["alcohol", "wine", "beverages"] },
 ];
-SHOP_PROFILES.unshift({ id: "all", name: "Все магазины", subclasses: [...new Set(SHOP_PROFILES.flatMap((s) => s.subclasses))] });
 
 // Транспорт — меню видов, как у магазинов (Грегори, 2026-10-28: «каждый транспорт отдельно
 // выпадающим списком»). Поля вида: subclasses — точки из тайлов, stops — остановки (со «100 м»),
 // airports — аэропорты, far — что видно издалека из QLever, cable — тросы и станции канаток,
 // lifts — точка в тайлах только станции канаток и фуникулёров, rail — только железная дорога
 // (станции канаток в тайлах тоже station)
-const ALL_STOPS = ["bus_stop", "tram_stop"];
+// значок и цвет вида — как у булавок на карте (кольцо вокруг значка в меню «Слои»)
+const METRO_ICON = `<svg viewBox="0 0 24 24" width="18" height="18"><text x="12" y="18" text-anchor="middle" font-size="17" font-weight="700" font-family="sans-serif" fill="currentColor">M</text></svg>`;
 const TRANSPORT_PROFILES = [
-  { id: "all", name: "Весь транспорт", subclasses: ["bus_station", "station", "halt", "subway", "ferry_terminal"], stops: ALL_STOPS,
-    airports: true, far: ["station", "halt", "funicular", "cable"], cable: true },
-  { id: "trains", name: "Поезда и вокзалы", subclasses: ["station", "halt"], rail: true, far: ["station", "halt"] },
-  { id: "metro", name: "Метро", subclasses: ["subway"] },
-  { id: "tram", name: "Трамваи", subclasses: [], stops: ["tram_stop"] },
-  { id: "bus", name: "Автобусы", subclasses: ["bus_station"], stops: ["bus_stop"] },
-  { id: "ferry", name: "Паромы", subclasses: ["ferry_terminal"] },
-  { id: "lifts", name: "Фуникулёры и канатные дороги", subclasses: ["station", "halt"], lifts: true, far: ["funicular", "cable"], cable: true },
-  { id: "air", name: "Аэропорты", subclasses: [], airports: true },
+  { id: "trains", name: "Поезда", icon: icon(GLYPHS.train), color: "#3949ab", subclasses: ["station", "halt"], rail: true, far: ["station", "halt"] },
+  { id: "metro", name: "Метро", icon: METRO_ICON, color: "#e53935", subclasses: ["subway"] },
+  { id: "tram", name: "Трамваи", icon: icon(GLYPHS.tram), color: "#fb8c00", subclasses: [], stops: ["tram_stop"] },
+  { id: "bus", name: "Автобусы", icon: icon(GLYPHS.bus), color: "#43a047", subclasses: ["bus_station"], stops: ["bus_stop"] },
+  { id: "ferry", name: "Паромы", icon: icon(GLYPHS.boat), color: "#0288d1", subclasses: ["ferry_terminal"] },
+  { id: "lifts", name: "Канатные дороги", icon: icon(GLYPHS.cable), color: "#39ff14", subclasses: ["station", "halt"], lifts: true, far: ["funicular", "cable"], cable: true },
+  { id: "air", name: "Аэропорты", icon: icon(GLYPHS.plane), color: "#546e7a", subclasses: [], airports: true },
 ];
 
 const CATEGORIES = [
@@ -322,7 +320,7 @@ function scaleZooms(map) {
 function updateStatus(map, status) {
   if (!actives.size) return;
   const cats = [...actives.values()];
-  const name = cats.map((c) => (c.parts && c.parts[0].id !== "all" ? c.parts.map((p) => p.name).join(", ") : c.title).toLowerCase()).join(", ");
+  const name = cats.map((c) => (c.parts && c.parts.length < c.profiles.length ? c.parts.map((p) => p.name).join(", ") : c.title).toLowerCase()).join(", ");
   const zoomIn = `Приблизьте карту, чтобы увидеть: ${name}`;
   // с какого масштаба что-то видно: аэропорты и дальний транспорт — раньше, вид «только остановки» — позже
   const min = Math.min(...cats.map((c) => Math.min(
@@ -376,6 +374,7 @@ for (const cat of CATEGORIES) {
     group: "places", // в панели — раздел «Места»; включать можно несколько сразу
     title: cat.title,
     icon: cat.icon,
+    color: !cat.profiles && cat.color, // цвет флажков — кольцо вокруг значка в меню
     needs: ["network"],
     sends: "район карты (тайлы OpenFreeMap), по щелчку — место (OpenStreetMap, Википедия)",
     // виды (магазины, транспорт) — свой кружок в «Слоях», можно несколько

@@ -253,16 +253,16 @@ function makeKind(kind) {
 const [hiking, cycling, mtb] = KINDS.map(makeKind);
 const common = { kind: "layer", group: "trails", needs: ["network"], sends: "район карты (Waymarked Trails)" };
 
+// у вида — цвет линий на карте: кольцо вокруг значка в меню «Слои»
 const HIKING_PROFILES = [
-  { id: "all", name: "Все тропы", ranks: null },
-  { id: "int", name: "Международные", ranks: [LEVELS.INT.rank] },
-  { id: "nat", name: "Национальные", ranks: [LEVELS.NAT.rank] },
-  { id: "reg", name: "Региональные", ranks: [LEVELS.REG.rank] },
-  { id: "loc", name: "Местные", ranks: [LEVELS.LOC.rank] },
-];
+  { id: "int", name: "Международные", color: LEVELS.INT.color, ranks: [LEVELS.INT.rank] },
+  { id: "nat", name: "Национальные", color: LEVELS.NAT.color, ranks: [LEVELS.NAT.rank] },
+  { id: "reg", name: "Региональные", color: LEVELS.REG.color, ranks: [LEVELS.REG.rank] },
+  { id: "loc", name: "Местные", color: LEVELS.LOC.color, ranks: [LEVELS.LOC.rank] },
+].map((p) => ({ ...p, icon: chipIcon(KINDS[0].icon) }));
 const hikingProf = profileMenu("trails.hiking.profile", HIKING_PROFILES, "Тропы");
-// значимости отмеченных видов вместе; «Все тропы» — без фильтра
-const hikingRanks = () => { const s = hikingProf.selected(); return s.some((p) => !p.ranks) ? null : s.flatMap((p) => p.ranks); };
+// значимости отмеченных видов вместе; отмечены все — без фильтра
+const hikingRanks = () => { const s = hikingProf.selected(); return s.length === HIKING_PROFILES.length ? null : s.flatMap((p) => p.ranks); };
 
 register({
   ...common,
@@ -281,9 +281,8 @@ register({
 
 // велодорожки — одна кнопка, вид выбирается в меню и помнится
 const BIKE_PROFILES = [
-  { id: "all", name: "Все велодорожки", kinds: [cycling, mtb] },
-  { id: "cycling", name: "Веломаршруты", kinds: [cycling] },
-  { id: "mtb", name: "Маунтинбайк", kinds: [mtb] },
+  { id: "cycling", name: "Веломаршруты", icon: chipIcon(KINDS[1].icon), kinds: [cycling] },
+  { id: "mtb", name: "Маунтинбайк", icon: chipIcon(KINDS[2].icon), kinds: [mtb] },
 ];
 const bikeProf = profileMenu("trails.cycling.profile", BIKE_PROFILES, "Велодорожки");
 

@@ -28,6 +28,7 @@ export const MODULES = [
   "../layers/roads.js",
   "../layers/terrain.js",
   "../layers/weather.js",
+  "../layers/photos.js",
 ];
 
 const registry = new Map();
