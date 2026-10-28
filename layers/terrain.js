@@ -63,7 +63,7 @@ register({
 register({
   id: "layers/contours",
   kind: "layer",
-  title: "Горизонтали",
+  title: "Высоты",
   hint: "Линии равной высоты с подписями в метрах — с масштаба около 2 км",
   icon: svg('<g fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 15c0-5 4.5-9.5 10-9.5s9 3.5 9 7.5-4 6.5-9.5 6.5S2.5 19 2.5 15z"/><path d="M6.5 14.5c0-3 2.8-5.5 6-5.5s5.3 2 5.3 4.2-2.5 3.8-5.5 3.8-5.8-.3-5.8-2.5z"/></g><circle cx="12.3" cy="13.4" r="1.5"/>'),
   needs: ["network"],
