@@ -17,6 +17,8 @@ export const map = new maplibregl.Map({
   center: [25, 45],
   zoom: 1.6,
   attributionControl: { compact: true },
+  // наклон — до 65° вместо стандартных 60 (Грегори, 2026-10-28: «увеличить наклон ещё на 5 градусов»)
+  maxPitch: 65,
   // подписи кнопок и шкалы MapLibre — по-русски
   locale: {
     "AttributionControl.ToggleAttribution": "Источники карты",
