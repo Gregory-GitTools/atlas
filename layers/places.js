@@ -11,7 +11,7 @@
 import { register } from "../core/modules.js";
 import { track, claimLayers } from "../core/popups.js";
 import { featureContent } from "../core/place-info.js";
-import * as settings from "../core/settings.js";
+import { profileMenu } from "../core/profiles.js";
 import { qleverBox, cellsInView, cellLoader } from "../core/qlever.js";
 
 const MIN_ZOOM = 12;
@@ -281,12 +281,16 @@ function apply(map) {
     vis(poiLayer(id), !!cat?.subclasses?.length);
     if (!cat) continue;
     map.setLayoutProperty(poiLayer(id), "icon-image", modeIcon(map, cat));
-    const bySubclass = ["in", ["get", "subclass"], ["literal", cat.subclasses || []]];
-    // вид «фуникулёры и канатные дороги»: станции канаток и станции фуникулёров (по id из QLever);
+    // у каждого отмеченного вида свой фильтр, точка подходит под любой из них.
+    // «Фуникулёры и канатные дороги»: станции канаток и станции фуникулёров (по id из QLever);
     // «поезда»: только железная дорога, без станций канаток и фуникулёров
-    map.setFilter(poiLayer(id), cat.lifts ? ["all", bySubclass, ["any", ["==", ["get", "class"], "aerialway"], funicular]]
-      : cat.rail ? ["all", bySubclass, ["==", ["get", "class"], "railway"], ["!", funicular]]
-      : bySubclass);
+    const part = (p) => {
+      const bySubclass = ["in", ["get", "subclass"], ["literal", p.subclasses || []]];
+      return p.lifts ? ["all", bySubclass, ["any", ["==", ["get", "class"], "aerialway"], funicular]]
+        : p.rail ? ["all", bySubclass, ["==", ["get", "class"], "railway"], ["!", funicular]]
+        : bySubclass;
+    };
+    map.setFilter(poiLayer(id), cat.parts ? ["any", ...cat.parts.map(part)] : part(cat));
   }
   // слои только транспорта
   const tr = transport();
@@ -318,7 +322,7 @@ function scaleZooms(map) {
 function updateStatus(map, status) {
   if (!actives.size) return;
   const cats = [...actives.values()];
-  const name = cats.map((c) => ((c.profile && c.profile.id !== "all" && c.profile.name) || c.title).toLowerCase()).join(", ");
+  const name = cats.map((c) => (c.parts && c.parts[0].id !== "all" ? c.parts.map((p) => p.name).join(", ") : c.title).toLowerCase()).join(", ");
   const zoomIn = `Приблизьте карту, чтобы увидеть: ${name}`;
   // с какого масштаба что-то видно: аэропорты и дальний транспорт — раньше, вид «только остановки» — позже
   const min = Math.min(...cats.map((c) => Math.min(
@@ -357,12 +361,14 @@ function wire({ map, maplibregl, status }) {
 }
 
 for (const cat of CATEGORIES) {
-  const profileKey = `places.${cat.id}.profile`;
+  // отмеченные виды складываются: точки, остановки, дальние станции — объединением
+  const prof = cat.profiles && profileMenu(`places.${cat.id}.profile`, cat.profiles, cat.title);
   const withProfile = () => {
-    if (!cat.profiles) return cat;
-    const profile = cat.profiles.find((p) => p.id === settings.get(profileKey)) || cat.profiles[0];
-    const { id, name, ...fields } = profile;
-    return { ...cat, profile, ...fields };
+    if (!prof) return cat;
+    const parts = prof.selected();
+    const union = (k) => { const u = [...new Set(parts.flatMap((p) => p[k] || []))]; return u.length ? u : undefined; };
+    return { ...cat, parts, subclasses: union("subclasses"), stops: union("stops"), far: union("far"),
+      airports: parts.some((p) => p.airports), cable: parts.some((p) => p.cable) };
   };
   register({
     id: `places/${cat.id}`,
@@ -372,12 +378,8 @@ for (const cat of CATEGORIES) {
     icon: cat.icon,
     needs: ["network"],
     sends: "район карты (тайлы OpenFreeMap), по щелчку — место (OpenStreetMap, Википедия)",
-    // меню у чипа (магазины, транспорт): виды
-    menu: cat.profiles && {
-      items: () => cat.profiles.map((p) => ({ id: p.id, title: p.name, active: p.id === withProfile().profile.id })),
-      label: () => (withProfile().profile.id === "all" ? cat.title : withProfile().profile.name),
-      choose: (id) => settings.set(profileKey, id),
-    },
+    // виды (магазины, транспорт) — свой кружок в «Слоях», можно несколько
+    menu: prof?.menu,
     enable(ctx) {
       wire(ctx);
       ensureLayers(ctx.map);

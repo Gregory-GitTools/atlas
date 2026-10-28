@@ -4,7 +4,7 @@
 // полупрозрачным пунктиром. Данные — те же векторные тайлы OpenFreeMap, что у мест и железных дорог.
 // Меню видов, как у «Магазинов»; выбор помнится
 import { register } from "../core/modules.js";
-import * as settings from "../core/settings.js";
+import { profileMenu } from "../core/profiles.js";
 
 const svg = (inner) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">${inner}</svg>`;
 const COLORS = ["match", ["get", "class"], "motorway", "#d32f2f", "trunk", "#f57c00", "primary", "#f9a825", "secondary", "#7cb342",
@@ -20,14 +20,14 @@ const PROFILES = [
   { id: "main", name: "Главные дороги", classes: ["motorway", "trunk", "primary", "secondary"] },
   { id: "unpaved", name: "Грунтовые", classes: ["primary", "secondary", "tertiary", "minor", "track"], unpaved: true },
 ];
-const KEY = "roads.profile";
-const profile = () => PROFILES.find((p) => p.id === settings.get(KEY)) || PROFILES[0];
+const prof = profileMenu("roads.profile", PROFILES, "Дороги");
 const UNPAVED = ["any", ["==", ["get", "surface"], "unpaved"], ["==", ["get", "class"], "track"]];
 const TUNNEL = ["==", ["get", "brunnel"], "tunnel"];
 
 // три слоя: тоннели (полупрозрачный пунктир), с покрытием, грунтовые (пунктир)
-const layers = (p) => {
-  const base = ["all", ["in", ["get", "class"], ["literal", p.classes]], ...(p.unpaved ? [UNPAVED] : [])];
+// отмеченные виды — дорога подходит под любой
+const layers = (parts) => {
+  const base = ["any", ...parts.map((p) => ["all", ["in", ["get", "class"], ["literal", p.classes]], ...(p.unpaved ? [UNPAVED] : [])])];
   return [
     { id: "road-tunnel", filter: ["all", base, TUNNEL], opacity: 0.45, dash: [2, 1.5] },
     { id: "road", filter: ["all", base, ["!", TUNNEL], ["!", UNPAVED]], opacity: 0.9 },
@@ -44,16 +44,12 @@ register({
   icon: svg('<path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/>'),
   needs: ["network"],
   sends: "район карты (OpenFreeMap)",
-  menu: {
-    items: () => PROFILES.map((p) => ({ id: p.id, title: p.name, active: p === profile() })),
-    label: () => (profile().id === "all" ? "Дороги" : profile().name),
-    choose: (id) => settings.set(KEY, id),
-  },
+  menu: prof.menu,
   // повторное включение — смена вида: слои остаются, меняется фильтр
   enable({ map }) {
     if (!map.getSource("road-tiles")) map.addSource("road-tiles", { type: "vector", url: "https://tiles.openfreemap.org/planet" });
     const before = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
-    for (const l of layers(profile())) {
+    for (const l of layers(prof.selected())) {
       if (map.getLayer(l.id)) { map.setFilter(l.id, l.filter); continue; }
       map.addLayer({ id: l.id, type: "line", source: "road-tiles", "source-layer": "transportation", minzoom: 4, filter: l.filter,
         layout: { "line-cap": l.dash ? "butt" : "round", "line-join": "round", "line-sort-key": SORT },
@@ -61,6 +57,6 @@ register({
     }
   },
   disable({ map }) {
-    for (const l of layers(profile())) if (map.getLayer(l.id)) map.removeLayer(l.id);
+    for (const l of layers(prof.selected())) if (map.getLayer(l.id)) map.removeLayer(l.id);
   },
 });

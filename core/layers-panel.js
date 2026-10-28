@@ -1,10 +1,16 @@
-// «Слои» — как меню слоёв Windy (Грегори, 2026-10-28, со скриншотом): справа вверху кнопка «Слои»,
-// по щелчку под ней выпадает столбик кружков с подписями — по одному на раздел (Места, Тропы,
-// Дороги, Рельеф, Погода, Пляжи и сёрфинг). Щелчок по кружку — рядом подменю с кнопками-чипами
-// этого раздела. Ядро слоёв по именам не знает: раздел модуля — поле group, новый модуль
-// появляется сам; модуль без известного раздела попадает в «Ещё». У модуля с menu чип из двух
-// частей: название включает, стрелка открывает меню видов. Включённые слои помнятся.
-// Открылся столбик — открытая панель закрывается, и наоборот (на экране одно окно).
+// «Слои» — как меню слоёв Windy (Грегори, 2026-10-28, со скриншотами): справа вверху круглая
+// кнопка «Слои», по щелчку под ней выпадает столбик кружков; название — мелкой подписью под
+// кружком, между кнопками (Грегори: «Места, Слои, Тропы можно вписать между кнопок»). Щелчок по
+// кружку — слева от него столбик кнопок, прижатых вправо, значок справа от названия; без окна и
+// заголовка. Всё на глубине одного щелчка:
+//  • кружок раздела (поле group модуля: Места, Рельеф, Погода…) — кнопки-переключатели его слоёв;
+//  • модуль с видами (поле menu: Транспорт, Магазины, Тропы, Велодорожки, Дороги) — свой кружок,
+//    кнопки — его виды, отмечать можно несколько (Грегори: «выбор может быть не одиночным»);
+//    снят последний вид — слой выключается. После щелчка столбик кнопок остаётся открытым.
+//    Если название модуля совпадает с названием раздела («Дороги», «Тропы»), остальные слои
+//    раздела (железные дороги) — в том же кружке, под видами.
+// Ядро слоёв по именам не знает: новый модуль появляется сам; без известного раздела — в «Ещё».
+// Включённые слои помнятся. Открылся столбик — открытая панель закрывается, и наоборот.
 import { closeOpen } from "./panel.js";
 import { modules, toggle, available, allowed, onRegister } from "./modules.js";
 import { on } from "./events.js";
@@ -22,43 +28,45 @@ const GROUPS = [
   { id: "water", title: "Пляжи и сёрфинг" },
   { id: "other", title: "Ещё" },
 ];
+// подпись под кружком — короткая, чтобы влезла (полное название — в подсказке)
+const SHORT = { "Пляжи и сёрфинг": "Пляжи", "Велодорожки": "Вело" };
 const groupOf = (m) => (GROUPS.some((g) => g.id === m.group) ? m.group : "other");
+const BLOCKED = "Выключено в настройках: обращается в интернет";
 
 export function initLayersPanel(ctx) {
   const root = Object.assign(document.createElement("div"), { className: "layers-menu top-right" });
-  const row = (title, icon) => {
-    const r = Object.assign(document.createElement("div"), { className: "layers-row" });
-    const label = Object.assign(document.createElement("button"), { className: "layers-label", textContent: title });
-    const circle = Object.assign(document.createElement("button"), { className: "btn layers-circle", innerHTML: icon, title });
-    label.addEventListener("click", () => circle.click());
-    r.append(label, circle);
-    return { r, circle };
+  // кружок с подписью под ним; ключ — для поиска кружка (и в проверке)
+  const circleBtn = (title, icon, short = title) => {
+    const wrap = Object.assign(document.createElement("div"), { className: "layers-cell" });
+    const c = Object.assign(document.createElement("button"), { className: "btn layers-circle", innerHTML: icon, title });
+    wrap.append(c, Object.assign(document.createElement("span"), { className: "layers-caption", textContent: short }));
+    return { wrap, c };
   };
-  const head = row("Слои", LAYERS_ICON);
-  head.r.classList.add("layers-head");
+  const head = circleBtn("Слои", LAYERS_ICON);
   const list = Object.assign(document.createElement("div"), { className: "layers-list", hidden: true });
-  root.append(head.r, list);
-  // подменю раздела — рядом с его кружком
+  root.append(head.wrap, list);
+  // кнопки кружка — слева от столбика
   const sub = Object.assign(document.createElement("div"), { className: "layers-sub", hidden: true });
-  sub.dataset.layers = "";
-  const menu = Object.assign(document.createElement("div"), { className: "menu chip-menu", hidden: true });
-  document.body.append(root, sub, menu);
+  document.body.append(root, sub);
 
-  let openGroup = null;
+  let openKey = null;
   const setOpen = (open) => {
     list.hidden = !open;
-    head.circle.classList.toggle("open", open);
+    head.c.classList.toggle("open", open);
+    // кнопки карты справа внизу на время прячутся — длинный столбик доходит до них
+    document.body.classList.toggle("layers-open", open);
     if (open) closeOpen();
-    else showGroup(null);
+    else show(null);
   };
-  head.circle.addEventListener("click", () => setOpen(list.hidden));
+  head.c.addEventListener("click", () => setOpen(list.hidden));
   // открылась панель (настройки) — столбик уступает место
   on("panel", (p) => p && setOpen(false), { replay: false });
   document.addEventListener("click", (e) => {
-    if (!menu.contains(e.target) && !e.target.closest(".chip-arrow")) menu.hidden = true;
-    if (openGroup && !sub.contains(e.target) && !menu.contains(e.target) && !list.contains(e.target)) showGroup(null);
+    // кнопку, по которой щёлкнули, могли уже перерисовать — это щелчок внутри, а не мимо
+    if (!e.target.isConnected) return;
+    if (openKey && !sub.contains(e.target) && !list.contains(e.target)) show(null);
   });
-  document.addEventListener("keydown", (e) => e.key === "Escape" && (openGroup ? showGroup(null) : setOpen(false)));
+  document.addEventListener("keydown", (e) => e.key === "Escape" && (openKey ? show(null) : setOpen(false)));
 
   const active = new Set(settings.get("layers.on", []));
   const save = () => settings.set("layers.on", [...active]);
@@ -80,84 +88,73 @@ export function initLayersPanel(ctx) {
     render();
   };
 
-  const chip = (m) => {
-    const blocked = !allowed(m);
-    const label = (el) => {
-      el.innerHTML = `${m.icon || ""}<span></span>`;
-      el.querySelector("span").textContent = m.menu?.label() || m.title;
-    };
-    if (!m.menu) {
-      const b = Object.assign(document.createElement("button"), { className: "chip" + (m.active ? " on" : "") });
-      label(b);
-      b.disabled = blocked;
-      if (blocked) b.title = "Выключено в настройках: обращается в интернет";
-      else if (m.hint) b.title = m.hint;
-      b.addEventListener("click", () => { b.disabled = true; switchTo(m, !m.active); });
-      return b;
-    }
-    const box = Object.assign(document.createElement("div"), { className: "chip chip-split" + (m.active ? " on" : "") });
-    const main = Object.assign(document.createElement("button"), { className: "chip-main", disabled: blocked, title: m.hint || "" });
-    label(main);
-    main.addEventListener("click", () => switchTo(m, !m.active));
-    const arrow = Object.assign(document.createElement("button"), { className: "chip-arrow", title: "Выбрать", disabled: blocked,
-      innerHTML: `<svg viewBox="0 0 24 24" width="30" height="30"><path fill="currentColor" d="M7 10l5 5 5-5z"/></svg>` });
-    arrow.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (!menu.hidden) { menu.hidden = true; return; }
-      const r = box.getBoundingClientRect();
-      menu.style.left = `${Math.max(8, Math.min(r.left, innerWidth - 230))}px`;
-      menu.style.top = `${r.bottom + 6}px`;
-      menu.replaceChildren(...m.menu.items().map((it) => {
-        const b = Object.assign(document.createElement("button"), { className: "menu-item" + (it.active ? " active" : ""), textContent: it.title });
-        b.addEventListener("click", () => { menu.hidden = true; m.menu.choose(it.id); switchTo(m, true); });
-        return b;
-      }));
-      menu.hidden = false;
-    });
-    box.append(main, arrow);
-    return box;
+  // кнопка в столбике: название, значок справа
+  const item = ({ title, icon, on: isOn, blocked, hint, click }) => {
+    const b = Object.assign(document.createElement("button"), { className: "layers-item" + (isOn ? " on" : ""), disabled: blocked,
+      title: blocked ? BLOCKED : hint || "" });
+    b.innerHTML = `<span></span>${icon || ""}`;
+    b.firstChild.textContent = title;
+    b.addEventListener("click", () => { b.disabled = true; click(); });
+    return b;
   };
 
-  const groups = () => {
+  // кружки: раздел с обычными слоями и по кружку на каждый модуль с видами
+  const entries = () => {
     const usable = modules("layer").filter(available).filter((m) => m.group !== "hidden");
-    return GROUPS.map((g) => ({ ...g, items: usable.filter((m) => groupOf(m) === g.id) })).filter((g) => g.items.length);
+    return GROUPS.flatMap((g) => {
+      const mods = usable.filter((m) => groupOf(m) === g.id);
+      const withMenu = mods.filter((m) => m.menu);
+      let plain = mods.filter((m) => !m.menu);
+      const host = withMenu.find((m) => m.title === g.title);
+      const out = withMenu.map((m) => ({ key: m.id, title: m.title, icon: m.icon, module: m, plain: m === host ? plain : [] }));
+      if (host) plain = [];
+      if (plain.length) out.unshift({ key: g.id, title: g.title, icon: g.icon || plain[0].icon, plain });
+      return out;
+    });
   };
 
-  const circles = new Map(); // id раздела → кружок
-  function showGroup(id) {
-    openGroup = id;
-    for (const [gid, c] of circles) c.classList.toggle("open", gid === id);
-    root.classList.toggle("sub-open", !!id);
-    const g = id && groups().find((x) => x.id === id);
-    if (!g) { sub.hidden = true; menu.hidden = true; return; }
-    const title = Object.assign(document.createElement("h3"), { className: "set-title", textContent: g.title });
-    const chips = Object.assign(document.createElement("div"), { className: "chips" });
-    chips.append(...g.items.map(chip));
-    sub.replaceChildren(title, chips);
+  const circles = new Map(); // ключ → кружок
+  function show(key) {
+    openKey = key;
+    for (const [k, c] of circles) c.classList.toggle("open", k === key);
+    const e = key && entries().find((x) => x.key === key);
+    if (!e) { sub.hidden = true; return; }
+    const m = e.module;
+    sub.replaceChildren(
+      ...(m ? m.menu.items().map((it) => item({ title: it.title, icon: m.icon, on: m.active && it.active, blocked: !allowed(m),
+        click: () => {
+          if (!m.active) { m.menu.choose(it.id); switchTo(m, true); } // слой был выключен — только этот вид
+          else switchTo(m, m.menu.toggle(it.id)); // отметить ещё один или снять; не осталось ни одного — выключить
+        } })) : []),
+      ...e.plain.map((p) => item({ title: p.title, icon: p.icon, on: p.active, blocked: !allowed(p), hint: p.hint, click: () => switchTo(p, !p.active) })),
+    );
     sub.hidden = false;
-    // рядом с подписью кружка (на телефоне — рядом с самим кружком), по его верхнему краю;
-    // не выходит за низ экрана
-    const r = circles.get(id).getBoundingClientRect();
-    const edge = innerWidth <= 600 ? r.left : circles.get(id).parentElement.getBoundingClientRect().left;
-    sub.style.right = `${innerWidth - edge + 8}px`;
+    // слева от кружка, по его верхнему краю; не выходит за низ экрана
+    const r = circles.get(key).getBoundingClientRect();
+    sub.style.right = `${innerWidth - r.left + 10}px`;
     sub.style.top = `${Math.max(8, Math.min(r.top, innerHeight - sub.offsetHeight - 8))}px`;
   }
 
   const render = () => {
     circles.clear();
-    list.replaceChildren(...groups().map((g) => {
-      const { r, circle } = row(g.title, g.icon || g.items[0].icon || LAYERS_ICON);
-      circle.classList.toggle("on", g.items.some((m) => m.active));
-      circle.addEventListener("click", (e) => { e.stopPropagation(); showGroup(openGroup === g.id ? null : g.id); });
-      circles.set(g.id, circle);
-      return r;
+    list.replaceChildren(...entries().map((e) => {
+      const { wrap, c } = circleBtn(e.title, e.icon || LAYERS_ICON, SHORT[e.title] || e.title);
+      // у модуля с видами в подсказке — выбранный вид
+      const label = e.module?.menu.label();
+      if (label && label !== e.title) c.title = `${e.title}: ${label}`;
+      c.dataset.key = e.key;
+      c.classList.toggle("on", !!e.module?.active || e.plain.some((m) => m.active));
+      c.addEventListener("click", (ev) => { ev.stopPropagation(); show(openKey === e.key ? null : e.key); });
+      circles.set(e.key, c);
+      return wrap;
     }));
-    head.circle.classList.toggle("on", active.size > 0);
-    if (openGroup) showGroup(openGroup);
+    // кнопка «Слои» серая, пока включён хоть один слой из меню (сохранённые имена старых слоёв не в счёт)
+    head.c.classList.toggle("on", modules("layer").some((m) => m.active && m.group !== "hidden"));
+    if (openKey) show(openKey);
   };
   onRegister(render);
   render();
-  // слой включился не отсюда (сам по себе, по событию другого модуля) — кружки и чипы обновить
+  // слой включился не отсюда (сам по себе, по событию другого модуля) — кружки и кнопки обновить
   on("module", render, { replay: false });
 
   // разрешили сеть снова — включить то, что было включено до запрета

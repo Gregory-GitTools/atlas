@@ -65,8 +65,10 @@ ws.onmessage = (m) => {
   }
 };
 const send = (method, params = {}) => new Promise((r) => { const id = ++nextId; pending.set(id, r); ws.send(JSON.stringify({ id, method, params })); });
+// шаг, который не ответил за 2 минуты, — ошибка с началом его текста (раньше проверка висела молча)
 const run = async (expr) => {
-  const r = await send("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true });
+  const r = await Promise.race([send("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true }),
+    sleep(120000).then(() => { throw new Error("шаг завис: " + expr.replace(/\s+/g, " ").slice(0, 160)); })]);
   if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
   return r.result.value;
 };
@@ -175,21 +177,23 @@ try {
   } else check("подпись города на карте", false);
 
   // «Слои»: кнопка открывает столбик кружков, кружок — подменю раздела (как человек щёлкает)
-  const openLayers = (group) => `(async () => {
-    if (document.querySelector(".layers-list").hidden) document.querySelector(".layers-head .layers-circle").click();
+  const openLayers = (key) => `(async () => {
+    if (document.querySelector(".layers-list").hidden) document.querySelector(".layers-menu > .layers-cell .layers-circle").click();
     await new Promise((r) => setTimeout(r, 200));
-    const c = [...document.querySelectorAll(".layers-list .layers-circle")].find((b) => b.title === ${JSON.stringify(group)});
+    const c = [...document.querySelectorAll(".layers-list .layers-circle")].find((b) => b.dataset.key === ${JSON.stringify(key)});
     if (!c.classList.contains("open")) c.click();
     await new Promise((r) => setTimeout(r, 300));
     return true; })()`;
-  const closeLayers = `(() => { if (!document.querySelector(".layers-list").hidden) document.querySelector(".layers-head .layers-circle").click(); return true; })()`;
+  const closeLayers = `(() => { if (!document.querySelector(".layers-list").hidden) document.querySelector(".layers-menu > .layers-cell .layers-circle").click(); return true; })()`;
+  // кнопка в столбике кружка по названию
+  const itemFor = (title) => `[...document.querySelectorAll(".layers-sub .layers-item")].find((c) => c.textContent.trim() === ${JSON.stringify(title)})`;
 
   // места: в центре Таллина «Рестораны» — флажки; «Музеи» выключают «Рестораны»; щелчок по флажку — окно
   if (mods.some((m) => m.id === "places/food")) {
     await run(`atlas.map.jumpTo({ center: [24.745, 59.437], zoom: 16 }); true`);
-    await run(openLayers("Места"));
+    await run(openLayers("places"));
     await sleep(500);
-    const chipFor = (title) => `[...document.querySelectorAll("[data-layers] .chip, [data-layers] .chip-main")].find((c) => c.textContent.trim() === ${JSON.stringify(title)})`;
+    const chipFor = itemFor;
     await run(`${chipFor("Рестораны")}.click(); true`);
     await sleep(800);
     await idle();
@@ -203,7 +207,7 @@ try {
     // несколько категорий сразу: рестораны остаются, музеи добавились, на чипах обе отмечены
     const both = await run(`({ food: atlas.modules().find((m) => m.id === "places/food").active, museums: atlas.modules().find((m) => m.id === "places/museums").active,
       foodPins: atlas.map.queryRenderedFeatures({ layers: ["places-poi-food"] }).length, museumPins: atlas.map.queryRenderedFeatures({ layers: ["places-poi-museums"] }).length,
-      chipsOn: [...document.querySelectorAll("[data-layers] .chip.on")].map((c) => c.textContent.trim()) })`);
+      chipsOn: [...document.querySelectorAll(".layers-sub .layers-item.on")].map((c) => c.textContent.trim()) })`);
     check("места: несколько категорий сразу", both.food && both.museums && both.foodPins > 0 && both.museumPins > 0, JSON.stringify(both));
     await shot("80b-places-food-museums");
     await run(`${chipFor("Музеи")}.click(); true`);
@@ -239,19 +243,26 @@ try {
     await shot("83-cable");
     // виды транспорта из меню: «Метро» — только красные «М», «Фуникулёры и канатные дороги» — без метро
     const pick = async (title) => run(`(async () => {
-      await ${openLayers("Места")};
-      const box = [...document.querySelectorAll("[data-layers] .chip-split")].find((c) => /Транспорт|Метро|Поезда|Трамваи|Автобусы|Паромы|Фуникул|Аэропорт|Весь/.test(c.textContent));
-      box.querySelector(".chip-arrow").click(); await new Promise((r) => setTimeout(r, 300));
-      const items = [...document.querySelectorAll(".chip-menu .menu-item")].map((i) => i.textContent);
-      [...document.querySelectorAll(".chip-menu .menu-item")].find((i) => i.textContent === ${JSON.stringify(title)}).click();
+      await ${openLayers("places/transport")};
+      const items = [...document.querySelectorAll(".layers-sub .layers-item")].map((i) => i.textContent.trim());
+      ${itemFor(title)}.click();
       await new Promise((r) => setTimeout(r, 1500));
+      // столбик кнопок не закрывается после выбора
+      const open = !document.querySelector(".layers-sub").hidden;
       ${closeLayers};
-      return items; })()`);
-    const items = await pick("Метро");
+      return { items, open }; })()`);
+    const { items, open } = await pick("Метро");
     await idle();
     const metro = await run(`[...new Set(atlas.map.queryRenderedFeatures({ layers: ["places-poi-transport", "places-stops", "places-cable", "places-lift-line"] }).map((f) => f.properties.subclass + (f.layer.id === "places-poi-transport" ? "" : "@" + f.layer.id)))]`);
-    check("транспорт: меню видов, «Метро» — только метро", items.length === 8 && metro.length > 0 && metro.every((s) => s === "subway"), `${items.join(" / ")} → ${metro.join(", ")}`);
+    check("транспорт: меню видов, «Метро» — только метро, список остаётся", open && items.length === 8 && metro.length > 0 && metro.every((s) => s === "subway"), `${items.join(" / ")} → ${metro.join(", ")}`);
+    // второй вид добавляется к первому: метро и канатки вместе; снять «Метро» — останутся канатки
     await pick("Фуникулёры и канатные дороги");
+    await idle();
+    const multi = await run(`({ subway: atlas.map.queryRenderedFeatures({ layers: ["places-poi-transport"] }).some((f) => f.properties.subclass === "subway"),
+      lines: atlas.map.queryRenderedFeatures({ layers: ["places-lift-line"] }).length,
+      label: document.querySelector('.layers-circle[data-key="places/transport"]').title })`);
+    check("транспорт: несколько видов сразу (метро + канатки)", multi.subway && multi.lines > 0 && multi.label === "Транспорт", JSON.stringify(multi));
+    await pick("Метро");
     await idle();
     const lifts = await run(`({ poi: [...new Set(atlas.map.queryRenderedFeatures({ layers: ["places-poi-transport"] }).map((f) => f.properties.class))], lines: atlas.map.queryRenderedFeatures({ layers: ["places-lift-line"] }).length })`);
     check("транспорт: «Фуникулёры и канатные дороги»", lifts.lines > 0 && !lifts.poi.includes("subway") && lifts.poi.every((c) => c !== "bus"), JSON.stringify(lifts));
@@ -298,27 +309,24 @@ try {
   // велодорожки: одна кнопка в разделе «Тропы», вид — в меню; «Маунтинбайк» оставляет только МТБ
   if (mods.some((m) => m.id === "trails/cycling")) {
     const bike = await run(`(async () => {
-      const sections = [...document.querySelectorAll(".layers-list .layers-label")].map((h) => h.textContent);
-      await ${openLayers("Тропы")};
-      const box = [...document.querySelectorAll("[data-layers] .chip-split")].find((c) => /Велодорожки|Веломаршруты|Маунтинбайк/.test(c.textContent));
-      box.querySelector(".chip-arrow").click(); await new Promise((r) => setTimeout(r, 300));
-      const items = [...document.querySelectorAll(".chip-menu .menu-item")].map((i) => i.textContent);
-      [...document.querySelectorAll(".chip-menu .menu-item")].find((i) => i.textContent === "Маунтинбайк").click();
+      await ${openLayers("trails/cycling")};
+      const circles = [...document.querySelectorAll(".layers-list .layers-circle")].map((c) => c.title.split(":")[0]);
+      const items = [...document.querySelectorAll(".layers-sub .layers-item")].map((i) => i.textContent.trim());
+      ${itemFor("Маунтинбайк")}.click();
       await new Promise((r) => setTimeout(r, 1500));
       const layers = { cycling: !!atlas.map.getLayer("trails-cycling-line"), mtb: !!atlas.map.getLayer("trails-mtb-line") };
-      const label = [...document.querySelectorAll("[data-layers] .chip-split")].find((c) => /Маунтинбайк/.test(c.textContent))?.textContent.trim();
-      // вернуть «Все велодорожки» и выключить — кнопками, как человек
-      const box2 = [...document.querySelectorAll("[data-layers] .chip-split")].find((c) => /Маунтинбайк/.test(c.textContent));
-      box2.querySelector(".chip-arrow").click(); await new Promise((r) => setTimeout(r, 300));
-      [...document.querySelectorAll(".chip-menu .menu-item")].find((i) => i.textContent === "Все велодорожки").click();
-      await new Promise((r) => setTimeout(r, 800));
-      [...document.querySelectorAll("[data-layers] .chip-main")].find((c) => c.textContent.trim() === "Велодорожки").click();
+      const label = document.querySelector('.layers-circle[data-key="trails/cycling"]').title;
+      // тот же вид ещё раз — выключает
+      ${itemFor("Маунтинбайк")}.click();
       await new Promise((r) => setTimeout(r, 800));
       const off = !atlas.modules().find((m) => m.id === "trails/cycling").active && !atlas.map.getLayer("trails-mtb-line");
+      ${itemFor("Все велодорожки")}.click();
+      await new Promise((r) => setTimeout(r, 800));
+      await atlas.toggle("trails/cycling", false);
       ${closeLayers};
-      return { sections, items, layers, label, off };
+      return { circles, items, layers, label, off };
     })()`);
-    check("велодорожки: раздел «Тропы» и меню видов", bike.sections.includes("Тропы") && bike.items.length === 3 && bike.layers.mtb && !bike.layers.cycling && bike.label === "Маунтинбайк" && bike.off, JSON.stringify(bike));
+    check("велодорожки: свой кружок, виды кнопками, повторный щелчок выключает", bike.circles.includes("Велодорожки") && bike.items.length === 3 && bike.layers.mtb && !bike.layers.cycling && bike.label === "Велодорожки: Маунтинбайк" && bike.off, JSON.stringify(bike));
   }
 
   // дороги: у Таллина — линии по классам; «Грунтовые» — только без покрытия
@@ -388,15 +396,15 @@ try {
   await run(`document.querySelector('[data-panel=settings]') ? true : false`).then((has) => check("панель «settings» есть", has));
   // «Слои»: столбик разделов (Места, Тропы, Дороги, Рельеф, Погода, Пляжи и сёрфинг), подменю у кружка
   await run(`atlas.toggle("layers/railways", true).then(() => true)`);
-  await run(openLayers("Дороги"));
-  const lm = await run(`({ groups: [...document.querySelectorAll(".layers-list .layers-label")].map((l) => l.textContent),
-    sub: [...document.querySelectorAll("[data-layers] .chips > *")].map((c) => c.textContent.trim()),
+  await run(openLayers("layers/roads"));
+  const lm = await run(`({ groups: [...document.querySelectorAll(".layers-list .layers-circle")].map((c) => c.title.split(":")[0]),
+    sub: [...document.querySelectorAll(".layers-sub .layers-item")].map((c) => c.textContent.trim()),
     on: [...document.querySelectorAll(".layers-list .layers-circle.on")].map((c) => c.title) })`);
-  check("«Слои»: разделы кружками, «Дороги» с железными дорогами", ["Места", "Тропы", "Дороги", "Рельеф", "Погода"].every((g) => lm.groups.includes(g))
+  check("«Слои»: кружки с подписями, «Дороги» — виды и железные дороги", ["Места", "Транспорт", "Магазины", "Тропы", "Велодорожки", "Дороги", "Рельеф", "Погода"].every((g) => lm.groups.includes(g))
     && lm.sub.includes("Железные дороги") && lm.on.includes("Дороги"), JSON.stringify(lm));
   await shot("95-panel-layers");
-  await run(openLayers("Рельеф"));
-  const relief = await run(`[...document.querySelectorAll("[data-layers] .chip")].map((c) => c.textContent.trim())`);
+  await run(openLayers("relief"));
+  const relief = await run(`[...document.querySelectorAll(".layers-sub .layers-item")].map((c) => c.textContent.trim())`);
   check("«Рельеф»: тени и 3D + высоты", relief.includes("Высоты") && relief.length === 2, JSON.stringify(relief));
   await run(`atlas.toggle("layers/railways", false).then(() => true)`);
   await run(`document.querySelector(".maplibregl-ctrl-bottom-right button[title=Настройки]").click(); true`);

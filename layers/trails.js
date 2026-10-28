@@ -19,7 +19,7 @@
 // «Магазинов» (Грегори, 2026-10-28: «велодорожки объединить в выпадающий список»). У «Троп» меню
 // по значимости — тот же цвет, что у линий: международные, национальные, региональные, местные.
 import { register } from "../core/modules.js";
-import * as settings from "../core/settings.js";
+import { profileMenu } from "../core/profiles.js";
 import { cacheGet, cacheSet } from "../core/storage.js";
 
 const KINDS = [
@@ -260,8 +260,9 @@ const HIKING_PROFILES = [
   { id: "reg", name: "Региональные", ranks: [LEVELS.REG.rank] },
   { id: "loc", name: "Местные", ranks: [LEVELS.LOC.rank] },
 ];
-const HIKING_KEY = "trails.hiking.profile";
-const hikingProfile = () => HIKING_PROFILES.find((p) => p.id === settings.get(HIKING_KEY)) || HIKING_PROFILES[0];
+const hikingProf = profileMenu("trails.hiking.profile", HIKING_PROFILES, "Тропы");
+// значимости отмеченных видов вместе; «Все тропы» — без фильтра
+const hikingRanks = () => { const s = hikingProf.selected(); return s.some((p) => !p.ranks) ? null : s.flatMap((p) => p.ranks); };
 
 register({
   ...common,
@@ -269,14 +270,10 @@ register({
   title: hiking.kind.title,
   hint: hiking.kind.hint,
   icon: chipIcon(hiking.kind.icon),
-  menu: {
-    items: () => HIKING_PROFILES.map((p) => ({ id: p.id, title: p.name, active: p === hikingProfile() })),
-    label: () => (hikingProfile().id === "all" ? hiking.kind.title : hikingProfile().name),
-    choose: (id) => settings.set(HIKING_KEY, id),
-  },
+  menu: hikingProf.menu,
   enable(ctx) {
     hiking.enable(ctx);
-    hiking.setRanks(hikingProfile().ranks);
+    hiking.setRanks(hikingRanks());
   },
   disable: hiking.disable,
   stats: hiking.stats,
@@ -288,8 +285,7 @@ const BIKE_PROFILES = [
   { id: "cycling", name: "Веломаршруты", kinds: [cycling] },
   { id: "mtb", name: "Маунтинбайк", kinds: [mtb] },
 ];
-const BIKE_KEY = "trails.cycling.profile";
-const bikeProfile = () => BIKE_PROFILES.find((p) => p.id === settings.get(BIKE_KEY)) || BIKE_PROFILES[0];
+const bikeProf = profileMenu("trails.cycling.profile", BIKE_PROFILES, "Велодорожки");
 
 register({
   ...common,
@@ -297,14 +293,10 @@ register({
   title: cycling.kind.title,
   hint: "Веломаршруты и маршруты для горного велосипеда",
   icon: chipIcon(cycling.kind.icon),
-  menu: {
-    items: () => BIKE_PROFILES.map((p) => ({ id: p.id, title: p.name, active: p === bikeProfile() })),
-    label: () => (bikeProfile().id === "all" ? cycling.kind.title : bikeProfile().name),
-    choose: (id) => settings.set(BIKE_KEY, id),
-  },
+  menu: bikeProf.menu,
   // повторное включение — смена вида: лишнее выключить, нужное включить
   enable(ctx) {
-    const want = bikeProfile().kinds;
+    const want = bikeProf.selected().flatMap((p) => p.kinds);
     for (const k of [cycling, mtb]) {
       if (want.includes(k)) k.enable(ctx);
       else if (k.on) k.disable();
