@@ -272,18 +272,44 @@ try {
     await run(`atlas.toggle("trails/hiking", false)`);
   }
 
+  // велодорожки: одна кнопка в разделе «Тропы», вид — в меню; «Маунтинбайк» оставляет только МТБ
+  if (mods.some((m) => m.id === "trails/cycling")) {
+    const bike = await run(`(async () => {
+      document.querySelector(".top-right").click(); await new Promise((r) => setTimeout(r, 300));
+      const sections = [...document.querySelectorAll("[data-panel=layers] .set-title")].map((h) => h.textContent);
+      const box = [...document.querySelectorAll("[data-panel=layers] .chip-split")].find((c) => /Велодорожки|Веломаршруты|Маунтинбайк/.test(c.textContent));
+      box.querySelector(".chip-arrow").click(); await new Promise((r) => setTimeout(r, 300));
+      const items = [...document.querySelectorAll(".chip-menu .menu-item")].map((i) => i.textContent);
+      [...document.querySelectorAll(".chip-menu .menu-item")].find((i) => i.textContent === "Маунтинбайк").click();
+      await new Promise((r) => setTimeout(r, 1500));
+      const layers = { cycling: !!atlas.map.getLayer("trails-cycling-line"), mtb: !!atlas.map.getLayer("trails-mtb-line") };
+      const label = [...document.querySelectorAll("[data-panel=layers] .chip-split")].find((c) => /Маунтинбайк/.test(c.textContent))?.textContent.trim();
+      // вернуть «Все велодорожки» и выключить — кнопками, как человек
+      const box2 = [...document.querySelectorAll("[data-panel=layers] .chip-split")].find((c) => /Маунтинбайк/.test(c.textContent));
+      box2.querySelector(".chip-arrow").click(); await new Promise((r) => setTimeout(r, 300));
+      [...document.querySelectorAll(".chip-menu .menu-item")].find((i) => i.textContent === "Все велодорожки").click();
+      await new Promise((r) => setTimeout(r, 800));
+      [...document.querySelectorAll("[data-panel=layers] .chip-main")].find((c) => c.textContent.trim() === "Велодорожки").click();
+      await new Promise((r) => setTimeout(r, 800));
+      const off = !atlas.modules().find((m) => m.id === "trails/cycling").active && !atlas.map.getLayer("trails-mtb-line");
+      document.querySelector("[data-panel=layers] .panel-btn[title=Закрыть]").click();
+      return { sections, items, layers, label, off };
+    })()`);
+    check("велодорожки: раздел «Тропы» и меню видов", bike.sections.includes("Тропы") && bike.items.length === 3 && bike.layers.mtb && !bike.layers.cycling && bike.label === "Маунтинбайк" && bike.off, JSON.stringify(bike));
+  }
+
   // рельеф и горизонтали в горах: линии высот появились, 3D включается
   if (mods.some((m) => m.id === "layers/contours")) {
-    await run(`atlas.map.jumpTo({ center: [11.85, 46.55], zoom: 13 }); (async () => { await atlas.toggle("layers/hillshade", true); await atlas.toggle("layers/contours", true); return true; })()`);
+    await run(`atlas.map.jumpTo({ center: [11.85, 46.55], zoom: 13 }); (async () => { await atlas.toggle("layers/contours", true); return true; })()`);
     for (let i = 0; i < 20 && !(await run(`atlas.map.getLayer("contours") ? atlas.map.queryRenderedFeatures({ layers: ["contours"] }).length > 0 : false`)); i++) await sleep(1000);
     await idle();
     const n = await run(`atlas.map.getLayer("contours") ? atlas.map.queryRenderedFeatures({ layers: ["contours"] }).length : -1`);
     check("горизонтали", n > 0, `${n} линий`);
     await shot("87-contours");
-    const t3d = await run(`(async () => { await atlas.toggle("layers/terrain3d", true); atlas.map.jumpTo({ pitch: 60 }); await new Promise((r) => setTimeout(r, 4000)); const on = !!atlas.map.getTerrain(); return on; })()`);
+    const t3d = await run(`(async () => { await atlas.toggle("layers/terrain", true); atlas.map.jumpTo({ pitch: 60 }); await new Promise((r) => setTimeout(r, 4000)); const on = !!atlas.map.getTerrain(); return on; })()`);
     await shot("88-terrain3d");
-    check("3D-рельеф", t3d);
-    await run(`(async () => { atlas.map.jumpTo({ pitch: 0 }); for (const id of ["layers/terrain3d", "layers/contours", "layers/hillshade"]) await atlas.toggle(id, false); return true; })()`);
+    check("рельеф: тени и 3D одной кнопкой", t3d && await run(`!!atlas.map.getLayer("hillshade")`));
+    await run(`(async () => { atlas.map.jumpTo({ pitch: 0 }); for (const id of ["layers/terrain", "layers/contours"]) await atlas.toggle(id, false); return true; })()`);
   }
 
   // пляжи и кайт (QLever): у Таллина — значки пляжей; сёрфинг — по всему миру и споты Грегори

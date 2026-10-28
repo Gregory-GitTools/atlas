@@ -1,4 +1,4 @@
-// Рельеф (перенос из travel-earth): тени склонов, горизонтали с подписями высот, 3D-рельеф.
+// Рельеф (перенос из travel-earth): тени склонов с 3D-рельефом и горизонтали с подписями высот.
 // Высоты — AWS Terrain Tiles (terrarium), без ключа. Горизонтали строит в браузере
 // maplibre-contour; он же даёт общий кэш картинок высот для теней и 3D (у каждого свой источник —
 // MapLibre просит не делить один на двоих). Библиотека грузится при первом включении
@@ -33,11 +33,13 @@ const font = (map) => map.getStyle().layers.find((l) => l.type === "symbol" && A
 const dem = (map, id) => map.getSource(id) || map.addSource(id, {
   type: "raster-dem", tiles: [demSource ? demSource.sharedDemProtocolUrl : DEM_URL], encoding: "terrarium", tileSize: 256, maxzoom: 13, attribution: ATTRIBUTION });
 
+// Рельеф — одна кнопка (Грегори, 2026-10-28: «Рельеф объединить с 3D-рельефом в один»): тени
+// склонов и объёмные горы вместе; объём виден, когда карта наклонена
 register({
-  id: "layers/hillshade",
+  id: "layers/terrain",
   kind: "layer",
   title: "Рельеф",
-  hint: "Тени склонов — горы становятся объёмными",
+  hint: "Тени склонов и объёмные горы — наклоните карту (правая кнопка мыши или два пальца)",
   icon: svg('<path d="M14 6l-3.75 5 2.85 3.8-1.6 1.2C9.81 13.75 7 10 7 10l-6 8h22L14 6z"/>'),
   needs: ["network"],
   sends: "район карты (AWS Terrain Tiles)",
@@ -48,9 +50,13 @@ register({
       "hillshade-exaggeration": 0.5,
       "hillshade-shadow-color": dark() ? "rgba(0,0,0,0.6)" : "rgba(60,50,40,0.45)",
       "hillshade-highlight-color": "rgba(255,255,255,0.25)" } }, firstSymbol(map));
+    dem(map, "dem-3d");
+    map.setTerrain({ source: "dem-3d", exaggeration: 1.3 });
   },
   disable({ map }) {
     if (map.getLayer("hillshade")) map.removeLayer("hillshade");
+    // пока стиль карты перезагружается, рельефа и так нет
+    if (map.style && map.getTerrain()) map.setTerrain(null);
   },
 });
 
@@ -82,25 +88,6 @@ register({
   },
   disable({ map }) {
     for (const id of ["contour-labels", "contours"]) if (map.getLayer(id)) map.removeLayer(id);
-  },
-});
-
-register({
-  id: "layers/terrain3d",
-  kind: "layer",
-  title: "3D-рельеф",
-  hint: "Объёмный рельеф — наклоните карту (правая кнопка мыши или два пальца)",
-  icon: svg('<path d="M2 17.5l5 3.5h15l-5-3.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M4.5 16.5l5-8 3 4.5 2.5-3 4.5 6.5z"/>'),
-  needs: ["network"],
-  sends: "район карты (AWS Terrain Tiles)",
-  load: ({ maplibregl }) => contourLib(maplibregl),
-  enable({ map }) {
-    dem(map, "dem-3d");
-    map.setTerrain({ source: "dem-3d", exaggeration: 1.3 });
-  },
-  disable({ map }) {
-    // пока стиль карты перезагружается, рельефа и так нет
-    if (map.style && map.getTerrain()) map.setTerrain(null);
   },
 });
 

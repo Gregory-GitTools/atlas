@@ -14,7 +14,11 @@
 // Пропуски: список маршрутов в квадрате сервер ограничивает сотней (в горах это предел — часть
 // местных троп не приходила). Квадрат, где пришло 100, делится на четыре — пока маршруты не
 // перестанут теряться или квадрат не станет совсем мелким.
+//
+// В панели — свой раздел «Тропы» (group: "trails"): «Тропы» и «Велодорожки» с меню видов, как у
+// «Магазинов» (Грегори, 2026-10-28: «велодорожки объединить в выпадающий список»).
 import { register } from "../core/modules.js";
+import * as settings from "../core/settings.js";
 import { cacheGet, cacheSet } from "../core/storage.js";
 
 const KINDS = [
@@ -206,14 +210,9 @@ function makeKind(kind) {
     }
   }
 
-  register({
-    id: `trails/${kind.id}`,
-    kind: "layer",
-    title: kind.title,
-    hint: kind.hint,
-    icon: chipIcon(kind.icon),
-    needs: ["network"],
-    sends: "район карты (Waymarked Trails)",
+  return {
+    kind,
+    get on() { return on_; },
     enable(ctx) {
       map = ctx.map;
       status = ctx.status;
@@ -235,7 +234,52 @@ function makeKind(kind) {
     stats: () => ({ routes: routes.size, segs: segs.size, full: full.size,
       segPoints: [...segs.values()].reduce((n, f) => n + f.geometry.coordinates.length, 0),
       fullPoints: [...full.values()].flat().reduce((n, f) => n + f.geometry.coordinates.length, 0) }),
-  });
+  };
 }
 
-KINDS.forEach(makeKind);
+const [hiking, cycling, mtb] = KINDS.map(makeKind);
+const common = { kind: "layer", group: "trails", needs: ["network"], sends: "район карты (Waymarked Trails)" };
+
+register({
+  ...common,
+  id: "trails/hiking",
+  title: hiking.kind.title,
+  hint: hiking.kind.hint,
+  icon: chipIcon(hiking.kind.icon),
+  enable: hiking.enable,
+  disable: hiking.disable,
+  stats: hiking.stats,
+});
+
+// велодорожки — одна кнопка, вид выбирается в меню и помнится
+const BIKE_PROFILES = [
+  { id: "all", name: "Все велодорожки", kinds: [cycling, mtb] },
+  { id: "cycling", name: "Веломаршруты", kinds: [cycling] },
+  { id: "mtb", name: "Маунтинбайк", kinds: [mtb] },
+];
+const BIKE_KEY = "trails.cycling.profile";
+const bikeProfile = () => BIKE_PROFILES.find((p) => p.id === settings.get(BIKE_KEY)) || BIKE_PROFILES[0];
+
+register({
+  ...common,
+  id: "trails/cycling",
+  title: cycling.kind.title,
+  hint: "Веломаршруты и маршруты для горного велосипеда",
+  icon: chipIcon(cycling.kind.icon),
+  menu: {
+    items: () => BIKE_PROFILES.map((p) => ({ id: p.id, title: p.name, active: p === bikeProfile() })),
+    label: () => (bikeProfile().id === "all" ? cycling.kind.title : bikeProfile().name),
+    choose: (id) => settings.set(BIKE_KEY, id),
+  },
+  // повторное включение — смена вида: лишнее выключить, нужное включить
+  enable(ctx) {
+    const want = bikeProfile().kinds;
+    for (const k of [cycling, mtb]) {
+      if (want.includes(k)) k.enable(ctx);
+      else if (k.on) k.disable();
+    }
+  },
+  disable() {
+    for (const k of [cycling, mtb]) if (k.on) k.disable();
+  },
+});
