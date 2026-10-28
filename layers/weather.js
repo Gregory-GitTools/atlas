@@ -131,6 +131,7 @@ const dirName = (deg) => DIRS[Math.round(deg / 22.5) % 16];
   register({
     id: "weather/wind",
     kind: "layer",
+    group: "weather",
     title: "Ветер",
     hint: "Ветер сейчас: стрелка — куда дует, число — м/с; щелчок — прогноз на сутки",
     icon: svg('<path d="M4 9h11a3 3 0 1 0-3-3h2a1 1 0 1 1 1 1H4zm0 4h15a3 3 0 1 1-3 3h2a1 1 0 1 0 1-1H4zm0-2h8v0H4z"/><path d="M3 11h9v2H3z"/>'),
@@ -199,6 +200,7 @@ const dirName = (deg) => DIRS[Math.round(deg / 22.5) % 16];
   register({
     id: "weather/radar",
     kind: "layer",
+    group: "weather",
     title: "Осадки",
     hint: "Дождь и снег по радарам за последние 2 часа (анимация); подробно — до масштаба около 50 км",
     icon: svg('<path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.99 5.99 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" opacity=".35"/><path d="M8 14l-1.5 4h1.6L9.6 14zm4 0-1.5 4h1.6l1.5-4zm4 0-1.5 4h1.6l1.5-4z"/>'),

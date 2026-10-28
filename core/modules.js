@@ -11,7 +11,8 @@
 //               этом устройстве — модуль не показывается; нет данных — кнопка неактивна
 //   sends     — что модуль отправляет в сеть, для экрана «Что уходит в сеть»: "район карты",
 //               "текст запроса", "звук"…; не отправляет ничего — поле не задаётся
-//   group     — раздел в панели «Слои» ("places" — «Места»); exclusive: true — в группе включён только один
+//   group     — раздел (кружок) в меню «Слои»: places, trails, roads, relief, weather, water; "hidden" — не
+//               показывать; exclusive: true — в группе включён только один
 //   menu      — меню у чипа: { items() → [{ id, title, active }], label(), choose(id) } (профили магазинов)
 //   load()    — тяжёлое грузится здесь, при первом включении, а не при старте
 //   enable(ctx) / disable(ctx) — включить и выключить; ctx = { map, status }
@@ -23,8 +24,8 @@ export const MODULES = [
   "../layers/places.js",
   "../layers/trails.js",
   "../layers/outdoor.js",
-  "../layers/terrain.js",
   "../layers/roads.js",
+  "../layers/terrain.js",
   "../layers/weather.js",
 ];
 

@@ -42,7 +42,9 @@ export function applyLabels(map) {
 export function setLabelLanguage(map, lang) {
   current = lang;
   settings.set("labels", lang.code);
-  if (map.isStyleLoaded()) applyLabels(map);
+  // isStyleLoaded() ложно, пока догружаются плитки, — но слои уже есть, менять можно; стиль ещё
+  // не пришёл совсем — подписи поставит style.load
+  try { applyLabels(map); } catch { /* стиль ещё не загружен */ }
   emit("label-language", { code: lang.code, ui: uiLanguage() });
 }
 

@@ -38,7 +38,8 @@ const dem = (map, id) => map.getSource(id) || map.addSource(id, {
 register({
   id: "layers/terrain",
   kind: "layer",
-  title: "Рельеф",
+  group: "relief",
+  title: "Тени и 3D",
   hint: "Тени склонов и объёмные горы — наклоните карту (правая кнопка мыши или два пальца)",
   icon: svg('<path d="M14 6l-3.75 5 2.85 3.8-1.6 1.2C9.81 13.75 7 10 7 10l-6 8h22L14 6z"/>'),
   needs: ["network"],
@@ -63,6 +64,7 @@ register({
 register({
   id: "layers/contours",
   kind: "layer",
+  group: "relief",
   title: "Высоты",
   hint: "Линии равной высоты с подписями в метрах — с масштаба около 2 км",
   icon: svg('<g fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2.5 15c0-5 4.5-9.5 10-9.5s9 3.5 9 7.5-4 6.5-9.5 6.5S2.5 19 2.5 15z"/><path d="M6.5 14.5c0-3 2.8-5.5 6-5.5s5.3 2 5.3 4.2-2.5 3.8-5.5 3.8-5.8-.3-5.8-2.5z"/></g><circle cx="12.3" cy="13.4" r="1.5"/>'),
@@ -96,6 +98,7 @@ register({
 register({
   id: "layers/railways",
   kind: "layer",
+  group: "roads",
   title: "Железные дороги",
   hint: "Поезда, метро, трамваи и фуникулёры — каждый своим цветом",
   icon: svg('<path d="M12 2c-4 0-8 .5-8 4v9.5C4 17.43 5.57 19 7.5 19L6 20.5v.5h2.23l2-2H14l2 2h2v-.5L16.5 19c1.93 0 3.5-1.57 3.5-3.5V6c0-3.5-3.58-4-8-4zM7.5 17c-.83 0-1.5-.67-1.5-1.5S6.67 14 7.5 14s1.5.67 1.5 1.5S8.33 17 7.5 17zm3.5-7H6V6h5v4zm2 0V6h5v4h-5zm3.5 7c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>'),

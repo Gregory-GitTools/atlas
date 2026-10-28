@@ -149,7 +149,7 @@ function wireClick(ctx, id) {
   };
   let wired = false;
   register({
-    id: "layers/beaches", kind: "layer", title: "Пляжи", hint: "Пляжи — с масштаба 10 км", icon: glyphSvg("beach"),
+    id: "layers/beaches", kind: "layer", group: "water", title: "Пляжи", hint: "Пляжи — с масштаба 10 км", icon: glyphSvg("beach"),
     needs: ["network"], sends: "район карты (QLever, OpenStreetMap)",
     enable(c) {
       ctx = c; active = true;
@@ -195,7 +195,7 @@ function wireClick(ctx, id) {
     loading = false;
   };
   register({
-    id: "layers/surf", kind: "layer", title: "Сёрфинг", hint: "Сёрфинг, кайт и виндсёрфинг по всему миру", icon: glyphSvg("kitesurfing"),
+    id: "layers/surf", kind: "layer", group: "water", title: "Сёрфинг", hint: "Сёрфинг, кайт и виндсёрфинг по всему миру", icon: glyphSvg("kitesurfing"),
     needs: ["network"], sends: "запрос мест для сёрфинга (QLever, OpenStreetMap)",
     enable(c) {
       ctx = c;

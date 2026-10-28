@@ -62,3 +62,6 @@ export function close(id) {
 }
 
 export const isOpen = (id) => openId === id;
+
+// закрыть открытую панель (столбик «Слои» открылся — панели уступают ему место)
+export const closeOpen = () => openId && close(openId);
