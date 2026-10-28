@@ -51,6 +51,11 @@ const transportFar = new Map(); // osm → feature
 // отдаёт его узлы, и узлы aerialway=station — станции; их слой places-cable — до зума 14, дальше
 // станции из тайлов. Тросы и рельсы фуникулёров подкрашены цветом их булавок (ядовито-зелёный)
 const CABLE_LINE_CLASSES = ["cable_car", "gondola", "mixed_lift"];
+// Издалека канатные дороги видны так же, как фуникулёры, — со шкалы «3 км» (Грегори, 2026-10-28:
+// «подними по видимости канатные дороги до фуникулёров»). В тайлах тросов мельче зума 12 нет,
+// поэтому и тросы (с линией), и станции до зума 12 — из QLever тем же квадратом 1°
+const CABLE_SPARQL = `?osm osmkey:aerialway ?kind . FILTER (?kind IN ("cable_car", "gondola", "mixed_lift", "station"))`;
+const cableFarLines = new Map(); // osm → линия троса (до зума 12)
 const CABLE_PIN = { glyph: "cable", color: "#39ff14", ink: "#000" };
 const cableStations = new Map(); // id троса в тайлах → станции (GeoJSON), null — загружается
 const funicularIds = new Set(); // id точек в тайлах (osm_id·10 + тип)
@@ -76,13 +81,13 @@ SHOP_PROFILES.unshift({ id: "all", name: "Все магазины", subclasses: 
 const ALL_STOPS = ["bus_stop", "tram_stop"];
 const TRANSPORT_PROFILES = [
   { id: "all", name: "Весь транспорт", subclasses: ["bus_station", "station", "halt", "subway", "ferry_terminal"], stops: ALL_STOPS,
-    airports: true, far: ["station", "halt", "funicular"], cable: true },
+    airports: true, far: ["station", "halt", "funicular", "cable"], cable: true },
   { id: "trains", name: "Поезда и вокзалы", subclasses: ["station", "halt"], rail: true, far: ["station", "halt"] },
   { id: "metro", name: "Метро", subclasses: ["subway"] },
   { id: "tram", name: "Трамваи", subclasses: [], stops: ["tram_stop"] },
   { id: "bus", name: "Автобусы", subclasses: ["bus_station"], stops: ["bus_stop"] },
   { id: "ferry", name: "Паромы", subclasses: ["ferry_terminal"] },
-  { id: "lifts", name: "Фуникулёры и канатные дороги", subclasses: ["station", "halt"], lifts: true, far: ["funicular"], cable: true },
+  { id: "lifts", name: "Фуникулёры и канатные дороги", subclasses: ["station", "halt"], lifts: true, far: ["funicular", "cable"], cable: true },
   { id: "air", name: "Аэропорты", subclasses: [], airports: true },
 ];
 
@@ -177,6 +182,10 @@ function ensureLayers(map) {
   layer("places-stops", "poi"); // остановки ниже станций — станция не прячется под флажком остановки
   layer("places-poi", "poi");
   layer("places-air", "aerodrome_label", { minzoom: 0, filter: AIRPORT_FILTER });
+  map.addSource("places-cable-lines", { type: "geojson", data: cableLinesData() });
+  map.addLayer({ id: "places-cable-far-line", type: "line", source: "places-cable-lines", maxzoom: MIN_ZOOM,
+    layout: { visibility: "none", "line-cap": "round" }, paint: { "line-color": FUNICULAR_PIN.color, "line-width": 2 } },
+    "places-stops");
   map.addSource("places-cable", { type: "geojson", data: cableData() });
   map.addLayer({ id: "places-cable", type: "symbol", source: "places-cable", minzoom: MIN_ZOOM, maxzoom: FULL_ZOOM,
     layout: { visibility: "none", "icon-anchor": "bottom", "icon-size": ["interpolate", ["linear"], ["zoom"], 12, 1, 17, 1.4],
@@ -187,6 +196,9 @@ function ensureLayers(map) {
 }
 
 const transportData = () => ({ type: "FeatureCollection", features: [...transportFar.values()] });
+const cableLinesData = () => ({ type: "FeatureCollection", features: [...cableFarLines.values()] });
+// WKT линии: LINESTRING(x y, …) или MULTILINESTRING((…),(…)) → массив линий
+const wktLines = (wkt) => [...wkt.matchAll(/\(([^()]+)\)/g)].map((m) => m[1].split(",").map((p) => p.trim().split(/\s+/).map(Number)));
 const cableData = () => ({ type: "FeatureCollection", features: [...cableStations.values()].flatMap((s) => s || []) });
 
 async function loadCableStations(map, lineId) {
@@ -227,12 +239,31 @@ const transportLoader = cellLoader(TRANSPORT_CELL, async (box) => {
   if (newFunicular && transportMap && active?.far) apply(transportMap);
 }, () => transportMap && updateTransport(transportMap));
 
+const cableLoader = cellLoader(TRANSPORT_CELL, async (box) => {
+  for (const { osm, coordinates, b } of await qleverBox("?wkt", CABLE_SPARQL, box)) {
+    const [type, num] = osm.split("/");
+    if (b.kind.value === "station") {
+      transportFar.set(osm, { type: "Feature", id: Number(num) * 10 + OSM_TYPE_NUM[type], geometry: { type: "Point", coordinates },
+        properties: { class: "aerialway", subclass: "cable" } });
+    } else {
+      const lines = wktLines(b.wkt.value);
+      if (lines.length) cableFarLines.set(osm, { type: "Feature", geometry: { type: "MultiLineString", coordinates: lines }, properties: { kind: b.kind.value } });
+    }
+  }
+  transportMap?.getSource("places-transport")?.setData(transportData());
+  transportMap?.getSource("places-cable-lines")?.setData(cableLinesData());
+}, () => transportMap && updateTransport(transportMap));
+
 function updateTransport(map) {
   transportMap = map;
   if (!active?.far) return;
   const far = zoomForScale(map, TRANSPORT_FAR_M);
   if (map.getLayer("places-transport-far")) map.setLayerZoomRange("places-transport-far", Math.min(far, MIN_ZOOM), MIN_ZOOM);
-  if (map.getZoom() >= far) transportLoader.request(cellsInView(map, TRANSPORT_CELL, 1));
+  if (map.getZoom() >= far) {
+    transportLoader.request(cellsInView(map, TRANSPORT_CELL, 1));
+    if (active.cable) cableLoader.request(cellsInView(map, TRANSPORT_CELL, 1));
+  }
+  if (map.getLayer("places-cable-far-line")) map.setLayerZoomRange("places-cable-far-line", Math.min(far, MIN_ZOOM), MIN_ZOOM);
 }
 
 function apply(map) {
@@ -244,6 +275,7 @@ function apply(map) {
   vis("places-transport-far", !!active?.far);
   vis("places-cable", !!active?.cable);
   vis("places-lift-line", !!active?.cable);
+  vis("places-cable-far-line", !!active?.cable);
   if (!active) return;
   const img = modeIcon(map, active);
   map.setLayoutProperty("places-poi", "icon-image", img);
@@ -280,11 +312,12 @@ function updateStatus(map, status) {
     active.stops?.length ? Math.max(MIN_ZOOM, zoomForScale(map, STOP_MAX_M_PER_100PX)) : Infinity,
     active.airports ? zoomForScale(map, AIRPORT_MAX_M_PER_100PX) : Infinity,
     active.far ? zoomForScale(map, TRANSPORT_FAR_M) : Infinity);
+  // что-то уже видно — подсказка не нужна, даже если часть плиток ещё грузится
+  const found = map.queryRenderedFeatures({ layers: LAYERS.filter((id) => map.getLayer(id)) }).length;
+  if (found) { status(""); return; }
   if (map.getZoom() < min) { status(zoomIn); return; }
   if (!map.areTilesLoaded()) return;
-  const found = map.queryRenderedFeatures({ layers: LAYERS.filter((id) => map.getLayer(id)) }).length;
-  if (found) status("");
-  else if (map.getZoom() < FULL_ZOOM) status(zoomIn);
+  if (map.getZoom() < FULL_ZOOM) status(zoomIn);
   else status(`В этой части карты не найдено: ${name.toLowerCase()}`);
 }
 
