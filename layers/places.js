@@ -16,7 +16,7 @@ import { qleverBox, cellsInView, cellLoader } from "../core/qlever.js";
 const MIN_ZOOM = 12;
 const FULL_ZOOM = 14;
 const SOURCE = "places-tiles";
-const LAYERS = ["places-poi", "places-stops", "places-air", "places-transport-far"];
+const LAYERS = ["places-poi", "places-stops", "places-air", "places-transport-far", "places-cable"];
 const OPENMAPTILES = { type: "vector", url: "https://tiles.openfreemap.org/planet" };
 const AIRPORT_MAX_M_PER_100PX = 10000; // аэропорты — со шкалы «5 км»
 const STOP_MAX_M_PER_100PX = 200; // остановки — со шкалы «100 м»
@@ -46,6 +46,13 @@ const TRANSPORT_SPARQL = `{ ?osm osmkey:railway "station" . BIND("station" AS ?k
   UNION { ?osm osmkey:railway "halt" . BIND("halt" AS ?kind) OPTIONAL { ?osm osmkey:station ?st } OPTIONAL { ?osm osmkey:funicular ?fun } }`;
 const OSM_TYPE_NUM = { node: 1, way: 2, relation: 3 };
 const transportFar = new Map(); // osm → feature
+// Канатные дороги (перенос из travel-earth): тросы (transportation: cable_car, gondola, mixed_lift)
+// есть в тайлах с зума 12, а станции — только с 14. Поэтому по id троса OSM API (way/…/full)
+// отдаёт его узлы, и узлы aerialway=station — станции; их слой places-cable — до зума 14, дальше
+// станции из тайлов. Тросы и рельсы фуникулёров подкрашены цветом их булавок (ядовито-зелёный)
+const CABLE_LINE_CLASSES = ["cable_car", "gondola", "mixed_lift"];
+const CABLE_PIN = { glyph: "cable", color: "#39ff14", ink: "#000" };
+const cableStations = new Map(); // id троса в тайлах → станции (GeoJSON), null — загружается
 const funicularIds = new Set(); // id точек в тайлах (osm_id·10 + тип)
 
 const SHOP_PROFILES = [
@@ -145,15 +152,47 @@ function ensureLayers(map) {
     layout: { visibility: "none", "icon-anchor": "bottom", "icon-size": ["interpolate", ["linear"], ["zoom"], 12, 1, 17, 1.4],
       "icon-allow-overlap": true, "icon-ignore-placement": true },
   });
+  // тросы канатных дорог и рельсы фуникулёров — под булавками
+  map.addLayer({ id: "places-lift-line", type: "line", source: SOURCE, "source-layer": "transportation", minzoom: MIN_ZOOM,
+    filter: ["in", ["get", "subclass"], ["literal", ["funicular", ...CABLE_LINE_CLASSES]]],
+    layout: { visibility: "none", "line-cap": "round" },
+    paint: { "line-color": FUNICULAR_PIN.color, "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2, 17, 5] } });
   layer("places-stops", "poi"); // остановки ниже станций — станция не прячется под флажком остановки
   layer("places-poi", "poi");
   layer("places-air", "aerodrome_label", { minzoom: 0, filter: AIRPORT_FILTER });
+  map.addSource("places-cable", { type: "geojson", data: cableData() });
+  map.addLayer({ id: "places-cable", type: "symbol", source: "places-cable", minzoom: MIN_ZOOM, maxzoom: FULL_ZOOM,
+    layout: { visibility: "none", "icon-anchor": "bottom", "icon-size": ["interpolate", ["linear"], ["zoom"], 12, 1, 17, 1.4],
+      "icon-allow-overlap": true, "icon-ignore-placement": true } });
   map.addSource("places-transport", { type: "geojson", data: transportData() });
   map.addLayer({ id: "places-transport-far", type: "symbol", source: "places-transport", minzoom: 0, maxzoom: MIN_ZOOM,
     layout: { visibility: "none", "icon-anchor": "bottom", "icon-size": 1, "icon-allow-overlap": true, "icon-ignore-placement": true } });
 }
 
 const transportData = () => ({ type: "FeatureCollection", features: [...transportFar.values()] });
+const cableData = () => ({ type: "FeatureCollection", features: [...cableStations.values()].flatMap((s) => s || []) });
+
+async function loadCableStations(map, lineId) {
+  cableStations.set(lineId, null);
+  let stations = [];
+  try {
+    const res = await fetch(`https://api.openstreetmap.org/api/0.6/way/${Math.floor(lineId / 10)}/full.json`);
+    if (!res.ok) throw new Error(`OSM API: ${res.status}`);
+    stations = (await res.json()).elements.filter((e) => e.type === "node" && e.tags?.aerialway === "station").map((e) => ({
+      type: "Feature", id: e.id * 10 + 1, // как в тайлах — окно по нему же подгрузит подробности
+      geometry: { type: "Point", coordinates: [e.lon, e.lat] }, properties: { ...e.tags, class: "aerialway", subclass: "station" } }));
+  } catch (err) { console.warn(err); }
+  cableStations.set(lineId, stations);
+  map.getSource("places-cable")?.setData(cableData());
+}
+
+// тросы в кадре → их станции (раз на трос)
+function updateCables(map) {
+  if (!active?.modes || !map.getLayer("places-cable") || map.getZoom() >= FULL_ZOOM || map.getZoom() < MIN_ZOOM) return;
+  for (const f of map.querySourceFeatures(SOURCE, { sourceLayer: "transportation", filter: ["in", ["get", "subclass"], ["literal", CABLE_LINE_CLASSES]] })) {
+    if (f.id != null && f.id % 10 === 2 && !cableStations.has(f.id)) loadCableStations(map, f.id);
+  }
+}
 let transportMap = null;
 const transportLoader = cellLoader(TRANSPORT_CELL, async (box) => {
   let newFunicular = false;
@@ -186,12 +225,15 @@ function apply(map) {
   vis("places-stops", !!active?.stops);
   vis("places-air", !!active?.airports);
   vis("places-transport-far", !!active?.modes);
+  vis("places-cable", !!active?.modes);
+  vis("places-lift-line", !!active?.modes);
   if (!active) return;
   const img = modeIcon(map, active);
   map.setLayoutProperty("places-poi", "icon-image", img);
   map.setLayoutProperty("places-stops", "icon-image", img);
   map.setLayoutProperty("places-air", "icon-image", pin(map, AIRPORT_PIN.color, AIRPORT_PIN.glyph));
   map.setLayoutProperty("places-transport-far", "icon-image", img);
+  map.setLayoutProperty("places-cable", "icon-image", pin(map, CABLE_PIN.color, CABLE_PIN.glyph, CABLE_PIN.ink));
   map.setFilter("places-poi", ["in", ["get", "subclass"], ["literal", active.subclasses]]);
   map.setFilter("places-stops", ["in", ["get", "subclass"], ["literal", active.stops || []]]);
   scaleZooms(map);
@@ -224,7 +266,7 @@ function wire({ map, maplibregl, status }) {
   claimLayers(...LAYERS);
   map.on("style.load", () => { ensureLayers(map); apply(map); });
   map.on("moveend", () => scaleZooms(map));
-  map.on("idle", () => updateTransport(map));
+  map.on("idle", () => { updateTransport(map); updateCables(map); });
   map.on("idle", () => updateStatus(map, status));
   map.on("zoomend", () => updateStatus(map, status));
   let click = 0;

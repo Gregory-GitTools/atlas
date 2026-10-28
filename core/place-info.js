@@ -42,7 +42,8 @@ const KIND = {
 const OSM_TYPES = { 1: "node", 2: "way", 3: "relation" };
 
 const withTimeout = (promise, ms, fallback) => Promise.race([promise, new Promise((r) => setTimeout(r, ms, fallback))]);
-const kindOf = (f) => KIND[f.properties.subclass] || KIND[f.properties.class];
+// станции канатных дорог в тайлах тоже station — их узнаём по class
+const kindOf = (f) => (f.properties.class === "aerialway" ? "Станция канатной дороги" : KIND[f.properties.subclass] || KIND[f.properties.class]);
 const h = (cls, text, tag = "div") => Object.assign(document.createElement(tag), { className: cls, textContent: text });
 
 // теги OSM значка: у OpenFreeMap id = osm_id·10 + тип; у CARTO номера свои — ищем по имени рядом
