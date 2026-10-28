@@ -182,6 +182,7 @@ try {
     await run(`${chipFor("Рестораны")}.click(); true`);
     await sleep(800);
     await idle();
+    for (let i = 0; i < 15 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["places-poi-food"] }).length > 0`)); i++) await sleep(1000);
     const pins = await run(`atlas.map.queryRenderedFeatures({ layers: ["places-poi-food"] }).length`);
     check("места: флажки ресторанов", pins > 0, `${pins}`);
     await shot("80-places-food");
@@ -269,6 +270,16 @@ try {
     const poi = await run(`(() => { const d = atlas.map.getSource("trail-poi")?.serialize?.().data?.features || []; return { all: d.length, photo: d.filter((f) => f.properties.hasPhoto).length, water: d.filter((f) => f.properties.kind === "drinking_water").length, ringImg: atlas.map.hasImage("outdoor-guidepost-photo") }; })()`);
     check("значки у троп: загрузились, обводка для фото готова", poi.all > 0 && poi.ringImg, JSON.stringify(poi));
     await shot("86-trails-full");
+    // меню значимости: «Местные» — только фиолетовые линии (rank 1), картинки издалека не трогаются
+    await run(`atlas.map.jumpTo({ center: [11.765, 46.585], zoom: 12.5 }); (async () => { localStorage.setItem("atlas.trails.hiking.profile", JSON.stringify("loc")); await atlas.toggle("trails/hiking", true); return true; })()`);
+    await idle();
+    const loc = await run(`[...new Set(atlas.map.queryRenderedFeatures({ layers: ["trails-hiking-line"] }).map((f) => f.properties.rank))]`);
+    check("тропы: меню «Местные» — только местные", loc.length > 0 && loc.every((r) => r === 1), JSON.stringify(loc));
+    await shot("86b-trails-local");
+    await run(`localStorage.removeItem("atlas.trails.hiking.profile"); atlas.toggle("trails/hiking", true).then(() => true)`);
+    await idle();
+    const all = await run(`[...new Set(atlas.map.queryRenderedFeatures({ layers: ["trails-hiking-line"] }).map((f) => f.properties.rank))]`);
+    check("тропы: «Все тропы» — снова все", all.length > 1, JSON.stringify(all));
     await run(`atlas.toggle("trails/hiking", false)`);
   }
 
@@ -296,6 +307,22 @@ try {
       return { sections, items, layers, label, off };
     })()`);
     check("велодорожки: раздел «Тропы» и меню видов", bike.sections.includes("Тропы") && bike.items.length === 3 && bike.layers.mtb && !bike.layers.cycling && bike.label === "Маунтинбайк" && bike.off, JSON.stringify(bike));
+  }
+
+  // дороги: у Таллина — линии по классам; «Грунтовые» — только без покрытия
+  if (mods.some((m) => m.id === "layers/roads")) {
+    await run(`atlas.map.jumpTo({ center: [24.75, 59.4], zoom: 12 }); atlas.toggle("layers/roads", true).then(() => true)`);
+    await idle();
+    const classes = await run(`[...new Set(atlas.map.queryRenderedFeatures({ layers: ["road", "road-unpaved", "road-tunnel"] }).map((f) => f.properties.class))]`);
+    check("дороги: линии по классам", classes.includes("primary") || classes.includes("trunk"), JSON.stringify(classes));
+    await shot("87a-roads");
+    await run(`(async () => { localStorage.setItem("atlas.roads.profile", JSON.stringify("unpaved")); await atlas.toggle("layers/roads", true); return true; })()`);
+    await idle();
+    const unp = await run(`({ paved: atlas.map.queryRenderedFeatures({ layers: ["road", "road-tunnel"] }).length,
+      unpaved: atlas.map.queryRenderedFeatures({ layers: ["road-unpaved"] }).length })`);
+    check("дороги: «Грунтовые» — только без покрытия", unp.paved === 0 && unp.unpaved > 0, JSON.stringify(unp));
+    await shot("87b-roads-unpaved");
+    await run(`localStorage.removeItem("atlas.roads.profile"); atlas.toggle("layers/roads", false).then(() => true)`);
   }
 
   // рельеф и горизонтали в горах: линии высот появились, 3D включается

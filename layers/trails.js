@@ -16,7 +16,8 @@
 // перестанут теряться или квадрат не станет совсем мелким.
 //
 // В панели — свой раздел «Тропы» (group: "trails"): «Тропы» и «Велодорожки» с меню видов, как у
-// «Магазинов» (Грегори, 2026-10-28: «велодорожки объединить в выпадающий список»).
+// «Магазинов» (Грегори, 2026-10-28: «велодорожки объединить в выпадающий список»). У «Троп» меню
+// по значимости — тот же цвет, что у линий: международные, национальные, региональные, местные.
 import { register } from "../core/modules.js";
 import * as settings from "../core/settings.js";
 import { cacheGet, cacheSet } from "../core/storage.js";
@@ -78,6 +79,16 @@ function makeKind(kind) {
   const fullState = new Map(); // route → "loading" | true | когда повторить
   let queues = Array.from({ length: STREAMS }, () => Promise.resolve());
   let next = 0, dirty = false, map = null, status = () => {}, on_ = false, wired = false;
+  let ranks = null; // показывать только маршруты такой значимости (null — все)
+
+  // фильтр по значимости — только своим линиям и табличкам; готовые картинки издалека не делятся
+  // (Грегори, 2026-10-28: «показывать издалека все тропы»)
+  const applyFilter = () => {
+    if (!map?.getLayer(lineLayer)) return;
+    const only = ranks && ["in", ["get", "rank"], ["literal", ranks]];
+    map.setFilter(lineLayer, only || null);
+    map.setFilter(labelLayer, only ? ["all", ["has", "label"], only] : ["has", "label"]);
+  };
 
   const props = (id) => routes.get(id) || { color: LEVELS.LOC.color, rank: 1 };
   const data = () => ({ type: "FeatureCollection", features: [...[...segs.values()].filter((f) => !full.has(f.properties.route)), ...[...full.values()].flat()] });
@@ -106,6 +117,7 @@ function makeKind(kind) {
         "text-size": ["interpolate", ["linear"], ["zoom"], 11, 10, 12, 11, 14, 12, 17, 15, 20, 20],
         "icon-image": ["concat", "plate-", ["get", "color"]], "icon-text-fit": "both", "icon-text-fit-padding": [1, 3, 0, 3] },
       paint: { "text-color": "#fff" } });
+    applyFilter();
   }
 
   function plate(color) {
@@ -213,6 +225,7 @@ function makeKind(kind) {
   return {
     kind,
     get on() { return on_; },
+    setRanks(r) { ranks = r; applyFilter(); },
     enable(ctx) {
       map = ctx.map;
       status = ctx.status;
@@ -240,13 +253,31 @@ function makeKind(kind) {
 const [hiking, cycling, mtb] = KINDS.map(makeKind);
 const common = { kind: "layer", group: "trails", needs: ["network"], sends: "район карты (Waymarked Trails)" };
 
+const HIKING_PROFILES = [
+  { id: "all", name: "Все тропы", ranks: null },
+  { id: "int", name: "Международные", ranks: [LEVELS.INT.rank] },
+  { id: "nat", name: "Национальные", ranks: [LEVELS.NAT.rank] },
+  { id: "reg", name: "Региональные", ranks: [LEVELS.REG.rank] },
+  { id: "loc", name: "Местные", ranks: [LEVELS.LOC.rank] },
+];
+const HIKING_KEY = "trails.hiking.profile";
+const hikingProfile = () => HIKING_PROFILES.find((p) => p.id === settings.get(HIKING_KEY)) || HIKING_PROFILES[0];
+
 register({
   ...common,
   id: "trails/hiking",
   title: hiking.kind.title,
   hint: hiking.kind.hint,
   icon: chipIcon(hiking.kind.icon),
-  enable: hiking.enable,
+  menu: {
+    items: () => HIKING_PROFILES.map((p) => ({ id: p.id, title: p.name, active: p === hikingProfile() })),
+    label: () => (hikingProfile().id === "all" ? hiking.kind.title : hikingProfile().name),
+    choose: (id) => settings.set(HIKING_KEY, id),
+  },
+  enable(ctx) {
+    hiking.enable(ctx);
+    hiking.setRanks(hikingProfile().ranks);
+  },
   disable: hiking.disable,
   stats: hiking.stats,
 });

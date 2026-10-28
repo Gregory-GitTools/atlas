@@ -24,6 +24,7 @@ export const MODULES = [
   "../layers/trails.js",
   "../layers/outdoor.js",
   "../layers/terrain.js",
+  "../layers/roads.js",
   "../layers/weather.js",
 ];
 
