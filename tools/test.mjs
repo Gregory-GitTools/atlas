@@ -203,6 +203,16 @@ try {
     await run(`atlas.toggle("places/food", false); true`);
   }
 
+  // транспорт издалека (QLever): у Барселоны на «3 км» — вокзалы и фуникулёр Монжуика зелёной булавкой
+  if (mods.some((m) => m.id === "places/transport")) {
+    await run(`atlas.map.jumpTo({ center: [2.16, 41.38], zoom: 10.5 }); atlas.toggle("places/transport", true)`);
+    for (let i = 0; i < 45 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["places-transport-far"] }).length > 0`)); i++) await sleep(1000);
+    const far = await run(`(() => { const fs = atlas.map.queryRenderedFeatures({ layers: ["places-transport-far"] }); return { n: fs.length, funicular: fs.filter((f) => f.properties.subclass === "funicular").length }; })()`);
+    check("транспорт: вокзалы издалека", far.n > 0, JSON.stringify(far));
+    await shot("82-transport-far");
+    await run(`atlas.toggle("places/transport", false)`);
+  }
+
   // пешие тропы (Валь-Гардена): с зума 11 — линии с номерами, с 14 — полная геометрия маршрутов
   if (mods.some((m) => m.id === "trails/hiking")) {
     const stats = `atlas.modules().find((m) => m.id === "trails/hiking").stats()`;
@@ -220,6 +230,10 @@ try {
     await idle();
     const s2 = await run(stats);
     check("тропы: вблизи — полная геометрия", s2.full > 0 && s2.fullPoints > 0, JSON.stringify(s2));
+    // значки у троп: щиты с фото — с оранжевой обводкой (из того же запроса QLever)
+    for (let i = 0; i < 40 && !(await run(`(atlas.map.getSource("trail-poi")?.serialize?.().data?.features?.length || 0) > 0`)); i++) await sleep(1000);
+    const poi = await run(`(() => { const d = atlas.map.getSource("trail-poi")?.serialize?.().data?.features || []; return { all: d.length, photo: d.filter((f) => f.properties.hasPhoto).length, water: d.filter((f) => f.properties.kind === "drinking_water").length, ringImg: atlas.map.hasImage("outdoor-guidepost-photo") }; })()`);
+    check("значки у троп: загрузились, обводка для фото готова", poi.all > 0 && poi.ringImg, JSON.stringify(poi));
     await shot("86-trails-full");
     await run(`atlas.toggle("trails/hiking", false)`);
   }

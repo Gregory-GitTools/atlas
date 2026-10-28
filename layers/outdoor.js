@@ -41,13 +41,26 @@ const glyphSvg = (kind) => {
   return `<svg viewBox="0 0 24 24" width="18" height="18"><path fill="${color}"${outline ? ` stroke="${outline}" stroke-width="1"` : ""} d="${path}"/></svg>`;
 };
 
-// значок с кантом: сначала обводка, потом заливка — чётко, без тени
-function icon(map, kind) {
-  const id = `outdoor-${kind}`;
+// у щитов, указателей, карт и инфостендов с тегом image (фото щита в OSM) — оранжевое кольцо
+// вокруг обычного значка: не новый значок и не новый слой (Грегори, 2026-10-28, travel-earth:
+// «не надо целиться в новый значок с камерой», одобрил именно обводку)
+const PHOTO_KINDS = ["info", "guidepost", "board", "map"];
+const PHOTO_RING = "#ff9800";
+
+// значок с кантом: сначала обводка, потом заливка — чётко, без тени; photo — с кольцом «есть фото»
+function icon(map, kind, photo = false) {
+  const id = `outdoor-${kind}${photo ? "-photo" : ""}`;
   if (map.hasImage(id)) return id;
   const { color, path, evenodd, white, outline } = ICONS[kind];
   const size = 64;
   const ctx = Object.assign(document.createElement("canvas"), { width: size, height: size }).getContext("2d");
+  if (photo) {
+    ctx.beginPath();
+    ctx.arc(32, 32, 27, 0, Math.PI * 2);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = PHOTO_RING;
+    ctx.stroke();
+  }
   ctx.translate(8, 8);
   ctx.scale(2, 2);
   const shape = new Path2D(path);
@@ -60,6 +73,14 @@ function icon(map, kind) {
   map.addImage(id, ctx.getImageData(0, 0, size, size), { pixelRatio: 2 });
   return id;
 }
+
+const photoUrl = (image) => {
+  if (!image) return null;
+  if (/^https?:\/\//i.test(image)) return image;
+  const m = image.match(/^File:(.+)$/i);
+  return m ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(m[1])}?width=280` : null;
+};
+const photoPage = (image) => (/^https?:\/\//i.test(image) ? image : `https://commons.wikimedia.org/wiki/${encodeURIComponent(image)}`);
 
 // окно значка: теги из OSM API (точки списка Грегори — без OSM, всё в самой точке)
 async function showInfo(ctx, f) {
@@ -74,6 +95,13 @@ async function showInfo(ctx, f) {
   const add = (cls, text) => text && box.append(Object.assign(document.createElement("div"), { className: cls, textContent: text }));
   add("popup-title", name || kind);
   if (name) add("popup-sub", kind);
+  // фото щита из OSM (тег image): прямая ссылка или файл Commons «File:…»; грузится только по щелчку
+  const img = photoUrl(tags.image);
+  if (img) {
+    const a = Object.assign(document.createElement("a"), { href: photoPage(tags.image), target: "_blank", rel: "noopener" });
+    a.append(Object.assign(document.createElement("img"), { className: "popup-photo", src: img, alt: "", width: 260, height: 170 }));
+    box.append(a);
+  }
   add("popup-row", surface && surface[0].toUpperCase() + surface.slice(1));
   add("popup-row", tags.description);
   add("popup-row", tags.inscription);
@@ -83,7 +111,7 @@ async function showInfo(ctx, f) {
     row.append(Object.assign(document.createElement("a"), { href: tags.website, textContent: "Сайт", target: "_blank", rel: "noopener" }));
     box.append(row);
   }
-  track(new ctx.maplibregl.Popup({ offset: 14, maxWidth: "260px" })).setLngLat(f.geometry.coordinates).setDOMContent(box).addTo(ctx.map);
+  track(new ctx.maplibregl.Popup({ offset: 14, maxWidth: img ? "280px" : "260px" })).setLngLat(f.geometry.coordinates).setDOMContent(box).addTo(ctx.map);
 }
 
 // слой значков из GeoJSON: поверх подписей карты (наши значки — сверху), окно по щелчку
@@ -184,9 +212,10 @@ function wireClick(ctx, id) {
 // ---------- значки у троп ----------
 // Включаются вместе с любым слоем троп. Со шкалы 3 км — вышки, смотровые площадки, маяки, пикник;
 // остальное — со шкалы 500 м (Грегори: 3 км для всех — слишком густо, 100 м — слишком поздно).
-// Метки краской (route_marker) не показываются — их десятки на каждой тропе
+// Метки краской (route_marker) не показываются — их десятки на каждой тропе. Капли воды — самые
+// частые значки, поэтому позже всех (со шкалы «30 м») и крупнее (Грегори, 2026-10-28, travel-earth)
 {
-  const FAR_M = 5000, NEAR_M = 1000, CELL = 0.5;
+  const FAR_M = 5000, NEAR_M = 1000, WATER_M = 30, CELL = 0.5;
   const FAR_KINDS = ["tower", "viewpoint", "lighthouse", "picnic_site"];
   const SPARQL = `{ ?osm osmkey:tourism "viewpoint" . BIND("viewpoint" AS ?kind) }
     UNION { ?osm osmkey:tourism "picnic_site" . BIND("picnic_site" AS ?kind) }
@@ -195,26 +224,32 @@ function wireClick(ctx, id) {
     UNION { ?osm osmkey:man_made "tower" . ?osm <https://www.openstreetmap.org/wiki/Key:tower:type> "observation" . BIND("tower" AS ?kind) }
     UNION { ?osm osmkey:amenity "drinking_water" . BIND("drinking_water" AS ?kind) }
     UNION { ?osm osmkey:leisure "firepit" . BIND("firepit" AS ?kind) }
-    UNION { ?osm osmkey:tourism "information" . BIND("info" AS ?kind) OPTIONAL { ?osm osmkey:information ?info } }`;
+    UNION { ?osm osmkey:tourism "information" . BIND("info" AS ?kind) OPTIONAL { ?osm osmkey:information ?info }
+      OPTIONAL { ?osm osmkey:image ?img } }`;
   const features = new Map();
   let ctx = null, active = false, wired = false;
   const data = () => ({ type: "FeatureCollection", features: [...features.values()] });
   const loader = cellLoader(CELL, async (box) => {
-    for (const { osm, coordinates, b } of await qleverBox("?info", SPARQL, box)) {
+    for (const { osm, coordinates, b } of await qleverBox("?info ?img", SPARQL, box)) {
       let kind = b.kind.value;
       if (kind === "info") {
         if (b.info?.value === "route_marker") continue;
         if (["guidepost", "board", "map"].includes(b.info?.value)) kind = b.info.value;
       }
-      features.set(osm, { type: "Feature", geometry: { type: "Point", coordinates }, properties: { kind, osm } });
+      const hasPhoto = PHOTO_KINDS.includes(kind) && !!b.img;
+      features.set(osm, { type: "Feature", geometry: { type: "Point", coordinates }, properties: { kind, osm, ...(hasPhoto && { hasPhoto: true }) } });
     }
     ctx?.map.getSource("trail-poi")?.setData(data());
   }, () => update());
   const update = () => {
     if (!active) return;
     const { map } = ctx;
-    const far = zoomForScale(map, FAR_M), near = zoomForScale(map, NEAR_M);
-    if (map.getLayer("trail-poi-far")) { map.setLayerZoomRange("trail-poi-far", far, 24); map.setLayerZoomRange("trail-poi-near", near, 24); }
+    const far = zoomForScale(map, FAR_M), near = zoomForScale(map, NEAR_M), water = zoomForScale(map, WATER_M);
+    if (map.getLayer("trail-poi-far")) {
+      map.setLayerZoomRange("trail-poi-far", far, 24);
+      map.setLayerZoomRange("trail-poi-near", near, 24);
+      map.setLayerZoomRange("trail-poi-water", Math.min(water, 22), 24);
+    }
     if (map.getZoom() >= far) loader.request(cellsInView(map, CELL));
   };
   const trailsOn = () => modules("layer").some((m) => m.id.startsWith("trails/") && m.active);
@@ -227,12 +262,16 @@ function wireClick(ctx, id) {
       ctx = c; active = true;
       const map = c.map;
       for (const k of Object.keys(ICONS)) icon(map, k);
-      const img = ["concat", "outdoor-", ["get", "kind"]];
+      for (const k of PHOTO_KINDS) icon(map, k, true);
+      const img = ["case", ["==", ["get", "hasPhoto"], true], ["concat", "outdoor-", ["get", "kind"], "-photo"], ["concat", "outdoor-", ["get", "kind"]]];
       const far = ["in", ["get", "kind"], ["literal", FAR_KINDS]];
-      pointLayer(c, "trail-poi-near", { filter: ["!", far], layout: { "icon-image": img, "icon-size": ["interpolate", ["linear"], ["zoom"], 14, 1, 16, 1.2] } }, "trail-poi");
+      const water = ["==", ["get", "kind"], "drinking_water"];
+      pointLayer(c, "trail-poi-near", { filter: ["all", ["!", far], ["!", water]], layout: { "icon-image": img, "icon-size": ["interpolate", ["linear"], ["zoom"], 14, 1, 16, 1.2] } }, "trail-poi");
+      pointLayer(c, "trail-poi-water", { filter: water, layout: { "icon-image": img, "icon-size": ["interpolate", ["linear"], ["zoom"], 16, 1.6, 19, 2] } }, "trail-poi");
       pointLayer(c, "trail-poi-far", { filter: far, layout: { "icon-image": img, "icon-allow-overlap": true, "icon-size": ["interpolate", ["linear"], ["zoom"], 11, 0.8, 14, 1, 16, 1.2] } }, "trail-poi");
       map.getSource("trail-poi")?.setData(data());
       wireClick(c, "trail-poi-near");
+      wireClick(c, "trail-poi-water");
       wireClick(c, "trail-poi-far");
       if (!wired) { wired = true; map.on("idle", update); }
       update();
@@ -240,7 +279,7 @@ function wireClick(ctx, id) {
     disable({ map }) {
       active = false;
       loader.forgetPending();
-      for (const id of ["trail-poi-far", "trail-poi-near"]) if (map.getLayer(id)) map.removeLayer(id);
+      for (const id of ["trail-poi-far", "trail-poi-near", "trail-poi-water"]) if (map.getLayer(id)) map.removeLayer(id);
     },
   });
 

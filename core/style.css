@@ -865,3 +865,14 @@ html, body {
 .wx-temp {
   color: var(--muted);
 }
+
+/* фото щита в окне значка */
+.popup-photo {
+  display: block;
+  width: 260px;
+  height: 170px;
+  margin: 6px 0;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--panel-hover);
+}

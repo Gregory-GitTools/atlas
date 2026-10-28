@@ -36,7 +36,8 @@ const KIND = {
   museum: "Музей", viewpoint: "Смотровая площадка", attraction: "Достопримечательность", restaurant: "Ресторан",
   cafe: "Кафе", bar: "Бар", pub: "Паб", fast_food: "Фастфуд", hotel: "Гостиница", hostel: "Хостел",
   guest_house: "Гостевой дом", camp_site: "Кемпинг", toilets: "Туалет", zoo: "Зоопарк", theatre: "Театр",
-  cinema: "Кино", aerodrome: "Аэропорт", railway: "Вокзал", bus: "Автобус", ferry_terminal: "Паром",
+  cinema: "Кино", aerodrome: "Аэропорт", railway: "Вокзал", station: "Железнодорожная станция", halt: "Остановка поезда",
+  funicular: "Станция фуникулёра", subway: "Станция метро", bus_station: "Автовокзал", bus_stop: "Остановка автобуса", tram_stop: "Остановка трамвая", bus: "Автобус", ferry_terminal: "Паром",
 };
 const OSM_TYPES = { 1: "node", 2: "way", 3: "relation" };
 

@@ -11,11 +11,12 @@ import { register } from "../core/modules.js";
 import { track, claimLayers } from "../core/popups.js";
 import { featureContent } from "../core/place-info.js";
 import * as settings from "../core/settings.js";
+import { qleverBox, cellsInView, cellLoader } from "../core/qlever.js";
 
 const MIN_ZOOM = 12;
 const FULL_ZOOM = 14;
 const SOURCE = "places-tiles";
-const LAYERS = ["places-poi", "places-stops", "places-air"];
+const LAYERS = ["places-poi", "places-stops", "places-air", "places-transport-far"];
 const OPENMAPTILES = { type: "vector", url: "https://tiles.openfreemap.org/planet" };
 const AIRPORT_MAX_M_PER_100PX = 10000; // аэропорты — со шкалы «5 км»
 const STOP_MAX_M_PER_100PX = 200; // остановки — со шкалы «100 м»
@@ -31,7 +32,21 @@ const GLYPHS = {
   metro: "text:M",
   tram: "M19 16.94V8.5c0-2.79-2.61-3.4-6.01-3.49l.76-1.51H17V2H7v1.5h4.75l-.76 1.52C7.86 5.11 5 5.73 5 8.5v8.44c0 1.45 1.19 2.66 2.59 2.97L6 21.5v.5h2.23l2-2H14l2 2h2v-.5L16.5 20h-.08c1.69 0 2.58-1.37 2.58-3.06zm-7 1.56c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm5-4.5H7V9h10v5z",
 };
+// фуникулёр — вагончик трамвая, наклонённый как на склоне; ядовито-зелёный с чёрным значком
+GLYPHS.funicular = { path: GLYPHS.tram, rotate: -30 };
 const AIRPORT_PIN = { glyph: "plane", color: "#546e7a" };
+const FUNICULAR_PIN = { glyph: "funicular", color: "#39ff14", ink: "#000" };
+// вокзалы и станции фуникулёров видны издалека, как вышки и смотровые площадки — со шкалы «3 км»
+// (Грегори, 2026-10-28, travel-earth: «подними видимость до вышек»). В тайлах их нет мельче зума 12 —
+// эту часть шкалы закрывает QLever квадратами по 1°. Станцию фуникулёра OSM отмечает прямо
+// (station=funicular или funicular=yes) — так же отмечаем и её точку в тайлах, по id
+const TRANSPORT_FAR_M = 5000;
+const TRANSPORT_CELL = 1;
+const TRANSPORT_SPARQL = `{ ?osm osmkey:railway "station" . BIND("station" AS ?kind) OPTIONAL { ?osm osmkey:station ?st } OPTIONAL { ?osm osmkey:funicular ?fun } }
+  UNION { ?osm osmkey:railway "halt" . BIND("halt" AS ?kind) OPTIONAL { ?osm osmkey:station ?st } OPTIONAL { ?osm osmkey:funicular ?fun } }`;
+const OSM_TYPE_NUM = { node: 1, way: 2, relation: 3 };
+const transportFar = new Map(); // osm → feature
+const funicularIds = new Set(); // id точек в тайлах (osm_id·10 + тип)
 
 const SHOP_PROFILES = [
   { id: "grocery", name: "Продукты", subclasses: ["supermarket", "convenience", "greengrocer", "bakery", "pastry", "butcher", "seafood", "deli", "cheese", "dairy", "frozen_food", "health_food", "confectionery", "chocolate", "coffee", "tea", "farm"] },
@@ -58,6 +73,7 @@ const CATEGORIES = [
   { id: "transport", title: "Транспорт", color: "#00897b", icon: icon(GLYPHS.bus), airports: true,
     subclasses: ["bus_station", "station", "halt", "subway", "ferry_terminal"], stops: ["bus_stop", "tram_stop"],
     modes: [
+      { subclass: "funicular", ...FUNICULAR_PIN },
       { subclass: "subway", glyph: "metro", color: "#e53935" },
       { subclass: "tram_stop", glyph: "tram", color: "#fb8c00" },
       { class: "bus", glyph: "bus", color: "#43a047" },
@@ -93,16 +109,18 @@ function pin(map, color, glyph, ink) {
   ctx.fill(shape);
   ctx.fillStyle = ink || "#fff";
   const g = GLYPHS[glyph];
-  if (g?.startsWith("text:")) {
+  if (typeof g === "string" && g.startsWith("text:")) {
     ctx.font = "bold 24px Arial, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(g.slice(5), 22, 22);
   } else if (g) {
+    // значок 24×24 → 30 px в головке диаметром 36 (Грегори, 2026-10-28: «значок внутри мелкий»)
     ctx.translate(22, 21);
-    ctx.scale(22 / 24, 22 / 24);
+    ctx.rotate(((g.rotate || 0) * Math.PI) / 180);
+    ctx.scale(30 / 24, 30 / 24);
     ctx.translate(-12, -12);
-    ctx.fill(new Path2D(g));
+    ctx.fill(new Path2D(g.path || g));
   } else {
     ctx.beginPath();
     ctx.arc(22, 21, 7, 0, Math.PI * 2);
@@ -114,6 +132,8 @@ function pin(map, color, glyph, ink) {
 
 const modeIcon = (map, cat) => {
   const cases = (cat.modes || []).flatMap((m) => [["==", ["get", m.subclass ? "subclass" : "class"], m.subclass || m.class], pin(map, m.color, m.glyph, m.ink)]);
+  // станции фуникулёров в тайлах выглядят как обычные ж/д — узнаём их по id из QLever
+  if (cat.modes && funicularIds.size) cases.unshift(["in", ["id"], ["literal", [...funicularIds]]], pin(map, FUNICULAR_PIN.color, FUNICULAR_PIN.glyph, FUNICULAR_PIN.ink));
   return cases.length ? ["case", ...cases, pin(map, cat.color)] : pin(map, cat.color);
 };
 
@@ -128,6 +148,35 @@ function ensureLayers(map) {
   layer("places-stops", "poi"); // остановки ниже станций — станция не прячется под флажком остановки
   layer("places-poi", "poi");
   layer("places-air", "aerodrome_label", { minzoom: 0, filter: AIRPORT_FILTER });
+  map.addSource("places-transport", { type: "geojson", data: transportData() });
+  map.addLayer({ id: "places-transport-far", type: "symbol", source: "places-transport", minzoom: 0, maxzoom: MIN_ZOOM,
+    layout: { visibility: "none", "icon-anchor": "bottom", "icon-size": 1, "icon-allow-overlap": true, "icon-ignore-placement": true } });
+}
+
+const transportData = () => ({ type: "FeatureCollection", features: [...transportFar.values()] });
+let transportMap = null;
+const transportLoader = cellLoader(TRANSPORT_CELL, async (box) => {
+  let newFunicular = false;
+  for (const { osm, coordinates, b } of await qleverBox("?st ?fun", TRANSPORT_SPARQL, box)) {
+    const funicular = b.st?.value === "funicular" || b.fun?.value === "yes";
+    // метро и лёгкое метро — отдельный вид, в городе сплошным ковром только мешают
+    if (!funicular && ["subway", "light_rail", "monorail"].includes(b.st?.value)) continue;
+    const [type, num] = osm.split("/");
+    const id = Number(num) * 10 + OSM_TYPE_NUM[type];
+    if (funicular && !funicularIds.has(id)) { funicularIds.add(id); newFunicular = true; }
+    transportFar.set(osm, { type: "Feature", id, geometry: { type: "Point", coordinates },
+      properties: { class: "railway", subclass: funicular ? "funicular" : b.kind.value } });
+  }
+  transportMap?.getSource("places-transport")?.setData(transportData());
+  if (newFunicular && transportMap && active?.modes) apply(transportMap);
+}, () => transportMap && updateTransport(transportMap));
+
+function updateTransport(map) {
+  transportMap = map;
+  if (!active?.modes) return;
+  const far = zoomForScale(map, TRANSPORT_FAR_M);
+  if (map.getLayer("places-transport-far")) map.setLayerZoomRange("places-transport-far", Math.min(far, MIN_ZOOM), MIN_ZOOM);
+  if (map.getZoom() >= far) transportLoader.request(cellsInView(map, TRANSPORT_CELL, 1));
 }
 
 function apply(map) {
@@ -136,11 +185,13 @@ function apply(map) {
   vis("places-poi", !!active);
   vis("places-stops", !!active?.stops);
   vis("places-air", !!active?.airports);
+  vis("places-transport-far", !!active?.modes);
   if (!active) return;
   const img = modeIcon(map, active);
   map.setLayoutProperty("places-poi", "icon-image", img);
   map.setLayoutProperty("places-stops", "icon-image", img);
   map.setLayoutProperty("places-air", "icon-image", pin(map, AIRPORT_PIN.color, AIRPORT_PIN.glyph));
+  map.setLayoutProperty("places-transport-far", "icon-image", img);
   map.setFilter("places-poi", ["in", ["get", "subclass"], ["literal", active.subclasses]]);
   map.setFilter("places-stops", ["in", ["get", "subclass"], ["literal", active.stops || []]]);
   scaleZooms(map);
@@ -157,7 +208,7 @@ function updateStatus(map, status) {
   if (!active) return;
   const name = (active.profile?.id !== "all" && active.profile?.name) || active.title;
   const zoomIn = `Приблизьте карту, чтобы увидеть: ${name.toLowerCase()}`;
-  const min = active.airports ? Math.min(MIN_ZOOM, zoomForScale(map, AIRPORT_MAX_M_PER_100PX)) : MIN_ZOOM;
+  const min = active.airports ? Math.min(MIN_ZOOM, zoomForScale(map, AIRPORT_MAX_M_PER_100PX), zoomForScale(map, TRANSPORT_FAR_M)) : MIN_ZOOM;
   if (map.getZoom() < min) { status(zoomIn); return; }
   if (!map.areTilesLoaded()) return;
   const found = map.queryRenderedFeatures({ layers: LAYERS.filter((id) => map.getLayer(id)) }).length;
@@ -173,6 +224,7 @@ function wire({ map, maplibregl, status }) {
   claimLayers(...LAYERS);
   map.on("style.load", () => { ensureLayers(map); apply(map); });
   map.on("moveend", () => scaleZooms(map));
+  map.on("idle", () => updateTransport(map));
   map.on("idle", () => updateStatus(map, status));
   map.on("zoomend", () => updateStatus(map, status));
   let click = 0;
@@ -212,6 +264,7 @@ for (const cat of CATEGORIES) {
       ensureLayers(ctx.map);
       active = withProfile();
       apply(ctx.map);
+      updateTransport(ctx.map);
       updateStatus(ctx.map, ctx.status);
     },
     disable(ctx) {
