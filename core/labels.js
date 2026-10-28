@@ -53,7 +53,7 @@ export function languageButton(map) {
   const menu = Object.assign(document.createElement("div"), { className: "lang-menu menu", hidden: true });
   wrap.append(btn, menu);
   const render = () => {
-    btn.innerHTML = `<span></span><svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M7 10l5 5 5-5z"/></svg>`;
+    btn.innerHTML = `<span></span><svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M7 10l5 5 5-5z"/></svg>`;
     btn.firstChild.textContent = current.short;
     menu.replaceChildren(...LANGUAGES.map((l) => {
       const item = Object.assign(document.createElement("button"), { className: "menu-item" + (l === current ? " active" : ""), textContent: l.name });

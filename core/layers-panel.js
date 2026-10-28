@@ -61,7 +61,7 @@ export function initLayersPanel(ctx) {
     label(main);
     main.addEventListener("click", () => switchTo(m, !m.active));
     const arrow = Object.assign(document.createElement("button"), { className: "chip-arrow", title: "Выбрать", disabled: blocked,
-      innerHTML: `<svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M7 10l5 5 5-5z"/></svg>` });
+      innerHTML: `<svg viewBox="0 0 24 24" width="30" height="30"><path fill="currentColor" d="M7 10l5 5 5-5z"/></svg>` });
     arrow.addEventListener("click", (e) => {
       e.stopPropagation();
       if (!menu.hidden) { menu.hidden = true; return; }
