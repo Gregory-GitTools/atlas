@@ -1,6 +1,6 @@
 // Панель «Слои» — строится из реестра: каждый модуль-слой — кнопка-чип. Ядро слоёв по именам не
 // знает; новый модуль появляется здесь сам. Разделы: «Места» (модули с group: "places" —
-// одновременно включена одна категория) и «Слои». У модуля с menu чип из двух частей: название
+// можно несколько сразу) и «Слои». У модуля с menu чип из двух частей: название
 // включает, стрелка открывает меню (профили магазинов). Включённые слои помнятся
 import { createPanel } from "./panel.js";
 import { modules, toggle, available, allowed, onRegister } from "./modules.js";
@@ -27,8 +27,9 @@ export function initLayersPanel(ctx) {
   const save = () => settings.set("layers.on", [...active]);
 
   const switchTo = async (m, on) => {
-    // в группе одновременно включён один: включение одного выключает остальных
-    if (on && m.group) {
+    // exclusive — в своей группе одновременно включён один (у «Мест» такого нет: Грегори, 2026-10-28,
+    // «выделение нескольких мест одновременно»)
+    if (on && m.group && m.exclusive) {
       for (const other of modules("layer")) {
         if (other !== m && other.group === m.group && other.active) {
           await toggle(other.id, ctx, false).catch(() => {});

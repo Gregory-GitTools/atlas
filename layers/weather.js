@@ -1,9 +1,9 @@
 // Погода (Грегори, 2026-10-27: «что на счёт погоды?»; в плане — ветер для кайт-спотов и походов).
 // Два слоя:
-//  • Ветер — стрелки по сетке в кадре: куда дует, сила в узлах (кайтеры считают в узлах) и цвет по
-//    силе, как у Windy: штиль — голубой, 8–12 — зелёный, 12–18 — жёлтый (лучший кайт), 18–25 —
-//    оранжевый, 25–35 — красный, сильнее — фиолетовый. Щелчок по стрелке — прогноз в этой точке:
-//    сейчас (узлы и м/с, порывы, температура) и по часам на сутки вперёд.
+//  • Ветер — стрелки по сетке в кадре: куда дует, сила в м/с (Грегори, 2026-10-28: «измени
+//    показания ветра на m/s») и цвет по силе, как у Windy: штиль — голубой, 4–6 — зелёный, 6–9 —
+//    жёлтый (лучший кайт), 9–13 — оранжевый, 13–18 — красный, сильнее — фиолетовый. Щелчок по
+//    стрелке — прогноз в этой точке: сейчас (м/с, порывы, температура) и по часам на сутки вперёд.
 //    Данные — Open-Meteo (без ключа, бесплатно для некоммерческого). Узлы сетки кратны шагу —
 //    при сдвиге карты те же точки, ответ запоминается на час.
 //  • Осадки — радар RainViewer (без ключа): последний снимок и анимация за 2 часа. Бесплатно —
@@ -17,15 +17,15 @@ const STEPS = [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20]; // шаг сетки, г�
 const COLS = 9; // стрелок по ширине кадра
 const MAX_POINTS = 150;
 const HOUR = 3600000;
-const COLORS = [[0, "#9ecae1"], [8, "#41ab5d"], [12, "#f2d024"], [18, "#fd8d3c"], [25, "#e31a1c"], [35, "#8e24aa"]];
-const KN_TO_MS = 0.514444;
+// пороги в м/с (у Windy в узлах: 8, 12, 18, 25, 35)
+const COLORS = [[0, "#9ecae1"], [4, "#41ab5d"], [6, "#f2d024"], [9, "#fd8d3c"], [13, "#e31a1c"], [18, "#8e24aa"]];
 
 const DIRS = ["С", "ССВ", "СВ", "ВСВ", "В", "ВЮВ", "ЮВ", "ЮЮВ", "Ю", "ЮЮЗ", "ЮЗ", "ЗЮЗ", "З", "ЗСЗ", "СЗ", "ССЗ"];
 const dirName = (deg) => DIRS[Math.round(deg / 22.5) % 16];
 
 // ---------- ветер ----------
 {
-  const cache = new Map(); // "lat,lon" → { t, kn, gust, dir }
+  const cache = new Map(); // "lat,lon" → { t, ms, gust, dir }
   let ctx = null, active = false, wired = false, timer = null, seq = 0;
 
   const arrow = (map) => {
@@ -41,7 +41,7 @@ const dirName = (deg) => DIRS[Math.round(deg / 22.5) % 16];
     map.addImage("wind-arrow", c.getImageData(0, 0, s, s), { pixelRatio: 2, sdf: true });
   };
 
-  const color = ["step", ["get", "kn"], COLORS[0][1], ...COLORS.slice(1).flat()];
+  const color = ["step", ["get", "ms"], COLORS[0][1], ...COLORS.slice(1).flat()];
 
   const grid = (map) => {
     const b = map.getBounds();
@@ -63,7 +63,7 @@ const dirName = (deg) => DIRS[Math.round(deg / 22.5) % 16];
   const features = (pts) => pts.flatMap(([lon, lat]) => {
     const w = cache.get(`${lat},${lon}`);
     return w ? [{ type: "Feature", geometry: { type: "Point", coordinates: [lon, lat] },
-      properties: { kn: Math.round(w.kn), gust: Math.round(w.gust), dir: w.dir, rot: (w.dir + 180) % 360, label: String(Math.round(w.kn)) } }] : [];
+      properties: { ms: w.ms, gust: Math.round(w.gust), dir: w.dir, rot: (w.dir + 180) % 360, label: String(Math.round(w.ms)) } }] : [];
   });
 
   async function update() {
@@ -76,14 +76,14 @@ const dirName = (deg) => DIRS[Math.round(deg / 22.5) % 16];
     for (let i = 0; i < missing.length; i += 100) {
       const part = missing.slice(i, i + 100);
       const params = new URLSearchParams({ latitude: part.map((p) => p[1]).join(","), longitude: part.map((p) => p[0]).join(","),
-        current: "wind_speed_10m,wind_direction_10m,wind_gusts_10m", wind_speed_unit: "kn" });
+        current: "wind_speed_10m,wind_direction_10m,wind_gusts_10m", wind_speed_unit: "ms" });
       try {
         const res = await fetch(`${OPEN_METEO}?${params}`);
         if (!res.ok) throw new Error(`Open-Meteo: ${res.status}`);
         const data = await res.json();
         (Array.isArray(data) ? data : [data]).forEach((d, k) => {
           const [lon, lat] = part[k];
-          cache.set(`${lat},${lon}`, { t: now, kn: d.current.wind_speed_10m, gust: d.current.wind_gusts_10m, dir: d.current.wind_direction_10m });
+          cache.set(`${lat},${lon}`, { t: now, ms: d.current.wind_speed_10m, gust: d.current.wind_gusts_10m, dir: d.current.wind_direction_10m });
         });
       } catch (err) {
         console.warn(err);
@@ -97,7 +97,7 @@ const dirName = (deg) => DIRS[Math.round(deg / 22.5) % 16];
 
   async function forecast(f) {
     const [lon, lat] = f.geometry.coordinates;
-    const params = new URLSearchParams({ latitude: lat, longitude: lon, wind_speed_unit: "kn", timezone: "auto", forecast_hours: "24",
+    const params = new URLSearchParams({ latitude: lat, longitude: lon, wind_speed_unit: "ms", timezone: "auto", forecast_hours: "24",
       current: "wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m",
       hourly: "wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation" });
     const box = document.createElement("div");
@@ -105,8 +105,8 @@ const dirName = (deg) => DIRS[Math.round(deg / 22.5) % 16];
     try {
       const d = await (await fetch(`${OPEN_METEO}?${params}`)).json();
       const c = d.current;
-      add("popup-title", `Ветер ${Math.round(c.wind_speed_10m)} уз · ${dirName(c.wind_direction_10m)}`);
-      add("popup-sub", `${(c.wind_speed_10m * KN_TO_MS).toFixed(1)} м/с, порывы ${Math.round(c.wind_gusts_10m)} уз · ${Math.round(c.temperature_2m)}°`);
+      add("popup-title", `Ветер ${Math.round(c.wind_speed_10m)} м/с · ${dirName(c.wind_direction_10m)}`);
+      add("popup-sub", `Порывы ${Math.round(c.wind_gusts_10m)} м/с · ${Math.round(c.temperature_2m)}°`);
       const table = Object.assign(document.createElement("div"), { className: "wx-table" });
       const h = d.hourly;
       for (let i = 0; i < h.time.length; i += 3) {
@@ -116,7 +116,7 @@ const dirName = (deg) => DIRS[Math.round(deg / 22.5) % 16];
         dir.style.transform = `rotate(${(h.wind_direction_10m[i] + 180) % 360}deg)`;
         dir.style.color = COLORS.filter(([k]) => h.wind_speed_10m[i] >= k).at(-1)[1];
         row.append(dir);
-        add("wx-wind", `${Math.round(h.wind_speed_10m[i])}–${Math.round(h.wind_gusts_10m[i])} уз`, row);
+        add("wx-wind", `${Math.round(h.wind_speed_10m[i])}–${Math.round(h.wind_gusts_10m[i])} м/с`, row);
         add("wx-temp", `${Math.round(h.temperature_2m[i])}°${h.precipitation[i] > 0.1 ? ` · ${h.precipitation[i].toFixed(1)} мм` : ""}`, row);
         table.append(row);
       }
@@ -132,7 +132,7 @@ const dirName = (deg) => DIRS[Math.round(deg / 22.5) % 16];
     id: "weather/wind",
     kind: "layer",
     title: "Ветер",
-    hint: "Ветер сейчас: стрелка — куда дует, число — узлы; щелчок — прогноз на сутки",
+    hint: "Ветер сейчас: стрелка — куда дует, число — м/с; щелчок — прогноз на сутки",
     icon: svg('<path d="M4 9h11a3 3 0 1 0-3-3h2a1 1 0 1 1 1 1H4zm0 4h15a3 3 0 1 1-3 3h2a1 1 0 1 0 1-1H4zm0-2h8v0H4z"/><path d="M3 11h9v2H3z"/>'),
     needs: ["network"],
     sends: "точки в кадре (Open-Meteo)",
@@ -143,7 +143,7 @@ const dirName = (deg) => DIRS[Math.round(deg / 22.5) % 16];
       if (!map.getSource("wind")) map.addSource("wind", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       if (!map.getLayer("wind")) map.addLayer({ id: "wind", type: "symbol", source: "wind",
         layout: { "icon-image": "wind-arrow", "icon-rotate": ["get", "rot"], "icon-rotation-alignment": "map", "icon-allow-overlap": true,
-          "icon-size": ["interpolate", ["linear"], ["get", "kn"], 0, 0.9, 30, 1.5],
+          "icon-size": ["interpolate", ["linear"], ["get", "ms"], 0, 0.9, 15, 1.5],
           "text-field": ["get", "label"], "text-font": ["Noto Sans Bold"], "text-size": 13, "text-offset": [0, 2], "text-allow-overlap": true },
         paint: { "icon-color": color, "icon-halo-color": "rgba(0,0,0,0.55)", "icon-halo-width": 1.5,
           "text-color": "#fff", "text-halo-color": "rgba(0,0,0,0.75)", "text-halo-width": 1.4 } });

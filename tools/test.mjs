@@ -182,17 +182,22 @@ try {
     await run(`${chipFor("Рестораны")}.click(); true`);
     await sleep(800);
     await idle();
-    const pins = await run(`atlas.map.queryRenderedFeatures({ layers: ["places-poi"] }).length`);
+    const pins = await run(`atlas.map.queryRenderedFeatures({ layers: ["places-poi-food"] }).length`);
     check("места: флажки ресторанов", pins > 0, `${pins}`);
     await shot("80-places-food");
     await run(`${chipFor("Музеи")}.click(); true`);
-    await sleep(800);
-    const excl = await run(`({ food: atlas.modules().find((m) => m.id === "places/food").active, museums: atlas.modules().find((m) => m.id === "places/museums").active })`);
-    check("места: одна категория за раз", !excl.food && excl.museums, JSON.stringify(excl));
-    await run(`${chipFor("Музеи")}.click(); ${chipFor("Рестораны")}.click(); document.querySelector("[data-panel=layers] .panel-btn[title=Закрыть]").click(); true`);
+    await sleep(1200);
+    await idle();
+    // несколько категорий сразу: рестораны остаются, музеи добавились, на чипах обе отмечены
+    const both = await run(`({ food: atlas.modules().find((m) => m.id === "places/food").active, museums: atlas.modules().find((m) => m.id === "places/museums").active,
+      foodPins: atlas.map.queryRenderedFeatures({ layers: ["places-poi-food"] }).length, museumPins: atlas.map.queryRenderedFeatures({ layers: ["places-poi-museums"] }).length,
+      chipsOn: [...document.querySelectorAll("[data-panel=layers] .chip.on")].map((c) => c.textContent.trim()) })`);
+    check("места: несколько категорий сразу", both.food && both.museums && both.foodPins > 0 && both.museumPins > 0, JSON.stringify(both));
+    await shot("80b-places-food-museums");
+    await run(`${chipFor("Музеи")}.click(); document.querySelector("[data-panel=layers] .panel-btn[title=Закрыть]").click(); true`);
     await sleep(800);
     await idle();
-    const pt = await run(`(() => { const f = atlas.map.queryRenderedFeatures({ layers: ["places-poi"] })[0]; if (!f) return null; const p = atlas.map.project(f.geometry.coordinates); return { x: p.x, y: p.y - 15 }; })()`);
+    const pt = await run(`(() => { const f = atlas.map.queryRenderedFeatures({ layers: ["places-poi-food"] })[0]; if (!f) return null; const p = atlas.map.project(f.geometry.coordinates); return { x: p.x, y: p.y - 15 }; })()`);
     if (pt) {
       await clickAt(pt.x, pt.y);
       await sleep(3500);
@@ -231,11 +236,11 @@ try {
       return items; })()`);
     const items = await pick("Метро");
     await idle();
-    const metro = await run(`[...new Set(atlas.map.queryRenderedFeatures({ layers: ["places-poi", "places-stops", "places-cable", "places-lift-line"] }).map((f) => f.properties.subclass + (f.layer.id === "places-poi" ? "" : "@" + f.layer.id)))]`);
+    const metro = await run(`[...new Set(atlas.map.queryRenderedFeatures({ layers: ["places-poi-transport", "places-stops", "places-cable", "places-lift-line"] }).map((f) => f.properties.subclass + (f.layer.id === "places-poi-transport" ? "" : "@" + f.layer.id)))]`);
     check("транспорт: меню видов, «Метро» — только метро", items.length === 8 && metro.length > 0 && metro.every((s) => s === "subway"), `${items.join(" / ")} → ${metro.join(", ")}`);
     await pick("Фуникулёры и канатные дороги");
     await idle();
-    const lifts = await run(`({ poi: [...new Set(atlas.map.queryRenderedFeatures({ layers: ["places-poi"] }).map((f) => f.properties.class))], lines: atlas.map.queryRenderedFeatures({ layers: ["places-lift-line"] }).length })`);
+    const lifts = await run(`({ poi: [...new Set(atlas.map.queryRenderedFeatures({ layers: ["places-poi-transport"] }).map((f) => f.properties.class))], lines: atlas.map.queryRenderedFeatures({ layers: ["places-lift-line"] }).length })`);
     check("транспорт: «Фуникулёры и канатные дороги»", lifts.lines > 0 && !lifts.poi.includes("subway") && lifts.poi.every((c) => c !== "bus"), JSON.stringify(lifts));
     await shot("84-transport-lifts");
     await pick("Весь транспорт");
@@ -292,12 +297,12 @@ try {
     await run(`(async () => { await atlas.toggle("layers/beaches", false); await atlas.toggle("layers/surf", false); return true; })()`);
   }
 
-  // погода: стрелки ветра с силой в узлах, прогноз по щелчку, радар осадков
+  // погода: стрелки ветра с силой в м/с, прогноз по щелчку, радар осадков
   if (mods.some((m) => m.id === "weather/wind")) {
     await run(`atlas.map.jumpTo({ center: [24.7, 59.45], zoom: 9 }); atlas.toggle("weather/wind", true).then(() => true)`);
     for (let i = 0; i < 20 && !(await run(`atlas.map.getLayer("wind") && atlas.map.queryRenderedFeatures({ layers: ["wind"] }).length > 0`)); i++) await sleep(1000);
-    const w = await run(`atlas.map.queryRenderedFeatures({ layers: ["wind"] }).map((f) => f.properties.kn)`);
-    check("ветер: стрелки", w.length > 0, `${w.length} стрелок, ${w.slice(0, 5).join(", ")} уз`);
+    const w = await run(`atlas.map.queryRenderedFeatures({ layers: ["wind"] }).map((f) => f.properties.ms)`);
+    check("ветер: стрелки", w.length > 0, `${w.length} стрелок, ${w.slice(0, 5).join(", ")} м/с`);
     // стрелка ближе к центру — у краёв её закрывают строка поиска и кнопки
     const p = await run(`(() => { const c = atlas.map.project(atlas.map.getCenter()); return atlas.map.queryRenderedFeatures({ layers: ["wind"] })
       .map((f) => atlas.map.project(f.geometry.coordinates)).sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y))[0]; })()`);

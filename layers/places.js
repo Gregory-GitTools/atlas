@@ -4,7 +4,8 @@
 // только с 14 (до него в тайлах лишь значимые места). Флажок цвета категории; у транспорта —
 // цвет и значок по виду (метро красное «М», трамвай, автобус, паром, поезд), аэропорты — со шкалы
 // 5 км, остановки — со шкалы 100 м. Магазины — с меню профилей (продукты, рынки, одежда…).
-// Одновременно включена одна категория (group). Щелчок по флажку — окно места с подробностями
+// Категории включаются независимо — можно несколько сразу (Грегори, 2026-10-28: «выделение нескольких
+// мест одновременно»), у каждой свой слой флажков. Щелчок по флажку — окно места с подробностями
 // из OSM и Википедии. Пока не сделано из travel-earth: фуникулёры и канатные дороги, аэропорты
 // без типа (из QLever) — см. ROADMAP
 import { register } from "../core/modules.js";
@@ -16,7 +17,10 @@ import { qleverBox, cellsInView, cellLoader } from "../core/qlever.js";
 const MIN_ZOOM = 12;
 const FULL_ZOOM = 14;
 const SOURCE = "places-tiles";
-const LAYERS = ["places-poi", "places-stops", "places-air", "places-transport-far", "places-cable"];
+// у каждой категории свой слой флажков; порядок — снизу вверх (транспорт поверх остальных)
+const CAT_IDS = ["shops", "food", "hotels", "fun", "museums", "transport"];
+const poiLayer = (id) => `places-poi-${id}`;
+const LAYERS = [...CAT_IDS.map(poiLayer), "places-stops", "places-air", "places-transport-far", "places-cable"];
 const OPENMAPTILES = { type: "vector", url: "https://tiles.openfreemap.org/planet" };
 const AIRPORT_MAX_M_PER_100PX = 10000; // аэропорты — со шкалы «5 км»
 const STOP_MAX_M_PER_100PX = 200; // остановки — со шкалы «100 м»
@@ -114,7 +118,8 @@ const CATEGORIES = [
     icon: icon("M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49A1.003 1.003 0 0 0 20 4H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z") },
 ];
 
-let active = null; // включённая категория (с выбранным профилем у магазинов)
+const actives = new Map(); // id категории → категория с выбранным видом; включённых может быть несколько
+const transport = () => actives.get("transport"); // транспорт с выбранным видом, если включён
 const zoomForScale = (map, maxMeters) =>
   Math.log2((100 * 40075016.686 * Math.cos((map.getCenter().lat * Math.PI) / 180)) / (512 * maxMeters));
 
@@ -180,7 +185,7 @@ function ensureLayers(map) {
     layout: { visibility: "none", "line-cap": "round" },
     paint: { "line-color": FUNICULAR_PIN.color, "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2, 17, 5] } });
   layer("places-stops", "poi"); // остановки ниже станций — станция не прячется под флажком остановки
-  layer("places-poi", "poi");
+  for (const id of CAT_IDS) layer(poiLayer(id), "poi");
   layer("places-air", "aerodrome_label", { minzoom: 0, filter: AIRPORT_FILTER });
   map.addSource("places-cable-lines", { type: "geojson", data: cableLinesData() });
   map.addLayer({ id: "places-cable-far-line", type: "line", source: "places-cable-lines", maxzoom: MIN_ZOOM,
@@ -217,7 +222,7 @@ async function loadCableStations(map, lineId) {
 
 // тросы в кадре → их станции (раз на трос)
 function updateCables(map) {
-  if (!active?.cable || !map.getLayer("places-cable") || map.getZoom() >= FULL_ZOOM || map.getZoom() < MIN_ZOOM) return;
+  if (!transport()?.cable || !map.getLayer("places-cable") || map.getZoom() >= FULL_ZOOM || map.getZoom() < MIN_ZOOM) return;
   for (const f of map.querySourceFeatures(SOURCE, { sourceLayer: "transportation", filter: ["in", ["get", "subclass"], ["literal", CABLE_LINE_CLASSES]] })) {
     if (f.id != null && f.id % 10 === 2 && !cableStations.has(f.id)) loadCableStations(map, f.id);
   }
@@ -236,7 +241,7 @@ const transportLoader = cellLoader(TRANSPORT_CELL, async (box) => {
       properties: { class: "railway", subclass: funicular ? "funicular" : b.kind.value } });
   }
   transportMap?.getSource("places-transport")?.setData(transportData());
-  if (newFunicular && transportMap && active?.far) apply(transportMap);
+  if (newFunicular && transportMap && transport()?.far) apply(transportMap);
 }, () => transportMap && updateTransport(transportMap));
 
 const cableLoader = cellLoader(TRANSPORT_CELL, async (box) => {
@@ -256,6 +261,7 @@ const cableLoader = cellLoader(TRANSPORT_CELL, async (box) => {
 
 function updateTransport(map) {
   transportMap = map;
+  const active = transport();
   if (!active?.far) return;
   const far = zoomForScale(map, TRANSPORT_FAR_M);
   if (map.getLayer("places-transport-far")) map.setLayerZoomRange("places-transport-far", Math.min(far, MIN_ZOOM), MIN_ZOOM);
@@ -267,31 +273,38 @@ function updateTransport(map) {
 }
 
 function apply(map) {
-  if (!map.getLayer("places-poi")) return;
+  if (!map.getLayer(poiLayer("transport"))) return;
   const vis = (id, on) => map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
-  vis("places-poi", !!active?.subclasses?.length);
-  vis("places-stops", !!active?.stops);
-  vis("places-air", !!active?.airports);
-  vis("places-transport-far", !!active?.far);
-  vis("places-cable", !!active?.cable);
-  vis("places-lift-line", !!active?.cable);
-  vis("places-cable-far-line", !!active?.cable);
-  if (!active) return;
-  const img = modeIcon(map, active);
-  map.setLayoutProperty("places-poi", "icon-image", img);
-  map.setLayoutProperty("places-stops", "icon-image", img);
-  map.setLayoutProperty("places-air", "icon-image", pin(map, AIRPORT_PIN.color, AIRPORT_PIN.glyph));
-  map.setLayoutProperty("places-transport-far", "icon-image", img);
-  map.setLayoutProperty("places-cable", "icon-image", pin(map, CABLE_PIN.color, CABLE_PIN.glyph, CABLE_PIN.ink));
   const funicular = ["in", ["id"], ["literal", [...funicularIds]]];
-  const bySubclass = ["in", ["get", "subclass"], ["literal", active.subclasses || []]];
-  // вид «фуникулёры и канатные дороги»: станции канаток и станции фуникулёров (по id из QLever);
-  // «поезда»: только железная дорога, без станций канаток и фуникулёров
-  map.setFilter("places-poi", active.lifts ? ["all", bySubclass, ["any", ["==", ["get", "class"], "aerialway"], funicular]]
-    : active.rail ? ["all", bySubclass, ["==", ["get", "class"], "railway"], ["!", funicular]]
-    : bySubclass);
-  map.setFilter("places-transport-far", ["in", ["get", "subclass"], ["literal", active.far || []]]);
-  map.setFilter("places-stops", ["in", ["get", "subclass"], ["literal", active.stops || []]]);
+  for (const id of CAT_IDS) {
+    const cat = actives.get(id);
+    vis(poiLayer(id), !!cat?.subclasses?.length);
+    if (!cat) continue;
+    map.setLayoutProperty(poiLayer(id), "icon-image", modeIcon(map, cat));
+    const bySubclass = ["in", ["get", "subclass"], ["literal", cat.subclasses || []]];
+    // вид «фуникулёры и канатные дороги»: станции канаток и станции фуникулёров (по id из QLever);
+    // «поезда»: только железная дорога, без станций канаток и фуникулёров
+    map.setFilter(poiLayer(id), cat.lifts ? ["all", bySubclass, ["any", ["==", ["get", "class"], "aerialway"], funicular]]
+      : cat.rail ? ["all", bySubclass, ["==", ["get", "class"], "railway"], ["!", funicular]]
+      : bySubclass);
+  }
+  // слои только транспорта
+  const tr = transport();
+  vis("places-stops", !!tr?.stops);
+  vis("places-air", !!tr?.airports);
+  vis("places-transport-far", !!tr?.far);
+  vis("places-cable", !!tr?.cable);
+  vis("places-lift-line", !!tr?.cable);
+  vis("places-cable-far-line", !!tr?.cable);
+  if (tr) {
+    const img = modeIcon(map, tr);
+    map.setLayoutProperty("places-stops", "icon-image", img);
+    map.setLayoutProperty("places-air", "icon-image", pin(map, AIRPORT_PIN.color, AIRPORT_PIN.glyph));
+    map.setLayoutProperty("places-transport-far", "icon-image", img);
+    map.setLayoutProperty("places-cable", "icon-image", pin(map, CABLE_PIN.color, CABLE_PIN.glyph, CABLE_PIN.ink));
+    map.setFilter("places-transport-far", ["in", ["get", "subclass"], ["literal", tr.far || []]]);
+    map.setFilter("places-stops", ["in", ["get", "subclass"], ["literal", tr.stops || []]]);
+  }
   scaleZooms(map);
 }
 
@@ -303,22 +316,23 @@ function scaleZooms(map) {
 }
 
 function updateStatus(map, status) {
-  if (!active) return;
-  const name = (active.profile?.id !== "all" && active.profile?.name) || active.title;
-  const zoomIn = `Приблизьте карту, чтобы увидеть: ${name.toLowerCase()}`;
+  if (!actives.size) return;
+  const cats = [...actives.values()];
+  const name = cats.map((c) => ((c.profile && c.profile.id !== "all" && c.profile.name) || c.title).toLowerCase()).join(", ");
+  const zoomIn = `Приблизьте карту, чтобы увидеть: ${name}`;
   // с какого масштаба что-то видно: аэропорты и дальний транспорт — раньше, вид «только остановки» — позже
-  const min = Math.min(
-    active.subclasses?.length ? MIN_ZOOM : Infinity,
-    active.stops?.length ? Math.max(MIN_ZOOM, zoomForScale(map, STOP_MAX_M_PER_100PX)) : Infinity,
-    active.airports ? zoomForScale(map, AIRPORT_MAX_M_PER_100PX) : Infinity,
-    active.far ? zoomForScale(map, TRANSPORT_FAR_M) : Infinity);
+  const min = Math.min(...cats.map((c) => Math.min(
+    c.subclasses?.length ? MIN_ZOOM : Infinity,
+    c.stops?.length ? Math.max(MIN_ZOOM, zoomForScale(map, STOP_MAX_M_PER_100PX)) : Infinity,
+    c.airports ? zoomForScale(map, AIRPORT_MAX_M_PER_100PX) : Infinity,
+    c.far ? zoomForScale(map, TRANSPORT_FAR_M) : Infinity)));
   // что-то уже видно — подсказка не нужна, даже если часть плиток ещё грузится
   const found = map.queryRenderedFeatures({ layers: LAYERS.filter((id) => map.getLayer(id)) }).length;
   if (found) { status(""); return; }
   if (map.getZoom() < min) { status(zoomIn); return; }
   if (!map.areTilesLoaded()) return;
   if (map.getZoom() < FULL_ZOOM) status(zoomIn);
-  else status(`В этой части карты не найдено: ${name.toLowerCase()}`);
+  else status(`В этой части карты не найдено: ${name}`);
 }
 
 let wired = false;
@@ -353,7 +367,7 @@ for (const cat of CATEGORIES) {
   register({
     id: `places/${cat.id}`,
     kind: "layer",
-    group: "places", // в панели — раздел «Места», одновременно включена одна категория
+    group: "places", // в панели — раздел «Места»; включать можно несколько сразу
     title: cat.title,
     icon: cat.icon,
     needs: ["network"],
@@ -367,16 +381,16 @@ for (const cat of CATEGORIES) {
     enable(ctx) {
       wire(ctx);
       ensureLayers(ctx.map);
-      active = withProfile();
+      actives.set(cat.id, withProfile());
       apply(ctx.map);
       updateTransport(ctx.map);
       updateStatus(ctx.map, ctx.status);
     },
     disable(ctx) {
-      if (active?.id !== cat.id) return;
-      active = null;
+      if (!actives.delete(cat.id)) return;
       apply(ctx.map);
       ctx.status("");
+      updateStatus(ctx.map, ctx.status);
     },
   });
 }
