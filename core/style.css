@@ -35,6 +35,7 @@
   --tone-points: #fb8c00;
   --tone-photo: #e91e63;
   --tone-weather: #039be5;
+  --tone-lang: #26a69a;
 
   --radius: 10px;
   --button: 40px;
@@ -1005,6 +1006,7 @@ body.has-photo-strip .status {
 .tone-points { --tone: var(--tone-points); }
 .tone-photo { --tone: var(--tone-photo); }
 .tone-weather { --tone: var(--tone-weather); }
+.tone-lang { --tone: var(--tone-lang); }
 
 /* «Карты» — миниатюра текущей карты в кольце цвета группы */
 .maps-circle {
@@ -1086,4 +1088,265 @@ body.has-photo-strip .status {
   border: 1px solid rgba(0, 0, 0, 0.3);
   border-radius: 50%;
   box-shadow: none;
+}
+
+/* ---------- левая панель (Языки, Экскурсии, Альбомы) — под строкой поиска ---------- */
+.panel.panel-left {
+  top: calc(var(--top-inset) + var(--gap) + 48px);
+  left: var(--gap);
+  right: auto;
+  width: 400px;
+  max-width: calc(100vw - 2 * var(--gap));
+  max-height: calc(100vh - var(--top-inset) - 48px - 3 * var(--gap) - 200px);
+}
+
+@media (max-width: 600px) {
+  .panel.panel-left {
+    right: var(--gap);
+    width: auto;
+    max-height: 55vh;
+  }
+}
+
+/* столбик раздела, пока список грузится */
+.layers-wait {
+  padding: 8px 14px;
+  border-radius: 18px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
+  box-shadow: var(--shadow);
+}
+
+/* значок режима в строке поиска: значок раздела, при наведении — крестик «обратно к местам» */
+.search-box > .search-mode {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-right: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--tone-lang);
+  color: #fff;
+  cursor: pointer;
+}
+
+.search-box > .search-mode[hidden] {
+  display: none;
+}
+
+.search-box > .search-mode i {
+  position: absolute;
+  inset: 0;
+  display: none;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.search-box > .search-mode:hover i {
+  display: grid;
+}
+
+/* ---------- разговорник ---------- */
+.pb-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.pb-tab {
+  padding: 5px 12px;
+  border: none;
+  border-radius: 14px;
+  background: var(--panel-hover);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pb-tab.on {
+  background: var(--active);
+  font-weight: 600;
+}
+
+.pb-bar {
+  position: sticky;
+  top: -10px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -4px -4px 6px;
+  padding: 4px;
+  background: var(--panel);
+}
+
+.pb-player {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pb-player-label {
+  margin-left: 6px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.pb-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.pb-btn:hover {
+  background: var(--panel-hover);
+}
+
+.pb-btn.on {
+  background: var(--active);
+}
+
+.pb-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.pb-section {
+  border-top: 1px solid var(--panel-hover);
+}
+
+.pb-section[hidden] {
+  display: none;
+}
+
+.pb-sec-title {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 8px 2px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pb-sec-title::after {
+  content: "";
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 0.15s;
+}
+
+.pb-section.shut .pb-sec-title::after {
+  transform: rotate(-45deg);
+}
+
+.pb-section.shut .pb-sec-body {
+  display: none;
+}
+
+.pb-sec-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+}
+
+.pb-idea,
+.pb-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.pb-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pb-sub {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* фраза: по-русски, на языке страны, произношение; звучащая — светлой заливкой */
+.pb-phrase {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: var(--panel-hover);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pb-phrase[hidden] {
+  display: none;
+}
+
+.pb-phrase:hover {
+  background: color-mix(in srgb, var(--tone-lang) 12%, #fff);
+}
+
+.pb-phrase.speaking {
+  background: color-mix(in srgb, var(--tone-lang) 24%, #fff);
+}
+
+.pb-ru {
+  font-size: 13px;
+}
+
+.pb-foreign {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.pb-say {
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.pb-source {
+  font-size: 12px;
+}
+
+.pb-source a {
+  color: var(--accent);
 }

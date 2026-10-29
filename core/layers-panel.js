@@ -17,7 +17,10 @@
 //    Магазины, Тропы, Велодорожки, Дороги) — своя кнопка, отмечать можно несколько, снят последний
 //    вид — слой выключается; если его название совпадает с названием раздела («Дороги») — остальные
 //    слои раздела (железные дороги) в той же кнопке под видами;
-//  • где цвет на карте что-то значит — значок кнопки столбика в кольце этого цвета (поле color).
+//  • где цвет на карте что-то значит — значок кнопки столбика в кольце этого цвета (поле color);
+//  • разделы с панелью (kind: "content" — Языки, Экскурсии, Мои альбомы): у модуля поле column —
+//    { load(), items(), choose(id), isOpen(), close() }; столбик — список (языки, страны), нажатие
+//    открывает панель слева; кнопка залита светлым, пока её панель открыта, крестик её закрывает.
 // Ядро слоёв по именам не знает: новый модуль появляется сам; без известного раздела — в «Ещё».
 // Включённые слои и открытость панели помнятся. Открылась панель настроек — барабан уступает место,
 // и наоборот
@@ -64,11 +67,11 @@ export function initLayersPanel(ctx) {
     toggleBtn.classList.toggle("open", open);
     toggleBtn.title = open ? "Спрятать кнопки" : "Показать кнопки";
     settings.set("layers.panel", open || null);
-    if (open) { closeOpen(); layout(); } else show(null);
+    if (open) { closeOpen("right"); layout(); } else show(null);
   };
   toggleBtn.addEventListener("click", () => setOpen(!isOpen));
-  // открылась панель (настройки) — барабан уступает место
-  on("panel", (p) => p && isOpen && setOpen(false), { replay: false });
+  // открылась панель настроек (на телефоне — любая) — барабан уступает место
+  on("panel", (p) => p && isOpen && (p.side === "right" || innerWidth <= 600) && setOpen(false), { replay: false });
   document.addEventListener("click", (e) => {
     // кнопку, по которой щёлкнули, могли уже перерисовать — это щелчок внутри, а не мимо
     if (!e.target.isConnected) return;
@@ -112,6 +115,7 @@ export function initLayersPanel(ctx) {
   // кнопки барабана: «Карты», потом разделы и модули с видами
   const entries = () => {
     const usable = modules("layer").filter(available).filter((m) => m.group !== "hidden");
+    const content = modules("content").filter(available).map((m) => ({ key: m.id, title: m.title, icon: m.icon, tone: m.tone, content: m, plain: [] }));
     const maps = { key: "maps", title: "Карты", tone: "maps", maps: true, plain: usable.filter((m) => groupOf(m) === MAPS_GROUP) };
     return [maps, ...GROUPS.flatMap((g) => {
       const mods = usable.filter((m) => groupOf(m) === g.id);
@@ -122,7 +126,7 @@ export function initLayersPanel(ctx) {
       if (host) plain = [];
       if (plain.length) out.unshift({ key: g.id, title: g.title, icon: g.icon || plain[0].icon, tone: g.tone, plain });
       return out;
-    })];
+    }), ...content];
   };
 
   // ---------- столбик кнопки ----------
@@ -135,7 +139,17 @@ export function initLayersPanel(ctx) {
     if (!e) { sub.hidden = true; return; }
     const m = e.module;
     const cur = currentBasemap();
+    const col = e.content?.column;
+    // раздел с панелью: список подгружается при первом открытии столбика
+    if (col && !col.loaded) {
+      col.loaded = true;
+      col.load().catch(() => {}).finally(() => openKey === key && show(key));
+    }
+    const colItems = col ? col.items() : [];
     sub.replaceChildren(
+      ...(col && !colItems.length ? [Object.assign(document.createElement("div"), { className: "layers-wait", textContent: "Загрузка…" })] : []),
+      ...colItems.map((it) => item({ title: it.title, thumb: it.thumb, icon: it.icon, selected: it.selected, hint: it.hint,
+        click: () => { col.choose(it.id); show(null); } })),
       ...(e.maps ? BASEMAPS.map((b) => item({ title: b.name, thumb: thumbOf(b), selected: b === cur, hint: b.hint,
         click: () => { setBasemap(b); show(openKey); } })) : []),
       ...(e.maps && e.plain.length ? [Object.assign(document.createElement("div"), { className: "layers-sep" })] : []),
@@ -276,7 +290,7 @@ export function initLayersPanel(ctx) {
       const label = e.module?.menu.label();
       if (label && label !== e.title) c.title = `${e.title}: ${label}`;
       c.dataset.key = e.key;
-      const anyOn = !!e.module?.active || e.plain.some((m) => m.active);
+      const anyOn = !!e.module?.active || e.plain.some((m) => m.active) || !!e.content?.column.isOpen();
       c.classList.toggle("on", anyOn);
       x.hidden = !anyOn;
       // крестик: выключить всё в кнопке, забыть отмеченные виды и закрыть столбик (Грегори, 2026-10-29:
@@ -286,6 +300,7 @@ export function initLayersPanel(ctx) {
         x.disabled = true;
         show(null);
         for (const m of [e.module, ...e.plain]) if (m?.active) await switchTo(m, false);
+        e.content?.column.close();
         e.module?.menu.clear?.();
         render();
       });
@@ -309,6 +324,7 @@ export function initLayersPanel(ctx) {
   // слой включился не отсюда (сам по себе, по событию другого модуля) — кнопки обновить
   on("module", render, { replay: false });
   on("basemap", render, { replay: false });
+  on("panel", () => render(), { replay: false });
   onRegister(render);
   render();
   if (settings.get("layers.panel")) setOpen(true);

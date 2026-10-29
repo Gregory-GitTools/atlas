@@ -2,6 +2,8 @@
 // альбомов делались по отдельности, и половина правок была про их несовпадения). Одновременно
 // открыта одна панель; шапка — название, «свернуть», «закрыть»; высота подстраивается под
 // содержимое; на узком экране — во всю ширину под верхней строкой. Свёрнута ли — помнится.
+// side: "right" (настройки — справа вверху) или "left" (Языки, Экскурсии, Альбомы — слева под строкой
+// поиска; колесо справа при ней остаётся открытым)
 import { emit } from "./events.js";
 import * as settings from "./settings.js";
 
@@ -15,8 +17,8 @@ let openId = null;
 const iconButton = (icon, title) =>
   Object.assign(document.createElement("button"), { className: "panel-btn", innerHTML: icon, title });
 
-export function createPanel({ id, title, icon = "" }) {
-  const el = Object.assign(document.createElement("section"), { className: "panel", hidden: true });
+export function createPanel({ id, title, icon = "", side = "right" }) {
+  const el = Object.assign(document.createElement("section"), { className: `panel panel-${side}`, hidden: true });
   el.dataset.panel = id;
   const head = Object.assign(document.createElement("header"), { className: "panel-head" });
   const name = Object.assign(document.createElement("h2"), { className: "panel-title", innerHTML: `${icon}<span></span>` });
@@ -36,32 +38,37 @@ export function createPanel({ id, title, icon = "" }) {
   };
   minBtn.addEventListener("click", () => setMin(!el.classList.contains("min")));
   closeBtn.addEventListener("click", () => close(id));
+  const closers = [];
   setMin(!!settings.get(`panel.${id}.min`));
 
-  const panel = { id, el, body, setMin, open: () => open(id), close: () => close(id), toggle: () => (openId === id ? close(id) : open(id)) };
+  const panel = { id, side, el, body, setMin, closers, open: () => open(id), close: () => close(id), toggle: () => (openId === id ? close(id) : open(id)),
+    setTitle: (text) => { name.querySelector("span").textContent = text; },
+    onClose: (fn) => closers.push(fn) };
   panels.set(id, panel);
   return panel;
 }
 
 export function open(id) {
-  if (openId && openId !== id) panels.get(openId).el.hidden = true;
+  if (openId && openId !== id) close(openId, true);
   const p = panels.get(id);
   p.el.hidden = false;
   openId = id;
-  emit("panel", { id });
+  emit("panel", { id, side: p.side });
 }
 
-export function close(id) {
+export function close(id, replaced = false) {
   const p = panels.get(id);
-  if (!p) return;
+  if (!p || p.el.hidden) return;
   p.el.hidden = true;
   if (openId === id) {
     openId = null;
-    emit("panel", null);
+    for (const fn of p.closers) fn();
+    if (!replaced) emit("panel", null);
   }
 }
 
 export const isOpen = (id) => openId === id;
 
-// закрыть открытую панель (столбик «Слои» открылся — панели уступают ему место)
-export const closeOpen = () => openId && close(openId);
+// закрыть открытую панель (колесо открылось — правая панель, настройки, уступает ему место); side —
+// только панель этой стороны
+export const closeOpen = (side) => openId && (!side || panels.get(openId).side === side) && close(openId);

@@ -3,7 +3,11 @@
 // с видимой частью карты — выше в списке. История — последние выбранные места (до 20): при пустой
 // строке видна под полем, щелчок ведёт на место без нового запроса; строки можно перетаскивать
 // (так складывается своё избранное) и удалять. Стрелки ↑↓ — по списку, Enter — выбрать.
-// Поиск — модуль-служба: отправляет текст запроса и район карты, подчиняется режиму «без сети»
+// Поиск — модуль-служба: отправляет текст запроса и район карты, подчиняется режиму «без сети».
+// Режимы (Грегори, 2026-10-29: «без окна поиска не обойтись; после выбора режимов в окне поиска должен
+// появляться соответствующий значок»): раздел (Языки, Экскурсии, Альбомы) включает свой режим —
+// setSearchMode({ icon, title, placeholder, filter(text), exit() }): у поля его значок с крестиком,
+// ввод ищет внутри раздела (filter на каждую букву — это своё, не Nominatim), крестик — обратно к местам
 import { register, modules, allowed } from "./modules.js";
 import { emit } from "./events.js";
 import * as settings from "./settings.js";
@@ -26,6 +30,11 @@ register({
 });
 const self = () => modules("service").find((m) => m.id === "core/search");
 
+let mode = null, setMode = () => {};
+// включить режим раздела (null — обратно к поиску мест)
+export const setSearchMode = (m) => setMode(m);
+export const searchMode = () => mode;
+
 const loadHistory = () => settings.get(HISTORY_KEY, []);
 const saveHistory = (list) => settings.set(HISTORY_KEY, list.length ? list : null);
 
@@ -34,6 +43,7 @@ export function initSearch({ map, maplibregl }) {
   // слева — логотип Atlas (Грегори, 2026-10-29: строка поиска как у Google, логотип внутри слева)
   bar.innerHTML = `<div class="search-box">
       <img class="search-logo" src="icons/logo.png" alt="">
+      <button class="search-mode" hidden></button>
       <input type="search" placeholder="Поиск места" autocomplete="off" enterkeyhint="search" aria-label="Поиск места">
       <button class="search-clear" title="Очистить" hidden>${CLEAR_ICON}</button>
       <button class="search-go" title="Найти">${SEARCH_ICON}</button>
@@ -43,6 +53,24 @@ export function initSearch({ map, maplibregl }) {
   document.body.append(bar);
   const input = bar.querySelector("input");
   const clearBtn = bar.querySelector(".search-clear");
+  const modeBtn = bar.querySelector(".search-mode");
+  // ---------- режим раздела ----------
+  setMode = (m) => {
+    if (mode === m) return;
+    const old = mode;
+    mode = m;
+    input.value = "";
+    clearBtn.hidden = true;
+    close();
+    modeBtn.hidden = !m;
+    input.placeholder = m?.placeholder || "Поиск места";
+    if (m) {
+      modeBtn.innerHTML = `${m.icon}<i>${CLEAR_ICON}</i>`;
+      modeBtn.title = `${m.title} — щелчок: обратно к поиску мест`;
+    }
+    old?.filter("");
+  };
+  modeBtn.addEventListener("click", () => { const m = mode; setMode(null); m?.exit(); });
   const list = bar.querySelector(".search-results");
   let cursor = null; // display_name выделенной стрелками строки
   let marker = null;
@@ -173,15 +201,16 @@ export function initSearch({ map, maplibregl }) {
     const i = items.findIndex((it) => it.dataset.key === cursor);
     if (e.key === "ArrowDown" && items.length) { e.preventDefault(); cursor = items[Math.min(items.length - 1, i + 1)].dataset.key; mark(); }
     else if (e.key === "ArrowUp" && i >= 0) { e.preventDefault(); cursor = i > 0 ? items[i - 1].dataset.key : null; mark(); }
-    else if (e.key === "Enter") { if (i >= 0) { e.preventDefault(); items[i].click(); } else run(); }
+    else if (e.key === "Enter") { if (mode) return; if (i >= 0) { e.preventDefault(); items[i].click(); } else run(); }
     else if (e.key === "Escape") close();
   });
-  input.addEventListener("input", () => { clearBtn.hidden = !input.value; showHistory(); });
-  input.addEventListener("focus", showHistory);
-  bar.querySelector(".search-go").addEventListener("click", () => { input.focus(); run(); });
+  input.addEventListener("input", () => { clearBtn.hidden = !input.value; if (mode) mode.filter(input.value.trim()); else showHistory(); });
+  input.addEventListener("focus", () => !mode && showHistory());
+  bar.querySelector(".search-go").addEventListener("click", () => { input.focus(); if (mode) mode.filter(input.value.trim()); else run(); });
   clearBtn.addEventListener("click", () => {
     input.value = "";
     clearBtn.hidden = true;
+    if (mode) { mode.filter(""); input.focus(); return; }
     marker?.remove();
     marker = null;
     input.focus();

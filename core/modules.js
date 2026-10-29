@@ -4,7 +4,7 @@
 //
 // Описание модуля:
 //   id        — уникальное имя, "layers/trails"
-//   kind      — "layer" | "source" | "tool" | "voice"
+//   kind      — "layer" | "content" | "source" | "tool" | "voice" (content — раздел с панелью: Языки…)
 //   title     — подпись на кнопке
 //   icon      — SVG-строка (монохромная, currentColor)
 //   needs     — что требуется: ["folders", "webgpu", "network", "desktop"]; нет нужного на
@@ -29,6 +29,7 @@ export const MODULES = [
   "../layers/terrain.js",
   "../layers/weather.js",
   "../layers/photos.js",
+  "../content/languages.js",
 ];
 
 const registry = new Map();

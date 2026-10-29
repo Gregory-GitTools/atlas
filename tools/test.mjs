@@ -366,6 +366,35 @@ try {
     await run(`localStorage.removeItem("atlas.roads.profile"); atlas.toggle("layers/roads", false).then(() => true)`);
   }
 
+  // языки: кнопка в барабане, в столбике — языки с флагами; язык — панель слева с разделами и фразами,
+  // в строке поиска — значок режима, ввод ищет фразу; крестик значка — обратно к поиску мест
+  if (want("content/languages") && mods.some((m) => m.id === "content/languages")) {
+    await run(openLayers("content/languages"));
+    for (let i = 0; i < 40 && !(await run(`[...document.querySelectorAll(".layers-sub .layers-item")].length > 3`)); i++) await sleep(500);
+    const langs = await run(`[...document.querySelectorAll(".layers-sub .layers-item")].map((b) => b.firstChild.textContent)`);
+    check("языки: в столбике — языки", langs.length >= 5 && langs.some((l) => /Итальянский/.test(l)), JSON.stringify(langs));
+    await run(`${itemFor("Итальянский")}.click(); true`);
+    await sleep(800);
+    const pb = await run(`({ panel: !document.querySelector('[data-panel="languages"]').hidden, title: document.querySelector('[data-panel="languages"] .panel-title span').textContent,
+      tabs: [...document.querySelectorAll(".pb-tab")].map((t) => t.textContent), phrases: document.querySelectorAll(".pb-phrase").length,
+      mode: !document.querySelector(".search-mode").hidden, placeholder: document.querySelector(".search-box input").placeholder,
+      wheelOn: document.querySelector('.layers-circle[data-key="content/languages"]').classList.contains("on") })`);
+    check("языки: разговорник открыт в панели, в поиске — значок режима", pb.panel && pb.title === "Итальянский" && pb.phrases > 20 && pb.tabs.length >= 2
+      && pb.mode && pb.placeholder === "Найти фразу" && pb.wheelOn, JSON.stringify(pb));
+    await shot("97-languages");
+    const found = await run(`(async () => { const i = document.querySelector(".search-box input"); i.value = "спасибо"; i.dispatchEvent(new Event("input"));
+      await new Promise((r) => setTimeout(r, 200)); const shown = [...document.querySelectorAll(".pb-phrase")].filter((b) => !b.hidden);
+      return { shown: shown.length, all: shown.every((b) => b.textContent.toLowerCase().includes("спасибо")) }; })()`);
+    check("языки: поиск фразы из строки поиска", found.shown > 0 && found.all, JSON.stringify(found));
+    await run(`document.querySelector(".pb-phrase:not([hidden])").click(); true`);
+    await run(`document.querySelector(".search-mode").click(); true`);
+    await sleep(300);
+    const back = await run(`({ panel: document.querySelector('[data-panel="languages"]').hidden, mode: document.querySelector(".search-mode").hidden,
+      placeholder: document.querySelector(".search-box input").placeholder })`);
+    check("языки: крестик значка — обратно к поиску мест", back.panel && back.mode && back.placeholder === "Поиск места", JSON.stringify(back));
+    await run(closeLayers);
+  }
+
   // фото: у Таллина издалека — только точки Commons, вблизи — миниатюры; снимки улиц Mapillary;
   // веб-камеры — по всему миру (QLever)
   if (want("photo/commons") && mods.some((m) => m.id === "photo/commons")) {
@@ -521,7 +550,7 @@ try {
   const lm = await run(`({ groups: [...document.querySelectorAll(".wheel .layers-circle")].map((c) => c.title.split(":")[0]),
     sub: [...document.querySelectorAll(".layers-sub .layers-item")].map((c) => c.firstChild.textContent),
     on: [...document.querySelectorAll(".wheel .layers-circle.on")].map((c) => c.title) })`);
-  check("«Слои»: кружки, «Дороги» — виды и железные дороги, «Фото»", ["Карты", "Места", "Транспорт", "Магазины", "Тропы", "Велодорожки", "Дороги", "Погода", "Фото"].every((g) => lm.groups.includes(g))
+  check("«Слои»: кружки, «Дороги» — виды и железные дороги, «Фото»", ["Карты", "Места", "Транспорт", "Магазины", "Тропы", "Велодорожки", "Дороги", "Погода", "Фото", "Языки"].every((g) => lm.groups.includes(g))
     && !lm.groups.includes("Пляжи и сёрфинг") && !lm.groups.includes("Рельеф") && lm.sub.length === 5
     && lm.sub.includes("Железные дороги") && lm.on.includes("Дороги"), JSON.stringify(lm));
   await shot("95-panel-layers");
