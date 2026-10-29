@@ -181,7 +181,7 @@ html, body {
 @media (max-width: 600px) {
   .panel {
     /* под строкой поиска во всю ширину */
-    top: calc(var(--top-inset) + var(--gap) + 56px);
+    top: calc(var(--top-inset) + var(--gap) + 48px);
     left: var(--gap);
     right: var(--gap);
     width: auto;
@@ -402,17 +402,17 @@ html, body {
 .search-box {
   display: flex;
   align-items: center;
-  height: 48px;
-  padding: 0 4px 0 8px;
+  height: 40px; /* ниже (Грегори, 2026-10-29: «слишком высокое») */
+  padding: 0 2px 0 6px;
   background: var(--panel);
-  border-radius: 24px;
+  border-radius: 20px;
   box-shadow: var(--shadow);
 }
 
 .search-logo {
   flex: none;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   margin-right: 8px;
 }
 
@@ -432,8 +432,8 @@ html, body {
 }
 
 .search-box > button {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   border: none;
   border-radius: 50%;
   background: none;
@@ -564,7 +564,7 @@ html, body {
 .lang-btn {
   display: flex;
   align-items: center;
-  height: 36px;
+  height: 28px;
   padding: 0 2px 0 10px;
   margin-left: 2px;
   border: none;
@@ -944,7 +944,7 @@ body.has-photo-strip .status {
 
 @media (max-width: 600px) {
   .wheel {
-    top: calc(var(--top-inset) + var(--gap) + 58px);
+    top: calc(var(--top-inset) + var(--gap) + 50px);
     bottom: 96px;
   }
 }

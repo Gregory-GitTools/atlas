@@ -279,10 +279,12 @@ export function initLayersPanel(ctx) {
       const anyOn = !!e.module?.active || e.plain.some((m) => m.active);
       c.classList.toggle("on", anyOn);
       x.hidden = !anyOn;
-      // крестик: выключить всё в кнопке и забыть отмеченные виды
+      // крестик: выключить всё в кнопке, забыть отмеченные виды и закрыть столбик (Грегори, 2026-10-29:
+      // «при нажатии на крестик сброса панель сворачивать»)
       x.addEventListener("click", async (ev) => {
         ev.stopPropagation();
         x.disabled = true;
+        show(null);
         for (const m of [e.module, ...e.plain]) if (m?.active) await switchTo(m, false);
         e.module?.menu.clear?.();
         render();

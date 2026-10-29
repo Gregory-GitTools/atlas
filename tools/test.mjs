@@ -283,11 +283,14 @@ try {
       const shown = !x.hidden;
       x.click(); await new Promise((r) => setTimeout(r, 800));
       const res = { shown, off: !atlas.modules().find((m) => m.id === "places/transport").active,
-        noneMarked: !document.querySelector(".layers-sub .layers-item.on"),
-        rings: [...document.querySelectorAll(".layers-sub .layers-icon.ring")].length };
+        closed: document.querySelector(".layers-sub").hidden };
+      // открыть снова: ничего не отмечено, у видов кольца цвета
+      await ${openLayers("places/transport")};
+      res.noneMarked = !document.querySelector(".layers-sub .layers-item.on");
+      res.rings = [...document.querySelectorAll(".layers-sub .layers-icon.ring")].length;
       ${closeLayers};
       return res; })()`);
-    check("транспорт: крестик снимает всё, у видов кольца цвета", cleared.shown && cleared.off && cleared.noneMarked && cleared.rings === 7, JSON.stringify(cleared));
+    check("транспорт: крестик снимает всё, у видов кольца цвета", cleared.shown && cleared.off && cleared.closed && cleared.noneMarked && cleared.rings === 7, JSON.stringify(cleared));
     await run(`atlas.toggle("places/transport", false)`);
   }
 
