@@ -374,16 +374,18 @@ try {
     const st = await run(`atlas.modules().find((m) => m.id === "photo/commons").stats()`);
     check("фото: снимки Commons", n > 0, `${n} на экране, ${JSON.stringify(st)}`);
     const p = await run(`(() => { const c = atlas.map.project(atlas.map.getCenter()); return atlas.map.queryRenderedFeatures({ layers: ["photo-commons"] })
-      .map((f) => atlas.map.project(f.geometry.coordinates)).sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y))[0]; })()`);
+      .map((f) => atlas.map.project(f.geometry.coordinates)).filter((q) => q.x > 30 && q.x < innerWidth - 70 && q.y > 80 && q.y < innerHeight - 120)
+      .sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y))[0]; })()`);
     if (p) {
       await clickAt(p.x, p.y);
-      await sleep(2500);
+      for (let i = 0; i < 10 && !(await run(`!!document.querySelector(".maplibregl-popup .popup-photo")`)); i++) await sleep(500);
       check("фото: щелчок — снимок в окне", await run(`!!document.querySelector(".maplibregl-popup .popup-photo")`));
       await shot("92-photo-commons");
       // лента внизу: снимки в кадре; щелчок — выделение и окно, двойной щелчок — галерея
       await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
       for (let i = 0; i < 20 && !(await run(`atlas.strip().items > 0`)); i++) await sleep(1000);
-      const sb = await run(`(() => { const b = document.querySelector(".photo-strip:not([hidden]) .photo-strip-item"); if (!b) return null;
+      const sb = await run(`(() => { const b = [...document.querySelectorAll(".photo-strip:not([hidden]) .photo-strip-item:not(.active)")]
+          .find((e) => { const r = e.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth - 90; }); if (!b) return null;
         const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, n: document.querySelectorAll(".photo-strip-item").length }; })()`);
       check("лента: снимки в кадре внизу", !!sb && sb.n > 0, JSON.stringify(sb));
       if (sb) {
@@ -478,7 +480,8 @@ try {
     check("ветер: стрелки", w.length > 0, `${w.length} стрелок, ${w.slice(0, 5).join(", ")} м/с`);
     // стрелка ближе к центру — у краёв её закрывают строка поиска и кнопки
     const p = await run(`(() => { const c = atlas.map.project(atlas.map.getCenter()); return atlas.map.queryRenderedFeatures({ layers: ["wind"] })
-      .map((f) => atlas.map.project(f.geometry.coordinates)).sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y))[0]; })()`);
+      .map((f) => atlas.map.project(f.geometry.coordinates)).filter((q) => q.x > 30 && q.x < innerWidth - 70 && q.y > 80 && q.y < innerHeight - 120)
+      .sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y))[0]; })()`);
     await clickAt(p.x, p.y);
     for (let i = 0; i < 10 && !(await run(`document.querySelectorAll(".wx-row").length > 0`)); i++) await sleep(500);
     check("ветер: прогноз по щелчку", await run(`document.querySelectorAll(".wx-row").length > 0`));

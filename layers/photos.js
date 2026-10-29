@@ -3,10 +3,10 @@
 //    2026-10-29: «высыпает фотки сразу все… должны быть просто точки и потом миниатюры»):
 //    со шкалы «20 км» — только точки там, где есть снимки (редкая проба: узел сетки примерно на
 //    100 px экрана, круг 10 км вокруг него, по точке на четверть круга); со «3 км» — квадраты
-//    тайлов 12-го уровня и мельче целиком: список до 500 точек, из него по снимку на клетку
-//    сетки 4×4 (ближайший к середине клетки — иначе снимки с одной точки слипаются), для них —
-//    миниатюра, автор, лицензия, дата; квадрат с 500 точками делится на четыре. Со шкалы «1 км» —
-//    миниатюры поверх точек. Commons отвечает «поиск занят» (cirrussearch-too-busy) с кодом
+//    тайлов 12-го уровня и мельче целиком: все снимки точками сразу (квадрат с 500 делится на
+//    четыре), и только когда точки в кадре загружены — миниатюры: по одной на клетку экрана 64 px,
+//    пачкой (Грегори, 2026-10-29: «без миниатюр точки загружаются мгновенно… высыпать все точки
+//    сразу, и только потом подгружать миниатюры»). Со шкалы «1 км» — миниатюры поверх точек. Commons отвечает «поиск занят» (cirrussearch-too-busy) с кодом
 //    200 — квадрат повторяется через 15 с. Щелчок — снимок в окне и ссылка на Commons.
 //  • Снимки улиц — Mapillary: линии съёмки со «1 км», точки снимков со «100 м»; щелчок — снимок,
 //    щелчок по снимку или двойной щелчок по линии — плеер в отдельном окне (viewer.html): по
@@ -68,7 +68,9 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
 {
   const DOT_M = 40000, LOAD_M = 5000, THUMB_M = 2000; // точки — со «20 км», загрузка — со «3 км», миниатюры — с «1 км»
   const API = "https://commons.wikimedia.org/w/api.php";
-  const CELL_MIN_Z = 12, GRID = 4, PROBE_PX = 100, MAX_CELLS = 40, SIZE = 44;
+  const CELL_MIN_Z = 12, PROBE_PX = 100, MAX_CELLS = 40, SIZE = 44;
+  // миниатюры — по одной на клетку экрана THUMB_PX (ближайшая к её середине), пачками до BATCH снимков
+  const THUMB_PX = 64, BATCH = 50;
   // «поиск занят» Commons отвечает часто, если спрашивать параллельно, — по одному запросу,
   // после отказа пауза: 1,5 с, дальше вдвое дольше, до 15 с; удачный ответ её сбрасывает
   const PAUSE_MIN = 1500, PAUSE_MAX = 15000;
@@ -92,7 +94,7 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     }));
   };
   const isPhoto = (title) => /\.(jpe?g|webp)$/i.test(title); // png и svg на Commons — в основном карты и схемы
-  const dot = (g, z) => ({ type: "Feature", geometry: { type: "Point", coordinates: [g.lon, g.lat] }, properties: { title: g.title, z } });
+  const dot = (g, z) => ({ type: "Feature", geometry: { type: "Point", coordinates: [g.lon, g.lat] }, properties: { pageid: g.pageid, title: g.title, z } });
   const text = (html) => new DOMParser().parseFromString(html || "", "text/html").body.textContent.replace(/\s+/g, " ").trim();
 
   async function query(params) {
@@ -121,7 +123,10 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     return c.getImageData(0, 0, size, size);
   }
 
-  async function addPhoto(page, z, coordinates) {
+  async function addPhoto(page) {
+    const f = features.get(page.pageid);
+    if (!f) return;
+    const { z } = f.properties, { coordinates } = f.geometry;
     const ii = page.imageinfo?.[0];
     if (!ii?.thumburl || features.get(page.pageid)?.properties.img) return;
     const img = `photo-${page.pageid}`;
@@ -132,7 +137,7 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     const meta = ii.extmetadata || {};
     const t = (k) => text(meta[k]?.value);
     const caption = t("ImageDescription") || page.title.replace(/^File:/, "").replace(/\.\w+$/, "").replace(/_/g, " ");
-    features.set(page.pageid, { type: "Feature", geometry: { type: "Point", coordinates }, properties: { title: page.title, img, z,
+    features.set(page.pageid, { type: "Feature", geometry: { type: "Point", coordinates }, properties: { pageid: page.pageid, title: page.title, img, z,
       thumb: ii.thumburl, page: ii.descriptionurl, full: ii.url, fullWidth: ii.width, aspect: ii.thumbheight / ii.thumbwidth,
       caption: caption.length > 160 ? `${caption.slice(0, 157)}…` : caption,
       author: t("Artist"), license: t("LicenseShortName"), date: t("DateTimeOriginal").replace(/^Taken on\s*/, "") } });
@@ -164,26 +169,10 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
         refresh();
         return;
       }
+      // вблизи — все снимки квадрата точками, сразу; миниатюры — потом, отдельной очередью (thumbs)
       const found = (await query({ list: "geosearch", gsbbox: `${n2}|${w}|${s}|${e}`, gsnamespace: 6, gslimit: 500 })).geosearch || [];
       if (found.length >= 500) dense.add(key);
-      // по снимку на клетку сетки — ближайший к её середине
-      const best = new Map();
-      for (const g of found) {
-        if (!isPhoto(g.title) || features.get(g.pageid)?.properties.img) continue;
-        const fx = ((g.lon - w) / (e - w)) * GRID, fy = ((n2 - g.lat) / (n2 - s)) * GRID;
-        const c = `${Math.min(GRID - 1, Math.floor(fx))}:${Math.min(GRID - 1, Math.floor(fy))}`;
-        const d = Math.hypot((fx % 1) - 0.5, (fy % 1) - 0.5);
-        if (!best.has(c) || d < best.get(c).d) best.set(c, { g, d });
-      }
-      // сначала точки — миниатюры подгрузятся следом
-      const picked = new Map([...best.values()].map(({ g }) => [g.pageid, [g.lon, g.lat]]));
-      for (const { g } of best.values()) if (!features.has(g.pageid)) features.set(g.pageid, dot(g, z));
-      refresh();
-      if (picked.size) {
-        const pages = (await query({ pageids: [...picked.keys()].join("|"), prop: "imageinfo", iiprop: "url|size|extmetadata", iiurlwidth: 120,
-          iiextmetadatafilter: "Artist|LicenseShortName|ImageDescription|DateTimeOriginal" })).pages || [];
-        await Promise.all(pages.map((page) => addPhoto(page, z, picked.get(page.pageid))));
-      }
+      for (const g of found) if (isPhoto(g.title) && !features.has(g.pageid)) features.set(g.pageid, dot(g, z));
       cells.set(key, true);
       pause = PAUSE_MIN;
       refresh();
@@ -197,11 +186,59 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     }
   }
 
+  // Порядок: сначала точки на весь кадр (квадраты основного уровня), потом миниатюры, и только
+  // потом — четвертинки переполненных квадратов (в центре города их десятки, миниатюры ждали бы
+  // минуту). Запрос к Commons — всегда один за раз
+  let baseZ = CELL_MIN_Z;
   function pump() {
-    if (!active || running || !queue.length) return;
-    const [z, x, y, dotsOnly] = queue.shift();
+    if (!active || running) return;
+    let i = queue.findIndex((q) => q[0] <= baseZ);
+    let need = [];
+    if (i < 0) {
+      need = thumbsNeeded();
+      if (!need.length) i = queue.length ? 0 : -1;
+    }
+    if (i < 0 && !need.length) return;
     running = true;
-    loadCell(z, x, y, dotsOnly).finally(() => { running = false; pump(); });
+    const job = i >= 0 ? loadCell(...queue.splice(i, 1)[0]) : loadThumbs(need);
+    job.finally(() => { running = false; pump(); });
+  }
+
+  // Миниатюры (Грегори, 2026-10-29: «высыпать все точки сразу после перемещения и изменения масштаба,
+  // и только потом подгружать миниатюры»): экран делится на клетки THUMB_PX, в каждой — снимок,
+  // ближайший к её середине; клетка, где миниатюра уже есть, готова. При приближении клетки на
+  // местности мельче — миниатюр больше. Сведения о снимках — пачкой до 50 одним запросом, картинки —
+  // параллельно
+  function thumbsNeeded() {
+    const { map } = ctx;
+    if (map.getZoom() < zoomForScale(map, LOAD_M)) return [];
+    const { clientWidth: w, clientHeight: h } = map.getContainer();
+    const best = new Map();
+    for (const f of features.values()) {
+      if (f.properties.failed) continue;
+      const { x, y } = map.project(f.geometry.coordinates);
+      if (x < 0 || y < 0 || x > w || y > h) continue;
+      const key = `${Math.floor(x / THUMB_PX)}:${Math.floor(y / THUMB_PX)}`;
+      const cur = best.get(key);
+      if (cur?.f.properties.img) continue;
+      const d = Math.hypot((x % THUMB_PX) - THUMB_PX / 2, (y % THUMB_PX) - THUMB_PX / 2);
+      if (f.properties.img || !cur || d < cur.d) best.set(key, { f, d });
+    }
+    return [...best.values()].map(({ f }) => f).filter((f) => !f.properties.img).slice(0, BATCH);
+  }
+
+  async function loadThumbs(need) {
+    try {
+      const pages = (await query({ pageids: need.map((f) => f.properties.pageid).join("|"), prop: "imageinfo", iiprop: "url|size|extmetadata",
+        iiurlwidth: 120, iiextmetadatafilter: "Artist|LicenseShortName|ImageDescription|DateTimeOriginal" })).pages || [];
+      await Promise.all(pages.map(addPhoto));
+      // нет миниатюры (не картинка, не скачалась) — больше не просить, клетку займёт соседний снимок
+      for (const { properties: { pageid } } of need) if (!features.get(pageid).properties.img) features.get(pageid).properties.failed = true;
+      refresh();
+    } catch (err) {
+      lastError = String(err);
+      await new Promise((ok) => setTimeout(ok, PAUSE_MIN));
+    }
   }
 
   // квадраты тайлов в кадре (переполненные — вместе с четвертинками), ближние к центру первыми;
@@ -240,6 +277,7 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     if (map.getZoom() < dotZoom) { ctx.status("Приблизьте карту, чтобы увидеть фото"); return; }
     ctx.status("");
     const dotsOnly = map.getZoom() < zoomForScale(map, LOAD_M);
+    baseZ = Math.min(16, Math.max(CELL_MIN_Z, Math.floor(map.getZoom())));
     for (const [z, x, y] of cellsInView(map, dotsOnly)) {
       const key = `${z}/${x}/${y}`;
       const st = cells.get(key);
