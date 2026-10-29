@@ -357,9 +357,18 @@ try {
     await run(`localStorage.removeItem("atlas.roads.profile"); atlas.toggle("layers/roads", false).then(() => true)`);
   }
 
-  // фото: у Таллина — значки снимков Commons; веб-камеры — по всему миру (QLever)
+  // фото: у Таллина издалека — только точки Commons, вблизи — миниатюры; снимки улиц Mapillary;
+  // веб-камеры — по всему миру (QLever)
   if (want("photo/commons") && mods.some((m) => m.id === "photo/commons")) {
-    await run(`atlas.map.jumpTo({ center: [24.745, 59.437], zoom: 14 }); atlas.toggle("photo/commons", true).then(() => true)`);
+    const stats = `atlas.modules().find((m) => m.id === "photo/commons").stats()`;
+    await run(`atlas.map.jumpTo({ center: [24.745, 59.437], zoom: 8.5 }); atlas.toggle("photo/commons", true).then(() => true)`);
+    for (let i = 0; i < 50 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-commons-dots"] }).length > 0`)); i++) await sleep(1000);
+    await sleep(1500);
+    const far = await run(`({ dots: atlas.map.queryRenderedFeatures({ layers: ["photo-commons-dots"] }).length,
+      thumbs: atlas.map.queryRenderedFeatures({ layers: ["photo-commons"] }).length, loaded: ${stats}.thumbs })`);
+    check("фото: издалека — только точки", far.dots > 0 && far.thumbs === 0 && far.loaded === 0, JSON.stringify(far));
+    await shot("91-photo-dots");
+    await run(`atlas.map.jumpTo({ center: [24.745, 59.437], zoom: 14 }); true`);
     for (let i = 0; i < 50 && !(await run(`atlas.map.getLayer("photo-commons") && atlas.map.queryRenderedFeatures({ layers: ["photo-commons"] }).length > 0`)); i++) await sleep(1000);
     const n = await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-commons"] }).length`);
     const st = await run(`atlas.modules().find((m) => m.id === "photo/commons").stats()`);
@@ -371,13 +380,35 @@ try {
       await sleep(2500);
       check("фото: щелчок — снимок в окне", await run(`!!document.querySelector(".maplibregl-popup .popup-photo")`));
       await shot("92-photo-commons");
-      // в центре города квадрат с 500 снимками делится — снимков больше 500
-      for (let i = 0; i < 40 && (await run(`atlas.modules().find((m) => m.id === "photo/commons").stats().photos`)) <= 500; i++) await sleep(1000);
-      const st2 = await run(`atlas.modules().find((m) => m.id === "photo/commons").stats()`);
-      check("фото: густой квадрат делится", st2.photos > 500, `${st2.photos} снимков, квадратов ${st2.cells.length}`);
+      // в центре города квадрат с 500 снимками делится на четыре
+      for (let i = 0; i < 40 && (await run(`${stats}.cells.length`)) <= 4; i++) await sleep(1000);
+      const st2 = await run(stats);
+      check("фото: густой квадрат делится", st2.dense > 0 && st2.cells.length > 4, `переполненных ${st2.dense}, квадратов ${st2.cells.length}, миниатюр ${st2.thumbs}`);
       await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
     }
     await run(`atlas.toggle("photo/commons", false).then(() => true)`);
+    // снимки улиц: линии съёмки, щелчок — снимок, плеер сообщает положение камеры — точка со взглядом
+    await run(`atlas.map.jumpTo({ center: [24.745, 59.437], zoom: 16 }); atlas.toggle("photo/streets", true).then(() => true)`);
+    for (let i = 0; i < 40 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-mly-images"] }).length > 0`)); i++) await sleep(1000);
+    const mly = await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-mly-lines", "photo-mly-images"] }).length`);
+    check("снимки улиц: линии и точки Mapillary", mly > 0, `${mly}`);
+    const mp = await run(`(() => { const f = atlas.map.queryRenderedFeatures({ layers: ["photo-mly-images"] })[0];
+      return f && atlas.map.project(f.geometry.coordinates); })()`);
+    check("снимки улиц: точки снимков вблизи", !!mp);
+    if (mp) {
+      await clickAt(mp.x, mp.y);
+      for (let i = 0; i < 10 && !(await run(`!!document.querySelector(".maplibregl-popup .popup-photo")`)); i++) await sleep(500);
+      check("снимки улиц: щелчок — снимок и «Смотреть в плеере»", await run(`!!document.querySelector(".maplibregl-popup .popup-photo")
+        && [...document.querySelectorAll(".maplibregl-popup a")].some((a) => a.textContent === "Смотреть в плеере")`));
+      await shot("92b-streets");
+      await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
+    }
+    await run(`postMessage({ mapillary: { lng: 24.745, lat: 59.437, bearing: 90 } }, location.origin); true`);
+    await sleep(500);
+    check("снимки улиц: точка камеры от плеера", await run(`atlas.map.getSource("photo-mly-pos").serialize().data.features.length === 1`));
+    const viewer = await fetch(`${url}viewer.html`).then((r) => r.ok).catch(() => false);
+    check("снимки улиц: страница плеера есть", viewer);
+    await run(`atlas.toggle("photo/streets", false).then(() => true)`);
     await run(`atlas.map.jumpTo({ center: [10, 50], zoom: 4 }); atlas.toggle("photo/webcams", true).then(() => true)`);
     for (let i = 0; i < 45 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-webcams"] }).length > 0`)); i++) await sleep(1000);
     const cams = await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-webcams"] }).length`);

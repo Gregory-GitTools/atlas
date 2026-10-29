@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Снимки улиц — Atlas</title>
+<link rel="icon" href="icons/icon-32.png">
+<link rel="stylesheet" href="https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.css">
+<meta name="theme-color" content="#111">
+<style>
+  /* окно просмотра фото — тёмное (правило Atlas) */
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    background: #111;
+    color: #eee;
+    font-family: "Poppins", system-ui, sans-serif;
+  }
+  /* что за снимок, автор · дата · лицензия (CC BY-SA требует указывать) */
+  .bar { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 16px; padding: 10px 16px; }
+  .title { font-weight: 600; font-size: 0.95rem; }
+  .meta { font-size: 0.78rem; color: #aaa; }
+  .meta a { color: #8ab4f8; }
+  #viewer { position: relative; min-height: 0; }
+  /* установленное приложение без системного заголовка — полоска, за которую окно перетаскивается */
+  .titlebar-drag { display: none; }
+  @media (display-mode: window-controls-overlay) {
+    .titlebar-drag {
+      display: block;
+      position: fixed;
+      left: env(titlebar-area-x, 0);
+      top: env(titlebar-area-y, 0);
+      width: env(titlebar-area-width, 100%);
+      height: env(titlebar-area-height, 33px);
+      app-region: drag;
+      z-index: 20;
+    }
+    body { padding-top: env(titlebar-area-height, 33px); }
+  }
+</style>
+</head>
+<body>
+<div class="titlebar-drag"></div>
+<div class="bar"><div class="title">Снимок улицы</div><div class="meta"></div></div>
+<div id="viewer"></div>
+<script src="https://unpkg.com/mapillary-js@4.1.2/dist/mapillary.js"></script>
+<script>
+// Плеер «Снимков улиц» (layers/photos.js, перенесён из travel-earth): стрелки и щелчки по снимку —
+// переход к соседним снимкам, панорамы можно крутить. Окну карты шлётся, где стоит камера и куда
+// смотрит, — там точка со взглядом. Ключ — тот же открытый Client Token, что в photos.js
+const TOKEN = "MLY|27764742799866922|5ce2165cbf2f1597e411962b204bf708";
+const id = new URLSearchParams(location.search).get("id");
+const viewer = new mapillary.Viewer({ accessToken: TOKEN, container: "viewer", imageId: id, component: { cover: false } });
+addEventListener("resize", () => viewer.resize());
+
+const tellMap = (msg) => { try { window.opener?.postMessage({ mapillary: msg }, location.origin); } catch { /* окно карты закрыто */ } };
+let pos = null;
+
+viewer.on("image", async ({ image }) => {
+  pos = image.lngLat;
+  document.querySelector(".title").textContent = image.cameraType === "spherical" ? "Панорама 360°" : "Снимок улицы";
+  const meta = document.querySelector(".meta");
+  meta.textContent = [image.creatorUsername, image.capturedAt && new Date(image.capturedAt).toLocaleDateString("ru"), "CC BY-SA 4.0"]
+    .filter(Boolean).join(" · ") + " · ";
+  meta.append(Object.assign(document.createElement("a"), { target: "_blank", rel: "noopener", textContent: "Mapillary",
+    href: `https://www.mapillary.com/app/?pKey=${image.id}&focus=photo` }));
+  tellMap({ lng: pos.lng, lat: pos.lat, bearing: await viewer.getBearing(), moved: true });
+});
+viewer.on("bearing", ({ bearing }) => { if (pos) tellMap({ lng: pos.lng, lat: pos.lat, bearing }); });
+addEventListener("pagehide", () => tellMap({ closed: true }));
+</script>
+</body>
+</html>
