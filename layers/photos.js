@@ -12,7 +12,7 @@
 //    щелчок по снимку или двойной щелчок по линии — плеер в отдельном окне (viewer.html): по
 //    снимкам стрелками, панорамы крутятся; на карте — где стоит камера и куда смотрит.
 //  • Веб-камеры — точки OpenStreetMap с тегом webcam / contact:webcam (их ~10 тысяч на весь мир —
-//    один запрос QLever; издалека — точки, значки — со «3 км»). Щелчок — название и ссылка на камеру; если ссылка —
+//    один запрос QLever; точки — со «100 км», значки — со «3 км»). Щелчок — название и ссылка на камеру; если ссылка —
 //    сама картинка, она показывается в окне.
 // Свои фото — позже, в разделе «Фото» (ROADMAP)
 import { register, isMobile } from "../core/modules.js";
@@ -20,6 +20,7 @@ import { track, claimLayers } from "../core/popups.js";
 import { qleverBox, osmTags } from "../core/qlever.js";
 import { uiLanguage } from "../core/labels.js";
 import { setStripItems, selectStripItem, openGallery } from "../core/photo-strip.js";
+import { cacheGet, cacheSet } from "../core/storage.js";
 
 const svg = (inner) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">${inner}</svg>`;
 const CAMERA = "M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM9 2 7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z";
@@ -70,7 +71,12 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
 {
   const DOT_M = 40000, LOAD_M = 5000, THUMB_M = 2000; // точки — со «20 км», загрузка — со «3 км», миниатюры — с «1 км»
   const API = "https://commons.wikimedia.org/w/api.php";
-  const CELL_MIN_Z = 12, PROBE_PX = 100, MAX_CELLS = 40, SIZE = 44;
+  const CELL_MIN_Z = 12, MAX_CELLS = 40, SIZE = 44;
+  // издалека — проба через каждые ~180 px экрана (было 100: десятки поисковых запросов ради сотни точек,
+  // они первыми получали «поиск занят»)
+  const PROBE_PX = 180;
+  // найденное помнится на устройстве неделю: знакомые места открываются без запросов
+  const CACHE_MS = 7 * 24 * 3600 * 1000;
   // миниатюры — по одной на клетку экрана THUMB_PX (ближайшая к её середине), пачками до BATCH снимков
   const THUMB_PX = 64, BATCH = 50;
   const CLUSTER_PX = 18; // точки ближе 18 px — один кружок с числом
@@ -82,7 +88,7 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
   const cells = new Map(); // "z/x/y" → true | "dots" | "loading" | когда повторить
   const dense = new Set(); // квадраты, где 500 точек
   const queue = [];
-  let running = false, pause = PAUSE_MIN, ctx = null, active = false, wired = false, lastError = "";
+  let searching = null, informing = false, pause = PAUSE_MIN, ctx = null, active = false, wired = false, lastError = "";
   const data = () => ({ type: "FeatureCollection", features: [...features.values()] });
   const thumbData = () => ({ type: "FeatureCollection", features: [...features.values()].filter((f) => f.properties.img) });
   const refresh = () => {
@@ -150,6 +156,16 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
       author: t("Artist"), license: t("LicenseShortName"), date: t("DateTimeOriginal").replace(/^Taken on\s*/, "") } });
   }
 
+  // поиск Commons с памятью на устройстве: [{ pageid, title, lat, lon }]
+  async function geosearch(cacheKey, params) {
+    const hit = await cacheGet(cacheKey).catch(() => null);
+    if (hit && Date.now() - hit.t < CACHE_MS) return hit.found;
+    const found = ((await query({ list: "geosearch", gsnamespace: 6, ...params })).geosearch || [])
+      .map(({ pageid, title, lat, lon }) => ({ pageid, title, lat, lon }));
+    cacheSet(cacheKey, { t: Date.now(), found }).catch(() => {});
+    return found;
+  }
+
   async function loadCell(z, x, y, dotsOnly) {
     const key = `${z}/${x}/${y}`;
     const n = 2 ** z;
@@ -161,7 +177,7 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
         // издалека — не квадрат, а круг 10 км (больше Commons не ищет) вокруг узла сетки,
         // по точке на четверть круга — ближайшей к середине четверти
         const cx = (w + e) / 2, cy = (s + n2) / 2;
-        const found = (await query({ list: "geosearch", gscoord: `${cy}|${cx}`, gsradius: 10000, gsnamespace: 6, gslimit: 200 })).geosearch || [];
+        const found = await geosearch(`commons/probe/${key}`, { gscoord: `${cy}|${cx}`, gsradius: 10000, gslimit: 200 });
         const r = 10000 / 111320, rx = r / Math.cos((cy * Math.PI) / 180);
         const quarter = new Map();
         for (const g of found) {
@@ -177,7 +193,7 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
         return;
       }
       // вблизи — все снимки квадрата точками, сразу; миниатюры — потом, отдельной очередью (thumbs)
-      const found = (await query({ list: "geosearch", gsbbox: `${n2}|${w}|${s}|${e}`, gsnamespace: 6, gslimit: 500 })).geosearch || [];
+      const found = await geosearch(`commons/cell/${key}`, { gsbbox: `${n2}|${w}|${s}|${e}`, gslimit: 500 });
       if (found.length >= 500) dense.add(key);
       for (const g of found) if (isPhoto(g.title) && !features.has(g.pageid)) features.set(g.pageid, dot(g, z));
       cells.set(key, true);
@@ -193,22 +209,27 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     }
   }
 
-  // Порядок: сначала точки на весь кадр (квадраты основного уровня), потом миниатюры, и только
-  // потом — четвертинки переполненных квадратов (в центре города их десятки, миниатюры ждали бы
-  // минуту). Запрос к Commons — всегда один за раз
+  // Две очереди, в каждой — один запрос за раз (просьба Wikimedia). Поиск (точки): сначала квадраты
+  // основного уровня на весь кадр, потом четвертинки переполненных. Сведения о снимках (миниатюры) —
+  // своя очередь: «поиск занят» их не касается, поэтому они не ждут четвертинок, а начинаются, как
+  // только точки основного уровня в кадре загружены
   let baseZ = CELL_MIN_Z;
+  const isBase = (q) => q[0] <= baseZ;
   function pump() {
-    if (!active || running) return;
-    let i = queue.findIndex((q) => q[0] <= baseZ);
-    let need = [];
-    if (i < 0) {
-      need = thumbsNeeded();
-      if (!need.length) i = queue.length ? 0 : -1;
+    if (!active) return;
+    if (!searching && queue.length) {
+      const i = Math.max(0, queue.findIndex(isBase));
+      const job = queue.splice(i, 1)[0];
+      searching = job;
+      loadCell(...job).finally(() => { searching = null; pump(); });
     }
-    if (i < 0 && !need.length) return;
-    running = true;
-    const job = i >= 0 ? loadCell(...queue.splice(i, 1)[0]) : loadThumbs(need);
-    job.finally(() => { running = false; pump(); });
+    if (!informing && !queue.some(isBase) && !(searching && isBase(searching))) {
+      const need = thumbsNeeded();
+      if (need.length) {
+        informing = true;
+        loadThumbs(need).finally(() => { informing = false; pump(); });
+      }
+    }
   }
 
   // Миниатюры (Грегори, 2026-10-29: «высыпать все точки сразу после перемещения и изменения масштаба,
@@ -236,8 +257,20 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
 
   async function loadThumbs(need) {
     try {
-      const pages = (await query({ pageids: need.map((f) => f.properties.pageid).join("|"), prop: "imageinfo", iiprop: "url|size|extmetadata",
-        iiurlwidth: 120, iiextmetadatafilter: "Artist|LicenseShortName|ImageDescription|DateTimeOriginal" })).pages || [];
+      // сведения о снимке тоже помнятся на устройстве; спрашиваются только новые
+      const ids = need.map((f) => f.properties.pageid);
+      const cached = await Promise.all(ids.map((id) => cacheGet(`commons/info/${id}`).catch(() => null)));
+      const pages = cached.filter((c) => c && Date.now() - c.t < CACHE_MS).map((c) => c.page);
+      const missing = ids.filter((id) => !pages.some((p) => p.pageid === id));
+      if (missing.length) {
+        const fresh = (await query({ pageids: missing.join("|"), prop: "imageinfo", iiprop: "url|size|extmetadata",
+          iiurlwidth: 120, iiextmetadatafilter: "Artist|LicenseShortName|ImageDescription|DateTimeOriginal" })).pages || [];
+        for (const { pageid, title, imageinfo } of fresh) {
+          const page = { pageid, title, imageinfo };
+          pages.push(page);
+          cacheSet(`commons/info/${pageid}`, { t: Date.now(), page }).catch(() => {});
+        }
+      }
       await Promise.all(pages.map(addPhoto));
       // нет миниатюры (не картинка, не скачалась) — больше не просить, клетку займёт соседний снимок
       for (const { properties: { pageid } } of need) if (!features.get(pageid).properties.img) features.get(pageid).properties.failed = true;
@@ -350,7 +383,8 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
       claimLayers("photo-commons-dots", "photo-commons-count", "photo-commons");
       if (!wired) {
         wired = true;
-        map.on("idle", update);
+        // сразу после остановки карты, не дожидаясь, пока подложка дорисуется
+        map.on("moveend", update);
         map.on("click", (e) => {
           if (!active) return;
           const f = map.queryRenderedFeatures(e.point, { layers: ["photo-commons", "photo-commons-dots"].filter((id) => map.getLayer(id)) })[0];
@@ -564,7 +598,9 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     loading = false;
   }
 
-  const PIN_M = 5000; // значки — со шкалы «3 км», мельче — точки
+  // точки — со шкалы «100 км» (Грегори, 2026-10-29: «ограничить видимость веб-камер 100 км»),
+  // значки — со «3 км»
+  const DOT_M = 200000, PIN_M = 5000;
   const href = (url) => (/^https?:\/\//i.test(url) ? url : `https://${url}`);
   const isImage = (url) => /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
   let on = false;
@@ -576,9 +612,10 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
       link: { href: url, text: "Смотреть камеру" }, select: () => show(f) };
   }));
   function zoomRange(map) {
-    const pin = zoomForScale(map, PIN_M);
+    const pin = zoomForScale(map, PIN_M), dot = zoomForScale(map, DOT_M);
     if (map.getLayer("photo-webcams")) map.setLayerZoomRange("photo-webcams", pin, 24);
-    if (map.getLayer("photo-webcams-dots")) map.setLayerZoomRange("photo-webcams-dots", 0, pin);
+    if (map.getLayer("photo-webcams-dots")) map.setLayerZoomRange("photo-webcams-dots", dot, pin);
+    if (on) ctx.status(map.getZoom() < dot ? "Приблизьте карту, чтобы увидеть веб-камеры" : "");
   }
 
   async function show(f) {
@@ -604,7 +641,7 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     kind: "layer",
     group: "photo",
     title: "Веб-камеры",
-    hint: "Веб-камеры по всему миру (OpenStreetMap)",
+    hint: "Веб-камеры (OpenStreetMap): точками с масштаба 100 км, значками — с 3 км",
     icon: svg(`<path d="${WEBCAM}"/>`),
     color: WEBCAM_COLOR,
     needs: ["network"],
@@ -643,6 +680,7 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     disable({ map }) {
       for (const id of ["photo-webcams", "photo-webcams-dots"]) if (map.getLayer(id)) map.removeLayer(id);
       on = false;
+      ctx.status("");
       stripItems();
     },
   });

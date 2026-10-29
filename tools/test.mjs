@@ -436,11 +436,15 @@ try {
     const viewer = await fetch(`${url}viewer.html`).then((r) => r.ok).catch(() => false);
     check("снимки улиц: страница плеера есть", viewer);
     await run(`atlas.toggle("photo/streets", false).then(() => true)`);
-    await run(`atlas.map.jumpTo({ center: [10, 50], zoom: 4 }); atlas.toggle("photo/webcams", true).then(() => true)`);
+    await run(`atlas.map.jumpTo({ center: [10, 50], zoom: 3 }); atlas.toggle("photo/webcams", true).then(() => true)`);
+    await sleep(3000);
+    const globe = await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-webcams-dots", "photo-webcams"] }).length`);
+    check("веб-камеры: на глобусе не видны", globe === 0, `${globe}`);
+    await run(`atlas.map.jumpTo({ center: [24.745, 59.437], zoom: 8 }); true`);
     for (let i = 0; i < 45 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-webcams-dots"] }).length > 0`)); i++) await sleep(1000);
     const cams = await run(`({ dots: atlas.map.queryRenderedFeatures({ layers: ["photo-webcams-dots"] }).length,
       pins: atlas.map.queryRenderedFeatures({ layers: ["photo-webcams"] }).length })`);
-    check("веб-камеры: издалека — точки, не значки", cams.dots > 0 && cams.pins === 0, JSON.stringify(cams));
+    check("веб-камеры: со «100 км» — точки, не значки", cams.dots > 0 && cams.pins === 0, JSON.stringify(cams));
     await shot("93-webcams");
     await run(`atlas.map.jumpTo({ center: [24.745, 59.437], zoom: 13 }); true`);
     await sleep(2000);
