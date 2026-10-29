@@ -11,8 +11,10 @@
   --accent: #1a73e8;
 
   /* нажатая кнопка — приглушённая заливка, не белый и не прозрачный фон */
-  --active: #b7bdc3;
-  --active-dark: #a2a8ae;
+  /* выделение — светлая заливка (Грегори, 2026-10-29: «этот светлый цвет активности распространи на
+     выделение всех кнопок в панелях»); текст и значок остаются тёмными */
+  --active: #d4e3f6;
+  --active-dark: #c2d6ef;
 
   /* тёмные окна (просмотр, правка фото) */
   --dark-bg: #1b1b1f;
@@ -215,7 +217,7 @@ html, body {
 
 .share-btn:hover {
   background: var(--active);
-  color: #fff;
+  color: var(--text);
 }
 
 .set-title {
@@ -382,7 +384,7 @@ html, body {
 
 .menu-item.active {
   background: var(--active);
-  color: #fff;
+  color: var(--text);
 }
 
 /* строка поиска слева вверху */
@@ -396,18 +398,15 @@ html, body {
   max-width: calc(100vw - 2 * var(--gap));
 }
 
-/* строка поиска как у Google на телефоне (Грегори, 2026-10-29, по снимку): тёмная, справа под кнопками
-   светлеет, тонкая светлая кайма; логотип слева */
+/* строка поиска — белая (тёмную, как у Google, Грегори вернул обратно 2026-10-29); логотип слева */
 .search-box {
   display: flex;
   align-items: center;
   height: 48px;
   padding: 0 4px 0 8px;
-  background: linear-gradient(90deg, #161718 0%, #1b1c1d 55%, #555b5d 72%, #7f8688 84%, #7a8183 100%);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: var(--panel);
   border-radius: 24px;
   box-shadow: var(--shadow);
-  color: #fff;
 }
 
 .search-logo {
@@ -423,13 +422,9 @@ html, body {
   border: none;
   outline: none;
   background: none;
-  color: #fff;
+  color: var(--text);
   font: inherit;
   font-size: 16px; /* 16px — иначе телефон приближает страницу при вводе */
-}
-
-.search-box input::placeholder {
-  color: rgba(255, 255, 255, 0.6);
 }
 
 .search-box input::-webkit-search-cancel-button {
@@ -442,14 +437,14 @@ html, body {
   border: none;
   border-radius: 50%;
   background: none;
-  color: #fff;
+  color: var(--muted);
   cursor: pointer;
   display: grid;
   place-items: center;
 }
 
 .search-box > button:hover {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--panel-hover);
 }
 
 .search-box > button[hidden] {
@@ -573,9 +568,9 @@ html, body {
   padding: 0 2px 0 10px;
   margin-left: 2px;
   border: none;
-  border-left: 1px solid rgba(255, 255, 255, 0.35);
+  border-left: 1px solid #dadce0;
   background: none;
-  color: #fff;
+  color: var(--text);
   font: inherit;
   font-size: 14px;
   cursor: pointer;
@@ -806,12 +801,12 @@ html, body {
 }
 
 .layers-item.on {
-  background: var(--active);
-  color: #fff;
+  background: color-mix(in srgb, var(--tone, var(--accent)) 22%, #fff);
+  color: var(--text);
 }
 
 .layers-item.on:hover {
-  background: var(--active-dark);
+  background: color-mix(in srgb, var(--tone, var(--accent)) 32%, #fff);
 }
 
 /* значок кнопки; где цвет на карте что-то значит — в кольце этого цвета */
@@ -954,8 +949,8 @@ body.has-photo-strip .status {
   }
 }
 
-/* треугольник в правом нижнем углу, поверх ленты фото (Грегори, 2026-10-29): крупный, прозрачный
-   фон, тонкая белая кайма; ◀ — показать кнопки, ▶ — спрятать */
+/* треугольник в правом нижнем углу, поверх ленты фото (Грегори, 2026-10-29): размером с другие
+   кнопки, прозрачный фон, без каймы; ◀ — показать кнопки, ▶ — спрятать */
 .wheel-toggle {
   position: fixed;
   right: var(--gap);
@@ -963,13 +958,10 @@ body.has-photo-strip .status {
   z-index: 26;
   display: grid;
   place-items: center;
-  width: 52px;
-  height: 52px;
   background: rgba(0, 0, 0, 0.12);
-  border: 1.5px solid #fff;
   box-shadow: none;
   color: #fff;
-  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
 }
 
 .wheel-toggle:hover {
@@ -977,34 +969,35 @@ body.has-photo-strip .status {
 }
 
 .wheel-toggle svg {
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
 }
 
 .wheel-toggle.open svg {
   transform: rotate(180deg);
 }
 
-/* кнопки барабана — цвет группы: выключено — бледная заливка, включено — яркая, значок белый */
+/* кнопки барабана — цвет группы (Грегори, 2026-10-29: «наоборот»): выключено — яркая заливка, значок белый;
+   включено — светлая заливка цвета группы, значок цветом группы */
 .layers-circle {
   --tone: var(--tone-maps);
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--tone) 20%, #fff);
-  color: var(--tone);
-}
-
-.layers-circle:hover {
-  background: color-mix(in srgb, var(--tone) 32%, #fff);
-}
-
-.layers-circle.on {
   background: var(--tone);
   color: #fff;
 }
 
-.layers-circle.on:hover {
+.layers-circle:hover {
   background: color-mix(in srgb, var(--tone) 85%, #000);
+}
+
+.layers-circle.on {
+  background: color-mix(in srgb, var(--tone) 20%, #fff);
+  color: var(--tone);
+}
+
+.layers-circle.on:hover {
+  background: color-mix(in srgb, var(--tone) 32%, #fff);
 }
 
 .tone-maps { --tone: var(--tone-maps); }

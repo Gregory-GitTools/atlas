@@ -109,27 +109,23 @@ export function initSettingsPanel(ctx) {
   }
 }
 
-// «Поделиться»: ссылка на Atlas, которая открывает то же место и масштаб. Где браузер умеет — системное
-// окно «Поделиться» (на телефоне — мессенджеры, почта), иначе ссылка копируется. Наружу уходит только
-// по нажатию — и только место на карте, ничего личного
+// «Поделиться»: ссылка на сайт программы (Грегори, 2026-10-29: «ссылку на сайт программы, а не на
+// геолокацию»). Где браузер умеет — системное окно «Поделиться» (на телефоне — мессенджеры, почта),
+// иначе ссылка копируется
 const SHARE_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11A2.99 2.99 0 0 0 21 5a3 3 0 1 0-5.91.7L8.04 9.81A2.99 2.99 0 0 0 3 12a3 3 0 0 0 5.04 2.19l7.12 4.16c-.05.21-.08.43-.08.65A2.92 2.92 0 1 0 18 16.08z"/></svg>';
-
-export function shareLink(map) {
-  const c = map.getCenter();
-  return `${location.origin}${location.pathname}#map=${map.getZoom().toFixed(2)}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`;
-}
+export const SITE = "https://gregory-gittools.github.io/atlas/";
 
 function shareRow(ctx) {
   const b = h("button", "share-btn");
   b.innerHTML = `${SHARE_ICON}<span>Поделиться</span>`;
-  b.title = "Ссылка на это место карты";
+  b.title = "Ссылка на Atlas";
   b.addEventListener("click", async () => {
-    const url = shareLink(ctx.map);
+    const url = SITE;
     if (navigator.share) {
       try { await navigator.share({ title: "Atlas", url }); return; } catch (err) { if (err.name === "AbortError") return; }
     }
     try { await navigator.clipboard.writeText(url); ctx.status("Ссылка скопирована"); }
-    catch { prompt("Ссылка на это место:", url); }
+    catch { prompt("Ссылка на Atlas:", url); }
     setTimeout(() => ctx.status(""), 2500);
   });
   return b;

@@ -12,17 +12,11 @@ import { initPhotoStrip, stripState } from "./photo-strip.js";
 
 const status = (text) => { document.getElementById("status").textContent = text || ""; };
 
-// вид из ссылки «Поделиться», иначе — весь глобус
-function sharedView() {
-  const m = location.hash.match(/map=([\d.]+)\/(-?[\d.]+)\/(-?[\d.]+)/);
-  return m ? { zoom: +m[1], center: [+m[3], +m[2]] } : { center: [25, 45], zoom: 1.6 };
-}
-
 export const map = new maplibregl.Map({
   container: "map",
   style: styleOf(currentBasemap()),
-  // ссылка «Поделиться» (#map=зум/широта/долгота) открывает то же место
-  ...sharedView(),
+  center: [25, 45],
+  zoom: 1.6,
   attributionControl: false,
   // наклон — до 65° вместо стандартных 60 (Грегори, 2026-10-28: «увеличить наклон ещё на 5 градусов»)
   maxPitch: 65,
