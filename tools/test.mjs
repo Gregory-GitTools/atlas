@@ -61,10 +61,11 @@ ws.onmessage = (m) => {
   if (pending.has(d.id)) { pending.get(d.id)(d.result); pending.delete(d.id); }
   if (d.method === "Runtime.exceptionThrown") errors.push("исключение: " + (d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text).split("\n")[0]);
   if (d.method === "Runtime.consoleAPICalled" && d.params.type === "error") {
-    const text = d.params.args.map((a) => a.value ?? a.description).join(" ");
+    // у объекта ошибки — и место, где она возникла (первые строки стека), иначе в отчёте одно «Error»
+    const text = d.params.args.map((a) => a.value ?? a.description).join(" ").split("\n").slice(0, 4).map((l) => l.trim()).join(" ← ");
     // сбои чужих серверов (плитка не пришла или пришла пустой) — не ошибка программы, только счёт
     if (/Failed to fetch|AJAXError|could not be decoded/.test(text)) netFails++;
-    else errors.push("console.error: " + text.slice(0, 200));
+    else errors.push("console.error: " + text.slice(0, 400));
   }
 };
 const send = (method, params = {}) => new Promise((r) => { const id = ++nextId; pending.set(id, r); ws.send(JSON.stringify({ id, method, params })); });
