@@ -143,13 +143,13 @@ export function initLayersPanel(ctx) {
     // раздел с панелью: список подгружается при первом открытии столбика
     if (col && !col.loaded) {
       col.loaded = true;
-      col.load().catch(() => {}).finally(() => openKey === key && show(key));
+      col.load(ctx).catch(() => {}).finally(() => openKey === key && show(key));
     }
     const colItems = col ? col.items() : [];
     sub.replaceChildren(
       ...(col && !colItems.length ? [Object.assign(document.createElement("div"), { className: "layers-wait", textContent: "Загрузка…" })] : []),
       ...colItems.map((it) => item({ title: it.title, thumb: it.thumb, icon: it.icon, selected: it.selected, hint: it.hint,
-        click: () => { col.choose(it.id); show(null); } })),
+        click: () => { col.choose(it.id, ctx); show(null); } })),
       ...(e.maps ? BASEMAPS.map((b) => item({ title: b.name, thumb: thumbOf(b), selected: b === cur, hint: b.hint,
         click: () => { setBasemap(b); show(openKey); } })) : []),
       ...(e.maps && e.plain.length ? [Object.assign(document.createElement("div"), { className: "layers-sep" })] : []),

@@ -36,6 +36,7 @@
   --tone-photo: #e91e63;
   --tone-weather: #039be5;
   --tone-lang: #26a69a;
+  --tone-tour: #e53935;
 
   --radius: 10px;
   --button: 40px;
@@ -410,10 +411,14 @@ html, body {
   box-shadow: var(--shadow);
 }
 
+.search-logo[hidden] {
+  display: none;
+}
+
 .search-logo {
   flex: none;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   margin-right: 8px;
 }
 
@@ -1007,6 +1012,7 @@ body.has-photo-strip .status {
 .tone-photo { --tone: var(--tone-photo); }
 .tone-weather { --tone: var(--tone-weather); }
 .tone-lang { --tone: var(--tone-lang); }
+.tone-tour { --tone: var(--tone-tour); }
 
 /* «Карты» — миниатюра текущей карты в кольце цвета группы */
 .maps-circle {
@@ -1126,7 +1132,7 @@ body.has-photo-strip .status {
   place-items: center;
   width: 30px;
   height: 30px;
-  margin-right: 6px;
+  margin-right: 8px;
   padding: 0;
   border: none;
   border-radius: 50%;
@@ -1349,4 +1355,249 @@ body.has-photo-strip .status {
 
 .pb-source a {
   color: var(--accent);
+}
+
+/* ---------- экскурсии ---------- */
+.tr-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 6px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tr-row:hover {
+  background: var(--panel-hover);
+}
+
+.tr-icon,
+.tr-num {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--tone-tour);
+  color: #fff;
+}
+
+.tr-num {
+  width: 24px;
+  height: 24px;
+  margin-right: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tr-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tr-row-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.tr-row-sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tr-group {
+  margin: 10px 6px 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tr-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tr-sec-head {
+  display: flex;
+  align-items: center;
+}
+
+.tr-sec-title {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 8px 2px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tr-fold {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.tr-fold::after {
+  content: "";
+  display: block;
+  width: 7px;
+  height: 7px;
+  margin: auto;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 0.15s;
+}
+
+.tr-section.shut .tr-fold::after {
+  transform: rotate(-45deg);
+}
+
+/* выделенная остановка — светлой заливкой цвета экскурсий */
+.tr-section.current {
+  margin: 0 -6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--tone-tour) 10%, #fff);
+}
+
+.tr-facts {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.tr-features {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tr-link {
+  align-self: flex-start;
+  padding: 5px 12px;
+  border: none;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--tone-lang) 18%, #fff);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tr-listen {
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--panel-hover);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tr-listen p {
+  margin: 4px 0 0;
+}
+
+.tr-listen-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tr-listen-title {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* слайд-шоу аудиогида — справа внизу над лентой фото (на телефоне — во всю ширину над ней) */
+.tr-slides {
+  position: fixed;
+  right: calc(var(--button) + 3 * var(--gap));
+  bottom: 96px;
+  z-index: 18;
+  width: 320px;
+  height: 214px;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: #000;
+  box-shadow: var(--shadow);
+}
+
+.tr-slides[hidden] {
+  display: none;
+}
+
+.tr-slides img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+
+.tr-slides img.on {
+  opacity: 1;
+}
+
+.tr-slides-cap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 14px 8px 4px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+  color: #fff;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tr-slides-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  cursor: pointer;
+}
+
+@media (max-width: 600px) {
+  .tr-slides {
+    left: var(--gap);
+    right: var(--gap);
+    width: auto;
+    height: calc((100vw - 2 * var(--gap)) * 9 / 16);
+  }
 }

@@ -366,6 +366,44 @@ try {
     await run(`localStorage.removeItem("atlas.roads.profile"); atlas.toggle("layers/roads", false).then(() => true)`);
   }
 
+  // экскурсии: кнопка в барабане, в столбике — страны; страна — список в панели, экскурсия — пункты,
+  // номера остановок на карте; аудиогид начинается; режим «Найти экскурсию» в строке поиска
+  if (want("content/tours") && mods.some((m) => m.id === "content/tours")) {
+    const ts = `atlas.modules().find((m) => m.id === "content/tours").stats()`;
+    await run(openLayers("content/tours"));
+    for (let i = 0; i < 40 && !(await run(`[...document.querySelectorAll(".layers-sub .layers-item")].length > 3`)); i++) await sleep(500);
+    const cs = await run(`[...document.querySelectorAll(".layers-sub .layers-item")].map((b) => b.firstChild.textContent)`);
+    check("экскурсии: в столбике — страны", cs.length >= 5 && cs.some((c) => /^Италия/.test(c)), JSON.stringify(cs));
+    await run(`[...document.querySelectorAll(".layers-sub .layers-item")].find((b) => /^Италия/.test(b.firstChild.textContent)).click(); true`);
+    await sleep(600);
+    const lst = await run(`({ panel: !document.querySelector('[data-panel="tours"]').hidden, rows: [...document.querySelectorAll(".tr-row-title")].map((r) => r.textContent),
+      mode: document.querySelector(".search-box input").placeholder })`);
+    check("экскурсии: список страны в панели, режим поиска", lst.panel && lst.rows.length >= 2 && lst.mode === "Найти экскурсию", JSON.stringify(lst));
+    await run(`(([...document.querySelectorAll(".tr-row")].find((r) => /Венеция/.test(r.textContent))) || document.querySelector(".tr-row")).click(); true`);
+    for (let i = 0; i < 60 && (await run(`${ts}.found`)) < 3; i++) await sleep(1000);
+    for (let i = 0; i < 30 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["tour-stops"] }).length >= 2`)); i++) await sleep(1000);
+    const tour = await run(`({ ...${ts}, sections: document.querySelectorAll(".tr-section").length, nums: atlas.map.queryRenderedFeatures({ layers: ["tour-stops"] }).length })`);
+    check("экскурсии: экскурсия открыта, остановки на карте", tour.open && tour.sections > 3 && tour.found >= 3 && tour.nums >= 2, JSON.stringify(tour));
+    await shot("98-tour");
+    // щелчок по заголовку остановки — выделение
+    await run(`document.querySelector('.tr-section[data-n="2"] .tr-sec-title').click(); true`);
+    await sleep(800);
+    check("экскурсии: щелчок по остановке — выделена", (await run(`${ts}.selected`)) === 2 && (await run(`!!document.querySelector('.tr-section.current[data-n="2"]')`)));
+    // аудиогид: плей — вступление
+    await run(`document.querySelector(".pb-player .pb-btn:nth-child(2)").click(); true`);
+    await sleep(800);
+    check("экскурсии: аудиогид запускается", (await run(`${ts}.playing`)) === -1 && /Вступление/.test(await run(`document.querySelector(".pb-player-label").textContent`)));
+    await run(`document.querySelector(".pb-player .pb-btn:nth-child(4)").click(); true`);
+    // поиск экскурсии из строки поиска
+    const found = await run(`(async () => { const i = document.querySelector(".search-box input"); i.value = "Будапешт"; i.dispatchEvent(new Event("input"));
+      await new Promise((r) => setTimeout(r, 200)); return [...document.querySelectorAll(".tr-row-title")].map((r) => r.textContent); })()`);
+    check("экскурсии: поиск из строки поиска", found.length >= 1 && found.every((t) => /Будапешт/.test(t)), JSON.stringify(found));
+    await run(`document.querySelector(".search-mode").click(); true`);
+    await sleep(300);
+    check("экскурсии: крестик значка — закрыть, остановки с карты убраны", await run(`document.querySelector('[data-panel="tours"]').hidden && !atlas.map.queryRenderedFeatures({ layers: ["tour-stops"] }).length`));
+    await run(closeLayers);
+  }
+
   // языки: кнопка в барабане, в столбике — языки с флагами; язык — панель слева с разделами и фразами,
   // в строке поиска — значок режима, ввод ищет фразу; крестик значка — обратно к поиску мест
   if (want("content/languages") && mods.some((m) => m.id === "content/languages")) {
@@ -550,7 +588,7 @@ try {
   const lm = await run(`({ groups: [...document.querySelectorAll(".wheel .layers-circle")].map((c) => c.title.split(":")[0]),
     sub: [...document.querySelectorAll(".layers-sub .layers-item")].map((c) => c.firstChild.textContent),
     on: [...document.querySelectorAll(".wheel .layers-circle.on")].map((c) => c.title) })`);
-  check("«Слои»: кружки, «Дороги» — виды и железные дороги, «Фото»", ["Карты", "Места", "Транспорт", "Магазины", "Тропы", "Велодорожки", "Дороги", "Погода", "Фото", "Языки"].every((g) => lm.groups.includes(g))
+  check("«Слои»: кружки, «Дороги» — виды и железные дороги, «Фото»", ["Карты", "Места", "Транспорт", "Магазины", "Тропы", "Велодорожки", "Дороги", "Погода", "Фото", "Экскурсии", "Языки"].every((g) => lm.groups.includes(g))
     && !lm.groups.includes("Пляжи и сёрфинг") && !lm.groups.includes("Рельеф") && lm.sub.length === 5
     && lm.sub.includes("Железные дороги") && lm.on.includes("Дороги"), JSON.stringify(lm));
   await shot("95-panel-layers");

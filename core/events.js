@@ -10,6 +10,9 @@
 //   panel      — открыта панель { id } или null
 //   module     — модуль включён или выключен { id, on, keep } (keep — выключен запретом сети, а не рукой)
 //   modules    — изменились разрешения сети: перерисовать списки модулей
+//   languages-wanted — нужен список языков (экскурсии ищут разговорник страны)
+//   languages  — список языков { key, name, countries }[] (отвечают «Языки»)
+//   language-open — открыть разговорник { key }
 
 const handlers = new Map();
 const last = new Map();

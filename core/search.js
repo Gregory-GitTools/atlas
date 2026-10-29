@@ -63,10 +63,14 @@ export function initSearch({ map, maplibregl }) {
     clearBtn.hidden = true;
     close();
     modeBtn.hidden = !m;
+    // значок режима — на месте логотипа (Грегори, 2026-10-29: «логотип глобуса — равный значку режима, при
+    // выборе режима меняй его на соответствующий»)
+    bar.querySelector(".search-logo").hidden = !!m;
     input.placeholder = m?.placeholder || "Поиск места";
     if (m) {
       modeBtn.innerHTML = `${m.icon}<i>${CLEAR_ICON}</i>`;
       modeBtn.title = `${m.title} — щелчок: обратно к поиску мест`;
+      modeBtn.style.background = `var(--tone-${m.tone || "lang"})`;
     }
     old?.filter("");
   };

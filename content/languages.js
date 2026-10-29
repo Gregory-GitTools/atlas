@@ -15,19 +15,11 @@ import { createPanel, isOpen } from "../core/panel.js";
 import { repoFiles, repoText } from "../core/repo.js";
 import { speakText, stopSpeech, langVoice } from "../core/speech.js";
 import { langFlag } from "../core/flags.js";
-import { emit } from "../core/events.js";
+import { emit, on } from "../core/events.js";
+import { PLAYER } from "../core/player.js";
 import { setSearchMode, searchMode } from "../core/search.js";
 
 const ICON = '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="m12.87 15.07-2.54-2.51.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7 1.62-4.33L19.12 17h-3.24z"/></svg>';
-const PLAYER = {
-  prev: '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>',
-  play: '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
-  pause: '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>',
-  next: '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>',
-  stop: '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>',
-  fold: '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M7.41 18.59 8.83 20 12 16.83 15.17 20l1.41-1.41L12 14l-4.59 4.59zm9.18-13.18L15.17 4 12 7.17 8.83 4 7.41 5.41 12 10l4.59-4.59z"/></svg>',
-  unfold: '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 5.83 15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zm0 12.34L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17z"/></svg>',
-};
 const KINDS = [[/разговорник/i, "Разговорник"], [/словарь/i, "Словарь"], [/фразы/i, "Общие фразы"]];
 const kindOf = (pb) => KINDS.find(([re]) => re.test(pb.title))?.[1] || "Фразы";
 const kindRank = (pb) => { const i = KINDS.findIndex(([re]) => re.test(pb.title)); return i < 0 ? KINDS.length : i; };
@@ -288,7 +280,7 @@ function filter(text) {
   }
   updateFoldAll();
 }
-const MODE = { icon: ICON.replace('width="24" height="24"', 'width="20" height="20"'), title: "Языки", placeholder: "Найти фразу",
+const MODE = { icon: ICON.replace('width="24" height="24"', 'width="20" height="20"'), title: "Языки", placeholder: "Найти фразу", tone: "lang",
   filter, exit: () => panel.close() };
 
 function openLanguage(key) {
@@ -300,6 +292,12 @@ function openLanguage(key) {
   setSearchMode(MODE);
   emit("module", { id: "content/languages", on: true });
 }
+
+// другим разделам (экскурсиям) — список языков и их стран; открыть разговорник по просьбе
+const list4others = () => [...languages.values()].map((lg) => ({ key: lg.key, name: lg.name,
+  countries: [...new Set(lg.books.flatMap((b) => b.countries))] }));
+on("languages-wanted", () => load().then(() => emit("languages", list4others())), { replay: false });
+on("language-open", ({ key }) => load().then(() => openLanguage(key)), { replay: false });
 
 panel.onClose(() => {
   stopPlay();
