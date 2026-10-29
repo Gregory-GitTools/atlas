@@ -410,10 +410,16 @@ try {
     check("снимки улиц: страница плеера есть", viewer);
     await run(`atlas.toggle("photo/streets", false).then(() => true)`);
     await run(`atlas.map.jumpTo({ center: [10, 50], zoom: 4 }); atlas.toggle("photo/webcams", true).then(() => true)`);
-    for (let i = 0; i < 45 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-webcams"] }).length > 0`)); i++) await sleep(1000);
-    const cams = await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-webcams"] }).length`);
-    check("веб-камеры: по всему миру", cams > 0, `${cams}`);
+    for (let i = 0; i < 45 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-webcams-dots"] }).length > 0`)); i++) await sleep(1000);
+    const cams = await run(`({ dots: atlas.map.queryRenderedFeatures({ layers: ["photo-webcams-dots"] }).length,
+      pins: atlas.map.queryRenderedFeatures({ layers: ["photo-webcams"] }).length })`);
+    check("веб-камеры: издалека — точки, не значки", cams.dots > 0 && cams.pins === 0, JSON.stringify(cams));
     await shot("93-webcams");
+    await run(`atlas.map.jumpTo({ center: [24.745, 59.437], zoom: 13 }); true`);
+    await sleep(2000);
+    const near = await run(`({ dots: atlas.map.queryRenderedFeatures({ layers: ["photo-webcams-dots"] }).length,
+      pins: atlas.map.queryRenderedFeatures({ layers: ["photo-webcams"] }).length })`);
+    check("веб-камеры: вблизи — значки", near.pins > 0 && near.dots === 0, JSON.stringify(near));
     await run(`atlas.toggle("photo/webcams", false).then(() => true)`);
   }
 

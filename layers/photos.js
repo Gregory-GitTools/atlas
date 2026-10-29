@@ -12,7 +12,7 @@
 //    щелчок по снимку или двойной щелчок по линии — плеер в отдельном окне (viewer.html): по
 //    снимкам стрелками, панорамы крутятся; на карте — где стоит камера и куда смотрит.
 //  • Веб-камеры — точки OpenStreetMap с тегом webcam / contact:webcam (их ~10 тысяч на весь мир —
-//    один запрос QLever, на любом масштабе). Щелчок — название и ссылка на камеру; если ссылка —
+//    один запрос QLever; издалека — точки, значки — со «3 км»). Щелчок — название и ссылка на камеру; если ссылка —
 //    сама картинка, она показывается в окне.
 // Свои фото — позже, в разделе «Фото» (ROADMAP)
 import { register, isMobile } from "../core/modules.js";
@@ -478,6 +478,13 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     loading = false;
   }
 
+  const PIN_M = 5000; // значки — со шкалы «3 км», мельче — точки
+  function zoomRange(map) {
+    const pin = zoomForScale(map, PIN_M);
+    if (map.getLayer("photo-webcams")) map.setLayerZoomRange("photo-webcams", pin, 24);
+    if (map.getLayer("photo-webcams-dots")) map.setLayerZoomRange("photo-webcams-dots", 0, pin);
+  }
+
   async function show(f) {
     const { osm, url } = f.properties;
     const tags = (await Promise.race([osmTags(osm).catch(() => null), new Promise((r) => setTimeout(r, 1500, null))])) || {};
@@ -508,16 +515,29 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     sends: "запрос веб-камер (QLever, OpenStreetMap), по щелчку — камера (OpenStreetMap)",
     enable(c) {
       ctx = c;
-      pointLayer(c.map, "photo-webcams", pinImage(c.map, "photo-webcams-pin", WEBCAM_COLOR, WEBCAM));
-      c.map.getSource("photo-webcams").setData(data());
+      const { map } = c;
+      pointLayer(map, "photo-webcams", pinImage(map, "photo-webcams-pin", WEBCAM_COLOR, WEBCAM));
+      map.getSource("photo-webcams").setData(data());
+      // издалека — маленькие точки, значки — со шкалы «3 км» (Грегори, 2026-10-29: на глобусе
+      // значки сыпались кучей, «работает не правильно»)
+      if (!map.getLayer("photo-webcams-dots")) map.addLayer({ id: "photo-webcams-dots", type: "circle", source: "photo-webcams",
+        paint: { "circle-color": WEBCAM_COLOR, "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 2, 8, 3.5],
+          "circle-stroke-color": "#fff", "circle-stroke-width": 1 } }, "photo-webcams");
+      claimLayers("photo-webcams-dots");
       if (!wired) {
         wired = true;
-        c.map.on("click", "photo-webcams", (e) => show(e.features[0]));
+        map.on("moveend", () => zoomRange(map));
+        map.on("click", (e) => {
+          const layers = ["photo-webcams", "photo-webcams-dots"].filter((id) => map.getLayer(id));
+          const f = layers.length && map.queryRenderedFeatures(e.point, { layers })[0];
+          if (f) show(f);
+        });
       }
+      zoomRange(map);
       load();
     },
     disable({ map }) {
-      if (map.getLayer("photo-webcams")) map.removeLayer("photo-webcams");
+      for (const id of ["photo-webcams", "photo-webcams-dots"]) if (map.getLayer(id)) map.removeLayer(id);
     },
   });
 }
