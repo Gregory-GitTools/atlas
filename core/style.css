@@ -916,3 +916,80 @@ body.layers-open .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group {
   opacity: 0.45;
   cursor: default;
 }
+
+/* лента снимков внизу (core/photo-strip.js) — в высоту плитки карт (76 px, снизу 10 px), от левого
+   края до неё; шкала и строка состояния поднимаются над лентой */
+.photo-strip {
+  position: fixed;
+  left: var(--gap);
+  bottom: var(--gap);
+  z-index: 5;
+  box-sizing: border-box;
+  display: flex;
+  gap: 2px;
+  max-width: calc(100vw - 76px - 3 * var(--gap));
+  height: 76px;
+  padding: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  background: var(--panel);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.photo-strip[hidden] {
+  display: none;
+}
+
+.photo-strip-item {
+  position: relative;
+  flex: none;
+  width: 72px;
+  height: 72px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: var(--panel-hover);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.photo-strip-item img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* рамка — поверх снимка, размер не меняется */
+.photo-strip-item::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 3px solid transparent;
+  border-radius: 6px;
+}
+
+.photo-strip-item:hover::after {
+  border-color: var(--active);
+}
+
+.photo-strip-item.active::after {
+  border-color: var(--photo);
+}
+
+body.has-photo-strip .maplibregl-ctrl-bottom-left {
+  bottom: 80px;
+}
+
+body.has-photo-strip .status {
+  bottom: 110px;
+}
+
+/* телефон: пять снимков в ряд */
+@media (max-width: 600px) {
+  .photo-strip-item {
+    width: calc((100vw - 76px - 3 * var(--gap) - 12px) / 5);
+  }
+}

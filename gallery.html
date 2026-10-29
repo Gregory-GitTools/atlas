@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Фото — Atlas</title>
+<link rel="icon" href="icons/icon-32.png">
+<meta name="theme-color" content="#1b1b1f">
+<style>
+  /* окно просмотра фото — тёмное (правило Atlas); цвета — как в core/style.css (--dark-*) */
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid;
+    grid-template-rows: 1fr auto;
+    background: #1b1b1f;
+    color: #e8e8ec;
+    font-family: "Poppins", system-ui, sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+  .stage { position: relative; min-height: 0; }
+  .stage img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  /* пока грузится крупный снимок — размытая миниатюра */
+  .stage img.loading { filter: blur(8px); }
+  /* подпись поверх снимка, без подложки — читается за счёт тени текста */
+  .bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 12px 16px;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  }
+  .caption { flex: 1; min-width: 0; }
+  .title { font-weight: 600; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta { margin-top: 2px; font-size: 0.78rem; color: #9a9aa5; }
+  .meta a { color: #4da3ff; }
+  .count { font-size: 0.85rem; white-space: nowrap; }
+  .nav {
+    position: absolute;
+    top: 50%;
+    z-index: 2;
+    width: 48px;
+    height: 48px;
+    margin-top: -24px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(38, 38, 44, 0.7);
+    color: #e8e8ec;
+    font-size: 26px;
+    cursor: pointer;
+  }
+  .nav:hover { background: #26262c; }
+  .nav:disabled { opacity: 0.3; cursor: default; }
+  .prev { left: 12px; }
+  .next { right: 12px; }
+  .thumbs {
+    display: flex;
+    gap: 4px;
+    padding: 6px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    background: #26262c;
+  }
+  .thumb {
+    position: relative;
+    flex: none;
+    width: 64px;
+    height: 64px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #1b1b1f;
+    cursor: pointer;
+  }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb::after { content: ""; position: absolute; inset: 0; border: 3px solid transparent; border-radius: 6px; }
+  .thumb.active::after { border-color: #e91e63; }
+  /* установленное приложение без системного заголовка — полоска, за которую окно перетаскивается */
+  .titlebar-drag { display: none; }
+  @media (display-mode: window-controls-overlay) {
+    .titlebar-drag {
+      display: block;
+      position: fixed;
+      left: env(titlebar-area-x, 0);
+      top: env(titlebar-area-y, 0);
+      width: env(titlebar-area-width, 100%);
+      height: env(titlebar-area-height, 33px);
+      app-region: drag;
+      z-index: 20;
+    }
+    body { padding-top: env(titlebar-area-height, 33px); }
+  }
+</style>
+</head>
+<body>
+<div class="titlebar-drag"></div>
+<div class="stage">
+  <img class="photo" alt="">
+  <div class="bar"><div class="caption"><div class="title"></div><div class="meta"></div></div><div class="count"></div></div>
+  <button class="nav prev" title="Назад (←)">‹</button>
+  <button class="nav next" title="Дальше (→)">›</button>
+</div>
+<div class="thumbs"></div>
+<script>
+// Галерея Atlas (core/photo-strip.js): снимки ленты, начиная с выбранного. Список берётся у окна
+// карты (window.opener.atlasGallery()). ← → Home End — листать, свайп на телефоне, Esc — закрыть.
+// Каждый снимок сообщается окну карте — там он выделяется, карта подвигается к нему
+const $ = (s) => document.querySelector(s);
+const { photos = [], start = 0 } = (() => { try { return window.opener?.atlasGallery?.() || {}; } catch { return {}; } })();
+const tellMap = (msg) => { try { window.opener?.postMessage({ gallery: msg.gallery, id: msg.id }, location.origin); } catch { /* окно карты закрыто */ } };
+const photoEl = $(".photo");
+let index = -1;
+
+// миниатюры — по одной, когда видны
+const thumbs = photos.map((p, i) => {
+  const b = Object.assign(document.createElement("button"), { className: "thumb", title: p.title || "" });
+  b.append(Object.assign(document.createElement("img"), { src: p.thumb, alt: "", loading: "lazy" }));
+  b.addEventListener("click", () => show(i));
+  $(".thumbs").append(b);
+  return b;
+});
+
+function show(i) {
+  if (!photos.length) { $(".title").textContent = "Снимков нет"; return; }
+  index = Math.max(0, Math.min(photos.length - 1, i));
+  const p = photos[index];
+  $(".title").textContent = p.title || "";
+  const meta = $(".meta");
+  meta.textContent = p.credit ? `${p.credit} · ` : "";
+  if (p.link) meta.append(Object.assign(document.createElement("a"), { href: p.link.href, target: "_blank", rel: "noopener", textContent: p.link.text }));
+  $(".count").textContent = `${index + 1} / ${photos.length}`;
+  $(".prev").disabled = index === 0;
+  $(".next").disabled = index === photos.length - 1;
+  thumbs.forEach((b, k) => b.classList.toggle("active", k === index));
+  thumbs[index].scrollIntoView({ block: "nearest", inline: "center" });
+  // сначала миниатюра (размытая), потом крупный снимок
+  photoEl.src = p.thumb;
+  photoEl.classList.add("loading");
+  if (p.full && p.full !== p.thumb) {
+    const big = new Image();
+    big.onload = () => { if (photos[index] === p) { photoEl.src = p.full; photoEl.classList.remove("loading"); } };
+    big.src = p.full;
+  } else photoEl.classList.remove("loading");
+  tellMap({ gallery: "photo", id: p.id });
+}
+
+$(".prev").addEventListener("click", () => show(index - 1));
+$(".next").addEventListener("click", () => show(index + 1));
+addEventListener("keydown", (e) => {
+  const to = { ArrowLeft: index - 1, ArrowRight: index + 1, Home: 0, End: photos.length - 1 }[e.key];
+  if (to !== undefined) { e.preventDefault(); show(to); }
+  if (e.key === "Escape") close();
+});
+let touchX = null;
+$(".stage").addEventListener("touchstart", (e) => { touchX = e.touches[0].clientX; }, { passive: true });
+$(".stage").addEventListener("touchend", (e) => {
+  const dx = e.changedTouches[0].clientX - touchX;
+  if (touchX !== null && Math.abs(dx) > 50) show(index + (dx < 0 ? 1 : -1));
+  touchX = null;
+});
+addEventListener("pagehide", () => tellMap({ gallery: "closed" }));
+show(start);
+</script>
+</body>
+</html>

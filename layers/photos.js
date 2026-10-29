@@ -19,6 +19,7 @@ import { register, isMobile } from "../core/modules.js";
 import { track, claimLayers } from "../core/popups.js";
 import { qleverBox, osmTags } from "../core/qlever.js";
 import { uiLanguage } from "../core/labels.js";
+import { setStripItems, selectStripItem, openGallery } from "../core/photo-strip.js";
 
 const svg = (inner) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">${inner}</svg>`;
 const CAMERA = "M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM9 2 7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z";
@@ -78,7 +79,18 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
   const queue = [];
   let running = false, pause = PAUSE_MIN, ctx = null, active = false, wired = false, lastError = "";
   const data = () => ({ type: "FeatureCollection", features: [...features.values()] });
-  const refresh = () => active && ctx.map.getSource("photo-commons")?.setData(data());
+  const refresh = () => {
+    if (!active) return;
+    ctx.map.getSource("photo-commons")?.setData(data());
+    // в ленту внизу — снимки с миниатюрой; в галерее — крупный (1920 px или сам снимок, если он меньше)
+    setStripItems("commons", [...features.values()].filter((f) => f.properties.img).map((f) => {
+      const p = f.properties;
+      return { id: `commons/${p.title}`, coordinates: f.geometry.coordinates, thumb: p.thumb, title: p.caption,
+        full: p.fullWidth > 1920 ? p.thumb.replace(/\/\d+px-/, "/1920px-") : p.full,
+        credit: [p.author, p.date, p.license].filter(Boolean).join(" · "), link: { href: p.page, text: "Wikimedia Commons" },
+        select: () => show(f) };
+    }));
+  };
   const isPhoto = (title) => /\.(jpe?g|webp)$/i.test(title); // png и svg на Commons — в основном карты и схемы
   const dot = (g, z) => ({ type: "Feature", geometry: { type: "Point", coordinates: [g.lon, g.lat] }, properties: { title: g.title, z } });
   const text = (html) => new DOMParser().parseFromString(html || "", "text/html").body.textContent.replace(/\s+/g, " ").trim();
@@ -121,7 +133,7 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     const t = (k) => text(meta[k]?.value);
     const caption = t("ImageDescription") || page.title.replace(/^File:/, "").replace(/\.\w+$/, "").replace(/_/g, " ");
     features.set(page.pageid, { type: "Feature", geometry: { type: "Point", coordinates }, properties: { title: page.title, img, z,
-      thumb: ii.thumburl, page: ii.descriptionurl, aspect: ii.thumbheight / ii.thumbwidth,
+      thumb: ii.thumburl, page: ii.descriptionurl, full: ii.url, fullWidth: ii.width, aspect: ii.thumbheight / ii.thumbwidth,
       caption: caption.length > 160 ? `${caption.slice(0, 157)}…` : caption,
       author: t("Artist"), license: t("LicenseShortName"), date: t("DateTimeOriginal").replace(/^Taken on\s*/, "") } });
   }
@@ -252,7 +264,8 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     const credit = [p.author, p.date, p.license].filter(Boolean).join(" · ");
     if (credit) el("div", { className: "popup-sub", textContent: credit }, box);
     el("div", { className: "popup-sub", textContent: "Wikimedia Commons — щелчок по снимку откроет его страницу" }, box);
-    popup(ctx, f.geometry.coordinates, box, p.img ? SIZE / 2 + 4 : 8);
+    popup(ctx, f.geometry.coordinates, box, p.img ? SIZE / 2 + 4 : 8).on("close", () => selectStripItem(null, `commons/${p.title}`));
+    if (p.img) selectStripItem(`commons/${p.title}`);
   }
 
   register({
@@ -286,6 +299,13 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
           const f = map.queryRenderedFeatures(e.point, { layers: ["photo-commons", "photo-commons-dots"].filter((id) => map.getLayer(id)) })[0];
           if (f) show(f);
         });
+        // двойной щелчок по миниатюре — галерея с этого снимка, карта не приближается
+        map.on("dblclick", (e) => {
+          const f = active && map.getLayer("photo-commons") && map.queryRenderedFeatures(e.point, { layers: ["photo-commons"] })[0];
+          if (!f) return;
+          e.preventDefault();
+          openGallery(`commons/${f.properties.title}`);
+        });
       }
       update();
     },
@@ -295,6 +315,7 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
       for (const [z, x, y] of queue.splice(0)) cells.delete(`${z}/${x}/${y}`);
       for (const [k, v] of cells) if (v === "loading") cells.delete(k);
       for (const id of ["photo-commons", "photo-commons-dots"]) if (map.getLayer(id)) map.removeLayer(id);
+      setStripItems("commons", []);
     },
     // для проверки: точек, с миниатюрой, квадратов, переполненных квадратов, последняя ошибка
     stats: () => ({ photos: features.size, thumbs: [...features.values()].filter((f) => f.properties.img).length,
@@ -472,6 +493,7 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
         return [{ type: "Feature", geometry: { type: "Point", coordinates }, properties: { osm, url: b.url.value } }];
       });
       ctx?.map.getSource("photo-webcams")?.setData(data());
+      stripItems();
     } catch {
       setTimeout(load, 60000);
     }
@@ -479,6 +501,16 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
   }
 
   const PIN_M = 5000; // значки — со шкалы «3 км», мельче — точки
+  const href = (url) => (/^https?:\/\//i.test(url) ? url : `https://${url}`);
+  const isImage = (url) => /\.(jpe?g|png|gif|webp)(\?|$)/i.test(url);
+  let on = false;
+  // в ленту — камеры, у которых ссылка ведёт прямо на картинку (свежий кадр); у остальных — страница
+  // сайта, превью у неё нет
+  const stripItems = () => setStripItems("webcams", !on ? [] : (points || []).filter((f) => isImage(href(f.properties.url))).map((f) => {
+    const url = href(f.properties.url);
+    return { id: `webcam/${f.properties.osm}`, coordinates: f.geometry.coordinates, thumb: url, full: url, title: "Веб-камера",
+      link: { href: url, text: "Смотреть камеру" }, select: () => show(f) };
+  }));
   function zoomRange(map) {
     const pin = zoomForScale(map, PIN_M);
     if (map.getLayer("photo-webcams")) map.setLayerZoomRange("photo-webcams", pin, 24);
@@ -492,15 +524,15 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     const name = tags[`name:${uiLanguage()}`] || tags.name;
     el("div", { className: "popup-title", textContent: name || "Веб-камера" }, box);
     if (name) el("div", { className: "popup-sub", textContent: "Веб-камера" }, box);
-    const href = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-    // ссылка на саму картинку — показать её в окне (свежий снимок камеры)
-    if (/\.(jpe?g|png|gif|webp)(\?|$)/i.test(href)) {
-      const a = el("a", { href, target: "_blank", rel: "noopener" }, box);
-      el("img", { className: "popup-photo", src: href, alt: "", width: 280, height: 190 }, a);
+    const page = href(url);
+    // ссылка на саму картинку — показать её в окне (свежий снимок камеры) и выделить в ленте
+    if (isImage(page)) {
+      el("img", { className: "popup-photo", src: page, alt: "" }, link(page, box));
+      selectStripItem(`webcam/${osm}`);
     }
     const row = el("div", { className: "popup-row" }, box);
-    el("a", { href, target: "_blank", rel: "noopener", textContent: "Смотреть камеру" }, row);
-    popup(ctx, f.geometry.coordinates, box);
+    link(page, row).textContent = "Смотреть камеру";
+    popup(ctx, f.geometry.coordinates, box).on("close", () => selectStripItem(null, `webcam/${osm}`));
   }
 
   register({
@@ -516,6 +548,8 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     enable(c) {
       ctx = c;
       const { map } = c;
+      on = true;
+      stripItems();
       pointLayer(map, "photo-webcams", pinImage(map, "photo-webcams-pin", WEBCAM_COLOR, WEBCAM));
       map.getSource("photo-webcams").setData(data());
       // издалека — маленькие точки, значки — со шкалы «3 км» (Грегори, 2026-10-29: на глобусе
@@ -532,12 +566,20 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
           const f = layers.length && map.queryRenderedFeatures(e.point, { layers })[0];
           if (f) show(f);
         });
+        map.on("dblclick", (e) => {
+          const f = on && map.getLayer("photo-webcams") && map.queryRenderedFeatures(e.point, { layers: ["photo-webcams"] })[0];
+          if (!f || !isImage(href(f.properties.url))) return;
+          e.preventDefault();
+          openGallery(`webcam/${f.properties.osm}`);
+        });
       }
       zoomRange(map);
       load();
     },
     disable({ map }) {
       for (const id of ["photo-webcams", "photo-webcams-dots"]) if (map.getLayer(id)) map.removeLayer(id);
+      on = false;
+      stripItems();
     },
   });
 }

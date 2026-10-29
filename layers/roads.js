@@ -14,14 +14,27 @@ const K = ["match", ["get", "class"], "motorway", 1.6, "trunk", 1.4, "primary", 
 const WIDTH = ["interpolate", ["exponential", 1.5], ["zoom"], 5, ["*", K, 0.6], 10, ["*", K, 1.6], 14, ["*", K, 3], 18, ["*", K, 9]];
 const SORT = ["match", ["get", "class"], "motorway", 7, "trunk", 6, "primary", 5, "secondary", 4, "tertiary", 3, "minor", 2, 1];
 
-// виды не пересекаются; цвет вида — цвет его линий (кольцо вокруг значка в меню «Слои»)
+// виды не пересекаются; цвет вида — цвет его линий (кольцо вокруг значка в меню «Слои»); значки видов —
+// дорожные знаки (Грегори, 2026-10-29: «значки машин заменим на дорожные знаки»), у кружка — машина
 const CAR = svg('<path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/>');
+const TRIANGLE = '<path fill-rule="evenodd" d="M12 2 23 21H1zm0 3.9L4.5 19h15z"/>';
+const SIGN = {
+  // «Автомагистраль»: рамка, мост над двумя полосами
+  motorway: svg('<path fill-rule="evenodd" d="M5 2h14a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3zm0 2a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1z"/>'
+    + '<path d="M5.5 9.6c2.4-2.1 10.6-2.1 13 0v1.8c-2.6-1.9-10.4-1.9-13 0zM10.3 12.4 8 19h2.3l1-6.6zM13.7 12.4 16 19h-2.3l-1-6.6z"/>'),
+  // «Главная дорога»: ромб в ромбе
+  priority: svg('<path fill-rule="evenodd" d="M12 1.5 22.5 12 12 22.5 1.5 12zm0 2.9L4.4 12l7.6 7.6 7.6-7.6z"/><path d="m12 7 5 5-5 5-5-5z"/>'),
+  // «Пересечение со второстепенной дорогой»: треугольник, широкая полоса и узкая поперёк
+  crossing: svg(`${TRIANGLE}<path d="M11 8.5h2V18h-2zM8 12.6h8v1.3H8z"/>`),
+  // «Неровная дорога»: треугольник с ухабами
+  uneven: svg(`${TRIANGLE}<path d="M6.2 17.6c.9-2 2-2 2.9 0 .9-2 2-2 2.9 0 .9-2 2-2 2.9 0 .9-2 2-2 2.9 0v.9H6.2z"/>`),
+};
 const PROFILES = [
-  { id: "highways", name: "Автомагистрали", color: "#d32f2f", classes: ["motorway", "trunk"] },
-  { id: "main", name: "Главные", color: "#f9a825", classes: ["primary", "secondary"] },
-  { id: "local", name: "Местные", color: "#039be5", classes: ["tertiary", "minor"] },
-  { id: "unpaved", name: "Грунтовые", color: "#8d6e63", classes: ["primary", "secondary", "tertiary", "minor", "track"], unpaved: true },
-].map((p) => ({ ...p, icon: CAR }));
+  { id: "highways", name: "Автомагистрали", color: "#d32f2f", classes: ["motorway", "trunk"], icon: SIGN.motorway },
+  { id: "main", name: "Главные", color: "#f9a825", classes: ["primary", "secondary"], icon: SIGN.priority },
+  { id: "local", name: "Местные", color: "#039be5", classes: ["tertiary", "minor"], icon: SIGN.crossing },
+  { id: "unpaved", name: "Грунтовые", color: "#8d6e63", classes: ["primary", "secondary", "tertiary", "minor", "track"], unpaved: true, icon: SIGN.uneven },
+];
 const prof = profileMenu("roads.profile", PROFILES, "Дороги");
 const UNPAVED = ["any", ["==", ["get", "surface"], "unpaved"], ["==", ["get", "class"], "track"]];
 const TUNNEL = ["==", ["get", "brunnel"], "tunnel"];

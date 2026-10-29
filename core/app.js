@@ -8,6 +8,7 @@ import { initSearch } from "./search.js";
 import { addScale, addGeolocate, addStars } from "./controls.js";
 import { initPopups } from "./popups.js";
 import { initPlaceInfo } from "./place-info.js";
+import { initPhotoStrip, stripState } from "./photo-strip.js";
 
 const status = (text) => { document.getElementById("status").textContent = text || ""; };
 
@@ -40,10 +41,11 @@ addScale(map, maplibregl);
 map.on("load", () => document.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show"));
 
 const ctx = { map, status, maplibregl };
-window.atlas = { map, ctx, modules, toggle: (id, on) => toggle(id, ctx, on) }; // для отладки из консоли
+window.atlas = { map, ctx, modules, toggle: (id, on) => toggle(id, ctx, on), strip: stripState }; // для отладки из консоли
 
 initPopups(map);
 initPlaceInfo(ctx);
+initPhotoStrip(ctx);
 initSearch(ctx);
 initBasemaps(ctx);
 initLayersPanel(ctx);

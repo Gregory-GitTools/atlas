@@ -380,8 +380,27 @@ try {
       await sleep(2500);
       check("фото: щелчок — снимок в окне", await run(`!!document.querySelector(".maplibregl-popup .popup-photo")`));
       await shot("92-photo-commons");
+      // лента внизу: снимки в кадре; щелчок — выделение и окно, двойной щелчок — галерея
+      await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
+      for (let i = 0; i < 20 && !(await run(`atlas.strip().items > 0`)); i++) await sleep(1000);
+      const sb = await run(`(() => { const b = document.querySelector(".photo-strip:not([hidden]) .photo-strip-item"); if (!b) return null;
+        const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, n: document.querySelectorAll(".photo-strip-item").length }; })()`);
+      check("лента: снимки в кадре внизу", !!sb && sb.n > 0, JSON.stringify(sb));
+      if (sb) {
+        await clickAt(sb.x, sb.y);
+        await sleep(1500);
+        const sel = await run(`({ selected: atlas.strip().selected, active: !!document.querySelector(".photo-strip-item.active"),
+          ring: atlas.map.getSource("photo-strip-selected").serialize().data.features.length, popup: !!document.querySelector(".maplibregl-popup .popup-photo") })`);
+        check("лента: щелчок — снимок выделен и открыт", !!sel.selected && sel.active && sel.ring === 1 && sel.popup, JSON.stringify(sel));
+        await shot("92c-photo-strip");
+        await run(`document.querySelector(".photo-strip-item").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); true`);
+        check("лента: двойной щелчок — галерея", (await run(`atlas.strip().gallery`)) > 0);
+        const gal = await fetch(`${url}gallery.html`).then((r) => r.ok).catch(() => false);
+        check("галерея: страница есть", gal);
+        await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
+      }
       // в центре города квадрат с 500 снимками делится на четыре
-      for (let i = 0; i < 40 && (await run(`${stats}.cells.length`)) <= 4; i++) await sleep(1000);
+      for (let i = 0; i < 90 && (await run(`${stats}.dense`)) === 0; i++) await sleep(1000);
       const st2 = await run(stats);
       check("фото: густой квадрат делится", st2.dense > 0 && st2.cells.length > 4, `переполненных ${st2.dense}, квадратов ${st2.cells.length}, миниатюр ${st2.thumbs}`);
       await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
@@ -420,6 +439,9 @@ try {
     const near = await run(`({ dots: atlas.map.queryRenderedFeatures({ layers: ["photo-webcams-dots"] }).length,
       pins: atlas.map.queryRenderedFeatures({ layers: ["photo-webcams"] }).length })`);
     check("веб-камеры: вблизи — значки", near.pins > 0 && near.dots === 0, JSON.stringify(near));
+    // в ленте — только камеры со ссылкой прямо на картинку
+    const camStrip = await run(`[...document.querySelectorAll(".photo-strip-item img")].map((i) => i.src).filter((s) => !s.includes("wikimedia")).length`);
+    check("веб-камеры: в ленте — только с картинкой", camStrip <= near.pins, `${camStrip} в ленте`);
     await run(`atlas.toggle("photo/webcams", false).then(() => true)`);
   }
 
