@@ -17,7 +17,7 @@ export const map = new maplibregl.Map({
   style: styleOf(currentBasemap()),
   center: [25, 45],
   zoom: 1.6,
-  attributionControl: { compact: true },
+  attributionControl: false,
   // наклон — до 65° вместо стандартных 60 (Грегори, 2026-10-28: «увеличить наклон ещё на 5 градусов»)
   maxPitch: 65,
   // подписи кнопок и шкалы MapLibre — по-русски
@@ -37,6 +37,8 @@ export const map = new maplibregl.Map({
 map.on("style.load", () => map.setProjection({ type: "globe" }));
 addStars(map);
 addScale(map, maplibregl);
+// строка источников — ⓘ слева внизу, рядом со шкалой
+map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 // строка источников — свёрнута в кнопку ⓘ (удалять нельзя — требование лицензий OSM, CARTO, Esri)
 map.on("load", () => document.querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show"));
 
@@ -49,9 +51,10 @@ initPhotoStrip(ctx);
 initSearch(ctx);
 initBasemaps(ctx);
 initLayersPanel(ctx);
-// столбик справа внизу, снизу вверх: настройки, «+ −», компас, «Где я»
+// столбик слева внизу, снизу вверх: настройки, «+ −», компас, «Где я» (Грегори, 2026-10-29: справа
+// остаётся только треугольник панели кнопок); шкала и ⓘ — справа от столбика
 initSettingsPanel(ctx);
-map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
-map.addControl(new maplibregl.NavigationControl({ showZoom: false }), "bottom-right");
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-left");
+map.addControl(new maplibregl.NavigationControl({ showZoom: false }), "bottom-left");
 addGeolocate(map, maplibregl, status);
 await loadAll();

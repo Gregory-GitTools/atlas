@@ -314,8 +314,7 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     if (map.getLayer("photo-commons")) map.setLayerZoomRange("photo-commons", zoomForScale(map, THUMB_M), 24);
     // квадраты, до которых очередь не дошла, забываются — после сдвига очередь собирается заново
     for (const [z, x, y] of queue.splice(0)) cells.delete(`${z}/${x}/${y}`);
-    if (map.getZoom() < dotZoom) { ctx.status("Приблизьте карту, чтобы увидеть фото"); return; }
-    ctx.status("");
+    if (map.getZoom() < dotZoom) return;
     const dotsOnly = map.getZoom() < zoomForScale(map, LOAD_M);
     baseZ = Math.min(16, Math.max(CELL_MIN_Z, Math.floor(map.getZoom())));
     for (const [z, x, y] of cellsInView(map, dotsOnly)) {
@@ -502,7 +501,6 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     const lines = Math.max(13, zoomForScale(map, LINES_M));
     if (map.getLayer("photo-mly-lines")) map.setLayerZoomRange("photo-mly-lines", lines, 24);
     if (map.getLayer("photo-mly-images")) map.setLayerZoomRange("photo-mly-images", Math.max(14, zoomForScale(map, IMAGES_M)), 24);
-    ctx.status(map.getZoom() < lines ? "Приблизьте карту, чтобы увидеть снимки улиц" : "");
   }
 
   // плеер сообщает, где камера и куда смотрит: точка со взглядом; точка у края — карта подвигается
@@ -615,7 +613,6 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     const pin = zoomForScale(map, PIN_M), dot = zoomForScale(map, DOT_M);
     if (map.getLayer("photo-webcams")) map.setLayerZoomRange("photo-webcams", pin, 24);
     if (map.getLayer("photo-webcams-dots")) map.setLayerZoomRange("photo-webcams-dots", dot, pin);
-    if (on) ctx.status(map.getZoom() < dot ? "Приблизьте карту, чтобы увидеть веб-камеры" : "");
   }
 
   async function show(f) {

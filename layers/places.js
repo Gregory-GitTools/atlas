@@ -1,7 +1,7 @@
 // Места — категории как чипы в Google Maps (перенос из travel-earth): рестораны, гостиницы,
 // развлечения, музеи, транспорт, магазины. Точки — прямо из векторных тайлов OpenFreeMap (слой
-// poi, фильтр по subclass = тег OSM), поэтому появляются сразу, с зума 12; «не найдено» —
-// только с 14 (до него в тайлах лишь значимые места). Флажок цвета категории; у транспорта —
+// poi, фильтр по subclass = тег OSM), поэтому появляются сразу, с зума 12. Подсказок «Приблизьте
+// карту» и «не найдено» нет (Грегори, 2026-10-29: «никто не читает, а область свайпа ограничивают»). Флажок цвета категории; у транспорта —
 // цвет и значок по виду (метро красное «М», трамвай, автобус, паром, поезд), аэропорты — со шкалы
 // 5 км, остановки — со шкалы 100 м. Магазины — с меню профилей (продукты, рынки, одежда…).
 // Категории включаются независимо — можно несколько сразу (Грегори, 2026-10-28: «выделение нескольких
@@ -330,36 +330,14 @@ function scaleZooms(map) {
   map.setLayerZoomRange("places-stops", Math.max(MIN_ZOOM, zoomForScale(map, STOP_MAX_M_PER_100PX)), 24);
 }
 
-function updateStatus(map, status) {
-  if (!actives.size) return;
-  const cats = [...actives.values()];
-  const name = cats.map((c) => (c.parts && c.parts.length < c.profiles.length ? c.parts.map((p) => p.name).join(", ") : c.title).toLowerCase()).join(", ");
-  const zoomIn = `Приблизьте карту, чтобы увидеть: ${name}`;
-  // с какого масштаба что-то видно: аэропорты и дальний транспорт — раньше, вид «только остановки» — позже
-  const min = Math.min(...cats.map((c) => Math.min(
-    c.subclasses?.length ? MIN_ZOOM : Infinity,
-    c.stops?.length ? Math.max(MIN_ZOOM, zoomForScale(map, STOP_MAX_M_PER_100PX)) : Infinity,
-    c.airports ? zoomForScale(map, AIRPORT_MAX_M_PER_100PX) : Infinity,
-    c.far ? zoomForScale(map, TRANSPORT_FAR_M) : Infinity)));
-  // что-то уже видно — подсказка не нужна, даже если часть плиток ещё грузится
-  const found = map.queryRenderedFeatures({ layers: LAYERS.filter((id) => map.getLayer(id)) }).length;
-  if (found) { status(""); return; }
-  if (map.getZoom() < min) { status(zoomIn); return; }
-  if (!map.areTilesLoaded()) return;
-  if (map.getZoom() < FULL_ZOOM) status(zoomIn);
-  else status(`В этой части карты не найдено: ${name}`);
-}
-
 let wired = false;
-function wire({ map, maplibregl, status }) {
+function wire({ map, maplibregl }) {
   if (wired) return;
   wired = true;
   claimLayers(...LAYERS);
   map.on("style.load", () => { ensureLayers(map); apply(map); });
   map.on("moveend", () => scaleZooms(map));
   map.on("idle", () => { updateTransport(map); updateCables(map); });
-  map.on("idle", () => updateStatus(map, status));
-  map.on("zoomend", () => updateStatus(map, status));
   let click = 0;
   map.on("click", LAYERS, async (e) => {
     const f = e.features[0];
@@ -398,13 +376,10 @@ for (const cat of CATEGORIES) {
       actives.set(cat.id, withProfile());
       apply(ctx.map);
       updateTransport(ctx.map);
-      updateStatus(ctx.map, ctx.status);
     },
     disable(ctx) {
       if (!actives.delete(cat.id)) return;
       apply(ctx.map);
-      ctx.status("");
-      updateStatus(ctx.map, ctx.status);
     },
   });
 }

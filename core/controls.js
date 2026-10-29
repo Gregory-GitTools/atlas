@@ -1,5 +1,5 @@
 // Кнопки и приборы карты (как в travel-earth): шкала масштаба по-русски, «Где я», звёздное небо.
-// Столбик справа внизу над плиткой карт, снизу вверх: настройки, «+ −», компас, «Где я» —
+// Столбик слева внизу, снизу вверх: настройки, «+ −», компас, «Где я» —
 // MapLibre ставит каждый следующий элемент угла выше предыдущих, поэтому порядок addControl важен
 import * as settings from "./settings.js";
 
@@ -69,7 +69,7 @@ export function addGeolocate(map, maplibregl, status) {
       return box;
     },
     onRemove() {},
-  }, "bottom-right");
+  }, "bottom-left");
 
   map.on("dragstart", () => { if (follow) { follow = false; update(); } });
   if (settings.get("geolocate")) start();

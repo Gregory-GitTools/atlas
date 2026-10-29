@@ -1,12 +1,10 @@
-// Подложки карты и переключатель по образцу Google Maps (как в travel-earth): плитка в правом
-// нижнем углу показывает «другой» вид (на карте — Спутник, на спутнике — последнюю карту) и
-// переключает одним щелчком; при наведении (на телефоне — нажатием) влево раскрывается ряд всех
-// карт. Все векторные стили — на схеме OpenMapTiles, поэтому язык подписей переключается на любой.
+// Подложки карты. Плитки-переключателя внизу больше нет (Грегори, 2026-10-29: «панель карт убрать
+// новой кнопкой с панелью видов карт») — выбор в колесе справа, кнопка «Карты» (core/layers-panel.js).
+// Все векторные стили — на схеме OpenMapTiles, поэтому язык подписей переключается на любой.
 // Выбор помнится. После смены стиля — событие "basemap" (слои и язык подписей ставятся заново
 // по "style.load" самой карты)
 import * as settings from "./settings.js";
 import { emit } from "./events.js";
-import { isMobile } from "./modules.js";
 
 const OPENMAPTILES = { type: "vector", url: "https://tiles.openfreemap.org/planet" };
 const GLYPHS = "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf";
@@ -18,13 +16,13 @@ export const BASEMAPS = [
   { id: "voyager", name: "Пастельная", hint: "CARTO Voyager", style: "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json" },
   { id: "dark", name: "Тёмная", hint: "CARTO Dark Matter", style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json", dark: true },
 ];
-const SATELLITE = BASEMAPS[0];
 const DEFAULT = BASEMAPS.find((b) => b.id === "liberty"); // по умолчанию — Яркая (Грегори); «Светлую» Грегори убрал 2026-10-25
 
 let current = BASEMAPS.find((b) => b.id === settings.get("basemap")) || DEFAULT;
-let lastMap = current === SATELLITE ? DEFAULT : current;
+let mapRef = null;
 
 export const currentBasemap = () => current;
+export const thumbOf = (b) => `icons/basemaps/${b.id}.jpg`;
 export const styleOf = (b) => (typeof b.style === "function" ? b.style() : b.style);
 
 // Спутник «как в Google»: снимки Esri + границы, крупные дороги и подписи из тех же векторных
@@ -78,46 +76,17 @@ function satelliteStyle() {
   };
 }
 
+// сменить карту
+export function setBasemap(b) {
+  if (b === current || !mapRef) return;
+  current = b;
+  settings.set("basemap", b.id);
+  // diff: false — иначе MapLibre подставляет в новый стиль чужие шрифты (404 на глифы)
+  mapRef.setStyle(styleOf(b), { diff: false });
+  emit("basemap", { id: b.id, dark: !!b.dark });
+}
+
 export function initBasemaps({ map }) {
-  const box = Object.assign(document.createElement("div"), { className: "basemaps" });
-  const main = Object.assign(document.createElement("button"), { className: "basemap-main" });
-  const row = Object.assign(document.createElement("div"), { className: "basemap-row" });
-  box.append(main, row);
-  document.body.append(box);
-
-  const fill = (tile, b) => {
-    tile.innerHTML = `<img alt=""><span class="basemap-label"></span>`;
-    tile.querySelector("img").src = `icons/basemaps/${b.id}.jpg`;
-    tile.querySelector(".basemap-label").textContent = b.name;
-    tile.title = b.hint;
-  };
-
-  const select = (b) => {
-    box.classList.remove("open");
-    if (b === current) return;
-    current = b;
-    if (b !== SATELLITE) lastMap = b;
-    settings.set("basemap", b.id);
-    // diff: false — иначе MapLibre подставляет в новый стиль чужие шрифты (404 на глифы)
-    map.setStyle(styleOf(b), { diff: false });
-    render();
-    emit("basemap", { id: b.id, dark: !!b.dark });
-  };
-
-  const render = () => {
-    const other = current === SATELLITE ? lastMap : SATELLITE;
-    fill(main, other);
-    // на телефоне наведения нет — нажатие раскрывает ряд, а выбор — из ряда
-    main.onclick = isMobile() ? () => box.classList.toggle("open") : () => select(other);
-    row.replaceChildren(...BASEMAPS.map((b) => {
-      const tile = Object.assign(document.createElement("button"), { className: "basemap-item" + (b === current ? " active" : "") });
-      fill(tile, b);
-      tile.addEventListener("click", () => select(b));
-      return tile;
-    }));
-  };
-  document.addEventListener("click", (e) => !box.contains(e.target) && box.classList.remove("open"));
-  document.addEventListener("keydown", (e) => e.key === "Escape" && box.classList.remove("open"));
-  render();
+  mapRef = map;
   emit("basemap", { id: current.id, dark: !!current.dark });
 }

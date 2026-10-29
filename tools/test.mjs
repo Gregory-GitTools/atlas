@@ -92,7 +92,7 @@ try {
   await idle();
   check("карта загрузилась", true, await run(`atlas.map.getProjection()?.type`));
   const extras = await run(`({ stars: document.querySelector("canvas.stars")?.width > 0, scale: document.querySelector(".maplibregl-ctrl-scale")?.textContent,
-    geo: !!document.querySelector(".geo-btn"), order: [...document.querySelectorAll(".maplibregl-ctrl-bottom-right .maplibregl-ctrl")].map((c) => c.querySelector("button")?.title || c.className.split(" ").pop()) })`);
+    geo: !!document.querySelector(".geo-btn"), order: [...document.querySelectorAll(".maplibregl-ctrl-bottom-left .maplibregl-ctrl-group")].map((c) => c.querySelector("button")?.title || c.className.split(" ").pop()) })`);
   check("звёзды, шкала, «Где я»", extras.stars && /км|м$/.test(extras.scale || "") && extras.geo, JSON.stringify(extras));
   await shot("00-start");
 
@@ -116,20 +116,36 @@ try {
       await atlas.toggle(${id}, false); return { off, refused, back }; })()`);
     check("режим «без сети» выключает модуль и не даёт включить", offline.off === false && offline.refused === false && offline.back === true, JSON.stringify(offline));
   }
+  // колесо справа: треугольник открывает панель, кнопка барабана — свой столбик (как человек щёлкает)
+  const openLayers = (key) => `(async () => {
+    if (document.querySelector(".wheel").classList.contains("closed")) document.querySelector(".wheel-toggle").click();
+    await new Promise((r) => setTimeout(r, 300));
+    const c = [...document.querySelectorAll(".wheel .layers-circle")].find((b) => b.dataset.key === ${JSON.stringify(key)});
+    if (!c.classList.contains("open")) c.click();
+    for (let t = 0; t < 30 && document.querySelector(".layers-sub").hidden; t++) await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 150));
+    return true; })()`;
+  const closeLayers = `(() => { if (!document.querySelector(".wheel").classList.contains("closed")) document.querySelector(".wheel-toggle").click(); return true; })()`;
+  // кнопка в столбике по названию
+  const itemFor = (title) => `[...document.querySelectorAll(".layers-sub .layers-item")].find((c) => c.firstChild.textContent === ${JSON.stringify(title)})`;
 
-  // подложки: каждая загружается без ошибок, и язык подписей ставится заново
-  const basemaps = await run(`[...document.querySelectorAll(".basemap-row .basemap-item")].map((b) => b.title)`);
-  check("переключатель карт", basemaps.length >= 5, `${basemaps.length} карт`);
+  // карты: в колесе справа кнопка «Карты» — в её столбике виды карт с миниатюрами; каждая загружается без ошибок
+  await run(openLayers("maps"));
+  const basemaps = await run(`[...document.querySelectorAll(".layers-sub .layers-item")].filter((b) => b.querySelector(".thumb")).map((b) => b.title)`);
+  check("виды карт в «Картах»", basemaps.length >= 5, `${basemaps.length} карт`);
   for (let i = 0; i < basemaps.length; i++) {
-    await run(`document.querySelectorAll(".basemap-row .basemap-item")[${i}].click(); true`);
+    await run(`${openLayers("maps")}.then(() => { [...document.querySelectorAll(".layers-sub .layers-item")].filter((b) => b.querySelector(".thumb"))[${i}].click(); return true; })`);
     await sleep(500);
     await idle();
     if (i === 0) await shot("50-satellite");
     const ok = await run(`atlas.map.isStyleLoaded() && atlas.map.getStyle().layers.length > 0`);
     check(`карта «${basemaps[i]}»`, ok);
   }
-  await run(`document.querySelectorAll(".basemap-row .basemap-item")[1].click(); true`);
+  const mapsCircle = await run(`document.querySelector('.layers-circle[data-key="maps"]').title`);
+  check("на кнопке «Карты» — текущая карта", /Тёмная/.test(mapsCircle), mapsCircle);
+  await run(`${openLayers("maps")}.then(() => { [...document.querySelectorAll(".layers-sub .layers-item")].filter((b) => b.querySelector(".thumb"))[1].click(); return true; })`);
   await idle();
+  await run(closeLayers);
 
   // язык подписей: English → у подписей name:en; потом обратно русский
   const lang = await run(`(async () => { const b = document.querySelector(".lang-btn"); b.click();
@@ -180,17 +196,6 @@ try {
     check("окно закрывается при движении карты", await run(`!document.querySelector(".maplibregl-popup")`));
   } else check("подпись города на карте", false);
 
-  // «Слои»: кнопка открывает столбик кружков, кружок — подменю раздела (как человек щёлкает)
-  const openLayers = (key) => `(async () => {
-    if (document.querySelector(".layers-list").hidden) document.querySelector(".layers-menu > .layers-cell .layers-circle").click();
-    await new Promise((r) => setTimeout(r, 200));
-    const c = [...document.querySelectorAll(".layers-list .layers-circle")].find((b) => b.dataset.key === ${JSON.stringify(key)});
-    if (!c.classList.contains("open")) c.click();
-    await new Promise((r) => setTimeout(r, 300));
-    return true; })()`;
-  const closeLayers = `(() => { if (!document.querySelector(".layers-list").hidden) document.querySelector(".layers-menu > .layers-cell .layers-circle").click(); return true; })()`;
-  // кнопка в столбике кружка по названию
-  const itemFor = (title) => `[...document.querySelectorAll(".layers-sub .layers-item")].find((c) => c.firstChild.textContent === ${JSON.stringify(title)})`;
 
   // места: в центре Таллина «Рестораны» — флажки; «Музеи» выключают «Рестораны»; щелчок по флажку — окно
   if (want("places/food") && mods.some((m) => m.id === "places/food")) {
@@ -325,7 +330,7 @@ try {
   if (want("trails/cycling") && mods.some((m) => m.id === "trails/cycling")) {
     const bike = await run(`(async () => {
       await ${openLayers("trails/cycling")};
-      const circles = [...document.querySelectorAll(".layers-list .layers-circle")].map((c) => c.title.split(":")[0]);
+      const circles = [...document.querySelectorAll(".wheel .layers-circle")].map((c) => c.title.split(":")[0]);
       const items = [...document.querySelectorAll(".layers-sub .layers-item")].map((i) => i.firstChild.textContent);
       ${itemFor("Маунтинбайк")}.click();
       await new Promise((r) => setTimeout(r, 1500));
@@ -510,20 +515,42 @@ try {
   // «Слои»: столбик разделов (Места, Тропы, Дороги, Рельеф, Погода, Пляжи и сёрфинг), подменю у кружка
   await run(`atlas.toggle("layers/railways", true).then(() => true)`);
   await run(openLayers("layers/roads"));
-  const lm = await run(`({ groups: [...document.querySelectorAll(".layers-list .layers-circle")].map((c) => c.title.split(":")[0]),
+  const lm = await run(`({ groups: [...document.querySelectorAll(".wheel .layers-circle")].map((c) => c.title.split(":")[0]),
     sub: [...document.querySelectorAll(".layers-sub .layers-item")].map((c) => c.firstChild.textContent),
-    on: [...document.querySelectorAll(".layers-list .layers-circle.on")].map((c) => c.title) })`);
-  check("«Слои»: кружки, «Дороги» — виды и железные дороги, «Фото»", ["Места", "Транспорт", "Магазины", "Тропы", "Велодорожки", "Дороги", "Рельеф", "Погода", "Фото"].every((g) => lm.groups.includes(g))
-    && !lm.groups.includes("Пляжи и сёрфинг") && lm.sub.length === 5
+    on: [...document.querySelectorAll(".wheel .layers-circle.on")].map((c) => c.title) })`);
+  check("«Слои»: кружки, «Дороги» — виды и железные дороги, «Фото»", ["Карты", "Места", "Транспорт", "Магазины", "Тропы", "Велодорожки", "Дороги", "Погода", "Фото"].every((g) => lm.groups.includes(g))
+    && !lm.groups.includes("Пляжи и сёрфинг") && !lm.groups.includes("Рельеф") && lm.sub.length === 5
     && lm.sub.includes("Железные дороги") && lm.on.includes("Дороги"), JSON.stringify(lm));
   await shot("95-panel-layers");
-  await run(openLayers("relief"));
+  // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико
+  // крутит его, нажатие по кнопке не в центре докручивает её и открывает столбик
+  await run(`document.querySelector(".layers-sub").hidden || document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); true`);
+  const drum = await run(`(() => { const cells = [...document.querySelectorAll(".wheel-cell")].filter((c) => !c.hidden)
+    .map((c) => { const r = c.getBoundingClientRect(); return { y: r.top + r.height / 2, b: parseFloat(c.style.filter.replace("brightness(", "")) }; })
+    .sort((a, b) => a.y - b.y); const gaps = cells.slice(1).map((c, i) => Math.round(c.y - cells[i].y));
+    return { n: cells.length, gaps, edge: cells[0].b, mid: Math.max(...cells.map((c) => c.b)) }; })()`);
+  const mid = Math.floor(drum.gaps.length / 2);
+  check("колесо: в центре промежутки больше, к краям меньше и темнее", drum.n >= 5 && drum.gaps[0] < drum.gaps[mid] && drum.gaps.at(-1) < drum.gaps[mid] && drum.edge < drum.mid, JSON.stringify(drum));
+  const centerKey = `(() => { const r = document.querySelector(".wheel").getBoundingClientRect(), m = r.top + r.height / 2;
+    return [...document.querySelectorAll(".wheel-cell")].filter((c) => !c.hidden).map((c) => { const b = c.getBoundingClientRect(); return [Math.abs(b.top + b.height / 2 - m), c.querySelector(".layers-circle").dataset.key]; }).sort((a, b) => a[0] - b[0])[0][1]; })()`;
+  const before = await run(centerKey);
+  await run(`document.querySelector(".wheel").dispatchEvent(new WheelEvent("wheel", { deltaY: 200, bubbles: true, cancelable: true })); true`);
+  await sleep(1200);
+  const after = await run(centerKey);
+  check("колесо: колёсико мыши крутит барабан", before !== after, `${before} → ${after}`);
+  await run(`document.querySelector('.layers-circle[data-key="photo"]').click(); true`);
+  await sleep(1500);
+  const spun = await run(`({ center: ${centerKey}, open: !document.querySelector(".layers-sub").hidden && document.querySelector('.layers-circle[data-key="photo"]').classList.contains("open") })`);
+  check("колесо: нажатие — кнопка докручивается в центр и открывается", spun.center === "photo" && spun.open, JSON.stringify(spun));
+  await shot("95b-wheel");
+  await run(openLayers("maps"));
   const relief = await run(`[...document.querySelectorAll(".layers-sub .layers-item")].map((c) => c.firstChild.textContent)`);
-  check("«Рельеф»: тени и 3D + высоты", relief.includes("Высоты") && relief.length === 2, JSON.stringify(relief));
+  check("«Карты»: виды карт, под чертой тени и 3D и высоты", relief.includes("Высоты") && relief.includes("Тени и 3D") && relief.length === 7
+    && (await run(`!!document.querySelector(".layers-sub .layers-sep")`)), JSON.stringify(relief));
   await run(`atlas.toggle("layers/railways", false).then(() => true)`);
-  await run(`document.querySelector(".maplibregl-ctrl-bottom-right button[title=Настройки]").click(); true`);
+  await run(`document.querySelector(".maplibregl-ctrl-bottom-left button[title=Настройки]").click(); true`);
   await sleep(800);
-  check("панель закрывает столбик «Слои»", await run(`document.querySelector(".layers-list").hidden && document.querySelector(".layers-sub").hidden && document.querySelectorAll(".panel:not([hidden])").length === 1`));
+  check("настройки прячут колесо", await run(`document.querySelector(".wheel").classList.contains("closed") && document.querySelector(".layers-sub").hidden && document.querySelectorAll(".panel:not([hidden])").length === 1`));
   await shot("96-panel-settings");
 } catch (err) {
   errors.push("проверка прервалась: " + err.message);

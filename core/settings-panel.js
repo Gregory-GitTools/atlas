@@ -17,7 +17,7 @@ const CORE_SENDS = [{ title: "Карта", sends: "район карты (без
 export function initSettingsPanel(ctx) {
   const panel = createPanel({ id: "settings", title: "Настройки", icon: GEAR_ICON });
 
-  // кнопка-шестерёнка — в столбике кнопок карты справа внизу
+  // кнопка-шестерёнка — в столбике кнопок карты слева внизу
   ctx.map.addControl({
     onAdd() {
       const box = h("div", "maplibregl-ctrl maplibregl-ctrl-group");
@@ -27,7 +27,7 @@ export function initSettingsPanel(ctx) {
       return box;
     },
     onRemove() {},
-  }, "bottom-right");
+  }, "bottom-left");
 
   async function render() {
     const body = [];
