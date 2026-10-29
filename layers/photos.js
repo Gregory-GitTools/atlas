@@ -30,6 +30,8 @@ const MLY_COLOR = "#05cb63"; // зелёный Mapillary
 // уличная камера на кронштейне (значок «Снимков улиц» из travel-earth, Грегори выбрал по картинке)
 const STREETS = '<path fill-rule="evenodd" d="M1.2 6.4 17.6 2.2c.9-.2 1.5.1 1.7.9l.2.7-17.9 4.6zM2.2 8.9 19.6 4.4l.9 3.6c.3 1.1-.2 1.8-1.2 2.1L6.4 13.4c-2.3.6-3.6-.2-4-1.7zM7.9 10.6a2.6 2.6 0 1 0-5.2 0 2.6 2.6 0 0 0 5.2 0z"/><circle cx="5.3" cy="10.6" r="1.1"/><path d="M11 12.3h2.6v4.2h5.4v2.6h-6.7c-.7 0-1.3-.6-1.3-1.3z"/><path fill-rule="evenodd" d="M19.6 12.6h2.2c.6 0 1 .4 1 1v8c0 .6-.4 1-1 1h-2.2zM21.2 14.4a.6.6 0 1 0 0 1.2.6.6 0 0 0 0-1.2zm0 5.2a.6.6 0 1 0 0 1.2.6.6 0 0 0 0-1.2z"/>';
 export const PHOTO_ICON = svg(`<path d="${CAMERA}"/>`);
+// шрифт подписей — из текущего стиля карты (у CARTO свой сервер шрифтов)
+const font = (map) => map.getStyle().layers.find((l) => l.type === "symbol" && Array.isArray(l.layout?.["text-font"]))?.layout["text-font"] || ["Noto Sans Regular"];
 const zoomForScale = (map, m) => Math.log2((100 * 40075016.686 * Math.cos((map.getCenter().lat * Math.PI) / 180)) / (512 * m));
 
 // значок на карте: белый кружок с кантом цвета слоя и знаком внутри
@@ -71,6 +73,7 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
   const CELL_MIN_Z = 12, PROBE_PX = 100, MAX_CELLS = 40, SIZE = 44;
   // миниатюры — по одной на клетку экрана THUMB_PX (ближайшая к её середине), пачками до BATCH снимков
   const THUMB_PX = 64, BATCH = 50;
+  const CLUSTER_PX = 18; // точки ближе 18 px — один кружок с числом
   // «поиск занят» Commons отвечает часто, если спрашивать параллельно, — по одному запросу,
   // после отказа пауза: 1,5 с, дальше вдвое дольше, до 15 с; удачный ответ её сбрасывает
   const PAUSE_MIN = 1500, PAUSE_MAX = 15000;
@@ -81,9 +84,11 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
   const queue = [];
   let running = false, pause = PAUSE_MIN, ctx = null, active = false, wired = false, lastError = "";
   const data = () => ({ type: "FeatureCollection", features: [...features.values()] });
+  const thumbData = () => ({ type: "FeatureCollection", features: [...features.values()].filter((f) => f.properties.img) });
   const refresh = () => {
     if (!active) return;
     ctx.map.getSource("photo-commons")?.setData(data());
+    ctx.map.getSource("photo-commons-thumbs")?.setData(thumbData());
     // в ленту внизу — снимки с миниатюрой; в галерее — крупный (1920 px или сам снимок, если он меньше)
     setStripItems("commons", [...features.values()].filter((f) => f.properties.img).map((f) => {
       const p = f.properties;
@@ -136,7 +141,9 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     if (active && !ctx.map.hasImage(img)) try { ctx.map.addImage(img, images.get(img), { pixelRatio: 2 }); } catch { /* стиль меняется */ }
     const meta = ii.extmetadata || {};
     const t = (k) => text(meta[k]?.value);
-    const caption = t("ImageDescription") || page.title.replace(/^File:/, "").replace(/\.\w+$/, "").replace(/_/g, " ");
+    // описание бывает служебным словом «default» — тогда имя файла
+    const desc = t("ImageDescription");
+    const caption = (desc && desc.toLowerCase() !== "default" ? desc : "") || page.title.replace(/^File:/, "").replace(/\.\w+$/, "").replace(/_/g, " ");
     features.set(page.pageid, { type: "Feature", geometry: { type: "Point", coordinates }, properties: { pageid: page.pageid, title: page.title, img, z,
       thumb: ii.thumburl, page: ii.descriptionurl, full: ii.url, fullWidth: ii.width, aspect: ii.thumbheight / ii.thumbwidth,
       caption: caption.length > 160 ? `${caption.slice(0, 157)}…` : caption,
@@ -320,22 +327,41 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
       ctx = c; active = true;
       const { map } = c;
       for (const [id, d] of images) if (!map.hasImage(id)) map.addImage(id, d, { pixelRatio: 2 });
+      // Точки, которые на экране налезли бы друг на друга, собираются в один кружок с числом снимков
+      // в этом месте (Грегори, 2026-10-29: «на перекрывающихся точках писать просто цифру»);
+      // приблизили — кружок распадается. Миниатюры — свой источник, без сборки
       if (!map.getSource("photo-commons")) map.addSource("photo-commons", { type: "geojson", data: data(),
+        cluster: true, clusterRadius: CLUSTER_PX, clusterMaxZoom: 18,
         attribution: '<a href="https://commons.wikimedia.org/" target="_blank">Wikimedia Commons</a>' });
       map.getSource("photo-commons").setData(data());
+      if (!map.getSource("photo-commons-thumbs")) map.addSource("photo-commons-thumbs", { type: "geojson", data: thumbData() });
+      map.getSource("photo-commons-thumbs").setData(thumbData());
       if (!map.getLayer("photo-commons-dots")) map.addLayer({ id: "photo-commons-dots", type: "circle", source: "photo-commons",
-        paint: { "circle-color": PHOTO_COLOR, "circle-radius": 4, "circle-stroke-color": "#fff", "circle-stroke-width": 1.5 } });
+        paint: { "circle-color": PHOTO_COLOR, "circle-stroke-color": "#fff", "circle-stroke-width": 1.5,
+          "circle-radius": ["case", ["has", "point_count"], ["step", ["get", "point_count"], 9, 10, 11, 100, 13, 1000, 15], 4] } });
+      if (!map.getLayer("photo-commons-count")) map.addLayer({ id: "photo-commons-count", type: "symbol", source: "photo-commons",
+        filter: ["has", "point_count"],
+        layout: { "text-field": ["get", "point_count_abbreviated"], "text-font": font(map), "text-size": 11,
+          "text-allow-overlap": true, "text-ignore-placement": true },
+        paint: { "text-color": "#fff" } });
       // размер 1 на всех зумах: ужатая картинка расплывается
-      if (!map.getLayer("photo-commons")) map.addLayer({ id: "photo-commons", type: "symbol", source: "photo-commons", filter: ["has", "img"],
+      if (!map.getLayer("photo-commons")) map.addLayer({ id: "photo-commons", type: "symbol", source: "photo-commons-thumbs",
         layout: { "icon-image": ["get", "img"], "symbol-sort-key": ["get", "z"], "icon-padding": 4 } });
-      claimLayers("photo-commons-dots", "photo-commons");
+      claimLayers("photo-commons-dots", "photo-commons-count", "photo-commons");
       if (!wired) {
         wired = true;
         map.on("idle", update);
         map.on("click", (e) => {
           if (!active) return;
           const f = map.queryRenderedFeatures(e.point, { layers: ["photo-commons", "photo-commons-dots"].filter((id) => map.getLayer(id)) })[0];
-          if (f) show(f);
+          if (!f) return;
+          // кружок с числом — приблизить, пока он не распадётся
+          if (f.properties.cluster) {
+            map.getSource("photo-commons").getClusterExpansionZoom(f.properties.cluster_id)
+              .then((zoom) => map.easeTo({ center: f.geometry.coordinates, zoom: Math.min(zoom, 19) })).catch(() => {});
+            return;
+          }
+          show(features.get(f.properties.pageid) || f);
         });
         // двойной щелчок по миниатюре — галерея с этого снимка, карта не приближается
         map.on("dblclick", (e) => {
@@ -352,7 +378,7 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
       status("");
       for (const [z, x, y] of queue.splice(0)) cells.delete(`${z}/${x}/${y}`);
       for (const [k, v] of cells) if (v === "loading") cells.delete(k);
-      for (const id of ["photo-commons", "photo-commons-dots"]) if (map.getLayer(id)) map.removeLayer(id);
+      for (const id of ["photo-commons", "photo-commons-count", "photo-commons-dots"]) if (map.getLayer(id)) map.removeLayer(id);
       setStripItems("commons", []);
     },
     // для проверки: точек, с миниатюрой, квадратов, переполненных квадратов, последняя ошибка
