@@ -64,6 +64,19 @@ const CABLE_PIN = { glyph: "cable", color: "#39ff14", ink: "#000" };
 const cableStations = new Map(); // id троса в тайлах → станции (GeoJSON), null — загружается
 const funicularIds = new Set(); // id точек в тайлах (osm_id·10 + тип)
 
+// значки видов магазинов — по товару (Грегори, 2026-10-29: «на кнопке продукты пусть будет банан, в панели
+// разные продукты»): банан, лоток с навесом, ключ, футболка, телефон, аптека, пакет, подарок, бокал
+const SHOP_ICONS = {
+  grocery: '<path d="M17.4 4.2c6 6.6-1.6 18.6-14.6 16-.7-.2-.6-.9.1-1.1 8-2.6 13.2-8.2 12.4-14.6z"/><path d="M15.2 4.8 15.6 1.4h2.1l-.3 3.2z"/><path d="M2.6 20.6l-.9-.2.3-1.2 1 .2z"/>',
+  market: '<path d="M3 3h18l1 5c0 1.4-1.1 2.4-2.5 2.4S17 9.4 17 8c0 1.4-1.1 2.4-2.5 2.4S12 9.4 12 8c0 1.4-1.1 2.4-2.5 2.4S7 9.4 7 8c0 1.4-1.1 2.4-2.5 2.4S2 9.4 2 8z"/><path d="M4 11.6h2V19h12v-7.4h2V21H4z"/><path d="M8 14h8v2.4H8z"/>',
+  goods: '<path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/>',
+  clothes: '<path d="M8 3 2.6 5.6 4.4 10.4 7 9.3V21h10V9.3l2.6 1.1 1.8-4.8L16 3c-.6 1.6-2.1 2.6-4 2.6S8.6 4.6 8 3z"/>',
+  electronics: '<path d="M17 1.01 7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/>',
+  pharmacy: '<path d="M21 5h-2.64l1.14-3.14L17.15 1l-1.46 4H3v2l2 6-2 6v2h18v-2l-2-6 2-6V5zm-5 9h-3v3h-2v-3H8v-2h3V9h2v3h3v2z"/>',
+  malls: '<path d="M19 6h-2c0-2.76-2.24-5-5-5S7 3.24 7 6H5c-1.1 0-1.99.9-1.99 2L3 20c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-7-3c1.66 0 3 1.34 3 3H9c0-1.66 1.34-3 3-3zm0 10c-2.76 0-5-2.24-5-5h2c0 1.66 1.34 3 3 3s3-1.34 3-3h2c0 2.76-2.24 5-5 5z"/>',
+  gifts: '<path d="M20 6h-2.18c.11-.31.18-.65.18-1 0-1.66-1.34-3-3-3-1.05 0-1.96.54-2.5 1.35l-.5.67-.5-.68C10.96 2.54 10.05 2 9 2 7.34 2 6 3.34 6 5c0 .35.07.69.18 1H4c-1.11 0-1.99.89-1.99 2L2 19c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2zm-5-2c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zM9 4c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm11 15H4v-2h16v2zm0-5H4V8h5.08L7 10.83 8.62 12 11 8.76l1-1.36 1 1.36L15.38 12 17 10.83 14.92 8H20v6z"/>',
+  alcohol: '<path d="M21 5V3H3v2l8 9v5H6v2h12v-2h-5v-5l8-9zM7.43 7 5.66 5h12.69l-1.78 2H7.43z"/>',
+};
 const SHOP_PROFILES = [
   { id: "grocery", name: "Продукты", subclasses: ["supermarket", "convenience", "greengrocer", "bakery", "pastry", "butcher", "seafood", "deli", "cheese", "dairy", "frozen_food", "health_food", "confectionery", "chocolate", "coffee", "tea", "farm"] },
   { id: "market", name: "Рынки", subclasses: ["marketplace"] },
@@ -74,7 +87,7 @@ const SHOP_PROFILES = [
   { id: "malls", name: "Торговые центры", subclasses: ["mall", "department_store"] },
   { id: "gifts", name: "Сувениры и книги", subclasses: ["gift", "souvenir", "books", "antiques", "art", "toys", "stationery", "music"] },
   { id: "alcohol", name: "Алкоголь и напитки", subclasses: ["alcohol", "wine", "beverages"] },
-];
+].map((p) => ({ ...p, icon: `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">${SHOP_ICONS[p.id]}</svg>` }));
 
 // Транспорт — меню видов, как у магазинов (Грегори, 2026-10-28: «каждый транспорт отдельно
 // выпадающим списком»). Поля вида: subclasses — точки из тайлов, stops — остановки (со «100 м»),

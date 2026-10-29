@@ -23,8 +23,9 @@ import { profileMenu } from "../core/profiles.js";
 import { cacheGet, cacheSet } from "../core/storage.js";
 
 const KINDS = [
+  // одна босая стопа (Грегори, 2026-10-29: две наклонные «как стайка кальмаров»)
   { id: "hiking", title: "Тропы", hint: "Маркированные пешеходные маршруты — вблизи подробно, с номерами",
-    icon: '<g transform="rotate(-12 7 15)"><ellipse cx="7" cy="16.5" rx="2.4" ry="4"/><circle cx="5.2" cy="10.9" r="1.05"/><circle cx="7.1" cy="10.4" r=".8"/><circle cx="8.6" cy="10.9" r=".7"/><circle cx="9.6" cy="11.9" r=".6"/></g><g transform="rotate(12 17 8)"><ellipse cx="17" cy="9.5" rx="2.4" ry="4"/><circle cx="18.8" cy="3.9" r="1.05"/><circle cx="16.9" cy="3.4" r=".8"/><circle cx="15.4" cy="3.9" r=".7"/><circle cx="14.4" cy="4.9" r=".6"/></g>' },
+    icon: '<path d="M12 22.2c-2.4 0-3.6-1.8-3.4-4 .2-2 1-3.2.6-5.2-.5-2.6.8-5 3.9-5.2 3-.2 4.6 1.8 4.3 4.6-.3 2.4-1.5 3.8-1.6 5.8-.1 2.4-1.2 4-3.8 4z"/><circle cx="9.9" cy="6" r="1.55"/><circle cx="12.6" cy="4.9" r="1.1"/><circle cx="14.7" cy="5.1" r=".95"/><circle cx="16.3" cy="6" r=".8"/><circle cx="17.4" cy="7.4" r=".65"/>' },
   { id: "cycling", title: "Велодорожки", hint: "Веломаршруты",
     icon: '<path d="M18.18 10l-1.7-4.68C16.19 4.53 15.44 4 14.6 4H12v2h2.6l1.46 4h-4.81l-.36-1H12V7H7v2h1.75l1.82 5H9.9c-.44-2.23-2.31-3.88-4.65-3.99C2.45 9.87 0 12.2 0 15c0 2.8 2.2 5 5 5 2.46 0 4.45-1.69 4.9-4h4.2c.44 2.23 2.31 3.88 4.65 3.99 2.8.13 5.25-2.19 5.25-5 0-2.8-2.2-5-5-5h-.82zM7.82 16c-.4 1.17-1.49 2-2.82 2-1.68 0-3-1.32-3-3s1.32-3 3-3c1.33 0 2.42.83 2.82 2H5v2h2.82zm6.28-2h-1.4l-.73-2H15c-.44.58-.76 1.25-.9 2zm4.9 4c-1.68 0-3-1.32-3-3 0-.93.41-1.73 1.05-2.28l.96 2.64 1.88-.68-.97-2.67c.03 0 .06-.01.09-.01 1.68 0 3 1.32 3 3s-1.33 3-3.01 3z"/>' },
   // велосипед в гору на наклонной полоске дороги (Грегори, 2026-10-29, по картинке; горки над ним
@@ -256,12 +257,21 @@ const [hiking, cycling, mtb] = KINDS.map(makeKind);
 const common = { kind: "layer", group: "trails", needs: ["network"], sends: "район карты (Waymarked Trails)" };
 
 // у вида — цвет линий на карте: кольцо вокруг значка в меню «Слои»
+// у видов — обувь сбоку, от тяжёлой к лёгкой (Грегори, 2026-10-29: «на разных кнопках профиль разной обуви»):
+// международные — высокий трекинговый ботинок, национальные — ботинок пониже, региональные — кроссовок,
+// местные — сандалия
+const SHOES = {
+  int: '<path fill-rule="evenodd" d="M5 3.6h6.2l.6 7.4c3.4.6 7.6 1.8 9.2 3.8.8 1 .9 2 .9 3.1H3.9l.6-6.6zM8.6 5.4h2.6v.8H8.6zM8.6 7.4h2.6v.8H8.6zM8.6 9.4h2.6v.8H8.6zM8.6 11.4h2.6v.8H8.6z"/><path d="M3.6 18.6h18.8v1.6h-1.2v1.2h-2.4v-1.2h-2.2v1.2h-2.4v-1.2h-2.2v1.2H9.6v-1.2H7.4v1.2H5v-1.2H3.6z"/>',
+  nat: '<path fill-rule="evenodd" d="M5.2 7.6h5.8l.5 4.6c3.2.5 7.2 1.6 8.8 3.4.7.8.8 1.5.8 2.3H4.2l.5-5zM8.6 9.4h2.6v.8H8.6zM8.6 11.6h2.6v.8H8.6z"/><path d="M3.8 18.6h18.2v1.6h-1.4v1H18v-1h-2.6v1h-2.6v-1h-2.6v1H7.6v-1H5v1H3.8z"/>',
+  reg: '<path d="M4.6 12.4c1.6.4 3.2.2 4.6-.6l1 1.2c2.8.2 7.4 1.2 9.6 3 .9.7 1.4 1.6 1.4 2.4H4.2c-.2-2.2 0-4.2.4-6z"/><path d="M3.8 18.8h18.6c0 1.3-.8 2.2-2 2.2H5.2c-.8 0-1.4-.6-1.4-1.4z"/>',
+  loc: '<path d="M2.8 18.4h19.4c0 1.1-.7 1.8-1.8 1.8H4.2c-.8 0-1.4-.6-1.4-1.8z"/><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M17 18c-1.2-2.8-3.4-4.4-6-4.6"/><path d="M6 18c-.4-3 .4-5.4 2.4-6.4 1.4.6 2.4 1.4 2.8 2.2"/></g>',
+};
 const HIKING_PROFILES = [
   { id: "int", name: "Международные", color: LEVELS.INT.color, ranks: [LEVELS.INT.rank] },
   { id: "nat", name: "Национальные", color: LEVELS.NAT.color, ranks: [LEVELS.NAT.rank] },
   { id: "reg", name: "Региональные", color: LEVELS.REG.color, ranks: [LEVELS.REG.rank] },
   { id: "loc", name: "Местные", color: LEVELS.LOC.color, ranks: [LEVELS.LOC.rank] },
-].map((p) => ({ ...p, icon: chipIcon(KINDS[0].icon) }));
+].map((p) => ({ ...p, icon: chipIcon(SHOES[p.id]) }));
 const hikingProf = profileMenu("trails.hiking.profile", HIKING_PROFILES, "Тропы");
 // значимости отмеченных видов вместе; отмечены все — без фильтра
 const hikingRanks = () => { const s = hikingProf.selected(); return s.length === HIKING_PROFILES.length ? null : s.flatMap((p) => p.ranks); };
