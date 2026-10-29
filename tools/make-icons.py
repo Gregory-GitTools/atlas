@@ -7,7 +7,7 @@ OUT.mkdir(exist_ok=True)
 S = 1024  # рисуем крупно, потом уменьшаем — так края гладкие
 
 
-def draw():
+def draw(rim=True):
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     c, r = S / 2, S * 0.44
@@ -18,7 +18,8 @@ def draw():
         rr = r * k
         off = (1 - k) * r * 0.35
         d.ellipse([c - rr - off, c - rr - off, c + rr - off, c + rr - off], fill=col)
-    d.ellipse([c - r, c - r, c + r, c + r], outline=(255, 255, 255, 255), width=int(S * 0.028))
+    if rim:
+        d.ellipse([c - r, c - r, c + r, c + r], outline=(255, 255, 255, 255), width=int(S * 0.028))
     w = int(S * 0.016)
     line = (255, 255, 255, 170)
     # меридианы — эллипсы разной ширины
@@ -32,7 +33,7 @@ def draw():
     # метка: красная капля с белым кантом
     px, py, pr = c + r * 0.28, c - r * 0.18, S * 0.12
     tip = (px, py + pr * 2.1)
-    for color, grow in (((255, 255, 255, 255), S * 0.022), ((229, 57, 53, 255), 0)):
+    for color, grow in ((((255, 255, 255, 255), S * 0.022),) if rim else ()) + (((229, 57, 53, 255), 0),):
         d.ellipse([px - pr - grow, py - pr - grow, px + pr + grow, py + pr + grow], fill=color)
         d.polygon([(px - pr * 0.82 - grow, py + pr * 0.55), (px + pr * 0.82 + grow, py + pr * 0.55), (tip[0], tip[1] + grow * 1.6)], fill=color)
     d.ellipse([px - pr * 0.38, py - pr * 0.38, px + pr * 0.38, py + pr * 0.38], fill=(255, 255, 255, 255))
@@ -43,4 +44,6 @@ big = draw()
 for size, name in ((512, "icon-512.png"), (192, "icon-192.png"), (180, "apple-touch-icon.png"), (32, "icon-32.png")):
     big.resize((size, size), Image.LANCZOS).save(OUT / name)
 big.resize((256, 256), Image.LANCZOS).save(OUT / "app.ico", sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
+# логотип в строке поиска — без белого канта (Грегори, 2026-10-29: «на своём логотипе убери белый кант совсем»)
+draw(rim=False).resize((96, 96), Image.LANCZOS).save(OUT / "logo.png")
 print("значки готовы:", OUT)

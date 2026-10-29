@@ -31,7 +31,9 @@ const saveHistory = (list) => settings.set(HISTORY_KEY, list.length ? list : nul
 
 export function initSearch({ map, maplibregl }) {
   const bar = Object.assign(document.createElement("div"), { className: "search" });
+  // слева — логотип Atlas (Грегори, 2026-10-29: строка поиска как у Google, логотип внутри слева)
   bar.innerHTML = `<div class="search-box">
+      <img class="search-logo" src="icons/logo.png" alt="">
       <input type="search" placeholder="Поиск места" autocomplete="off" enterkeyhint="search" aria-label="Поиск места">
       <button class="search-clear" title="Очистить" hidden>${CLEAR_ICON}</button>
       <button class="search-go" title="Найти">${SEARCH_ICON}</button>

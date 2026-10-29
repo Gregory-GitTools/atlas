@@ -1,4 +1,4 @@
-// Окно настроек: перенос настроек файлом, «Что уходит в сеть» (у каждого модуля — что отправляет
+// Окно настроек: «Поделиться» (первой строкой — Грегори, 2026-10-29), перенос настроек файлом, «Что уходит в сеть» (у каждого модуля — что отправляет
 // и переключатель), режим «без сети», загруженные данные и модели. Список модулей строится из
 // реестра — новый модуль появляется здесь сам
 import { createPanel } from "./panel.js";
@@ -32,6 +32,7 @@ export function initSettingsPanel(ctx) {
   async function render() {
     const body = [];
 
+    body.push(shareRow(ctx));
     body.push(h("h3", "set-title", "Установка"), installSection());
 
     // перенос
@@ -106,4 +107,30 @@ export function initSettingsPanel(ctx) {
     history.replaceState(null, "", location.pathname);
     ctx.map.once("load", () => { panel.open(); render(); });
   }
+}
+
+// «Поделиться»: ссылка на Atlas, которая открывает то же место и масштаб. Где браузер умеет — системное
+// окно «Поделиться» (на телефоне — мессенджеры, почта), иначе ссылка копируется. Наружу уходит только
+// по нажатию — и только место на карте, ничего личного
+const SHARE_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11A2.99 2.99 0 0 0 21 5a3 3 0 1 0-5.91.7L8.04 9.81A2.99 2.99 0 0 0 3 12a3 3 0 0 0 5.04 2.19l7.12 4.16c-.05.21-.08.43-.08.65A2.92 2.92 0 1 0 18 16.08z"/></svg>';
+
+export function shareLink(map) {
+  const c = map.getCenter();
+  return `${location.origin}${location.pathname}#map=${map.getZoom().toFixed(2)}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}`;
+}
+
+function shareRow(ctx) {
+  const b = h("button", "share-btn");
+  b.innerHTML = `${SHARE_ICON}<span>Поделиться</span>`;
+  b.title = "Ссылка на это место карты";
+  b.addEventListener("click", async () => {
+    const url = shareLink(ctx.map);
+    if (navigator.share) {
+      try { await navigator.share({ title: "Atlas", url }); return; } catch (err) { if (err.name === "AbortError") return; }
+    }
+    try { await navigator.clipboard.writeText(url); ctx.status("Ссылка скопирована"); }
+    catch { prompt("Ссылка на это место:", url); }
+    setTimeout(() => ctx.status(""), 2500);
+  });
+  return b;
 }

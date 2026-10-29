@@ -552,6 +552,24 @@ try {
   await sleep(800);
   check("настройки прячут колесо", await run(`document.querySelector(".wheel").classList.contains("closed") && document.querySelector(".layers-sub").hidden && document.querySelectorAll(".panel:not([hidden])").length === 1`));
   await shot("96-panel-settings");
+  // «Поделиться» — первой строкой, ссылка ведёт на то же место
+  const share = await run(`(async () => { const b = document.querySelector(".panel:not([hidden]) .panel-body > :first-child");
+    const m = await import("./core/settings-panel.js"); return { first: b?.classList.contains("share-btn") && b.textContent.includes("Поделиться"),
+    link: m.shareLink(atlas.map) }; })()`);
+  check("настройки: первой строкой «Поделиться», ссылка на это место", share.first && /#map=[\d.]+\/-?[\d.]+\/-?[\d.]+$/.test(share.link), JSON.stringify(share));
+  // раскладка: ⓘ и шкала — в линию с шестерёнкой, треугольник — в правом нижнем углу, логотип в поиске,
+  // верх колеса — вровень с поиском (на компьютере)
+  const lay = await run(`(() => { const mid = (el) => { const r = el.getBoundingClientRect(); return Math.round(r.top + r.height / 2); };
+    const gear = document.querySelector(".maplibregl-ctrl-bottom-left button[title=Настройки]");
+    const t = document.querySelector(".wheel-toggle").getBoundingClientRect(), w = document.querySelector(".wheel").getBoundingClientRect();
+    const sb = document.querySelector(".search-box").getBoundingClientRect();
+    return { gear: mid(gear), info: mid(document.querySelector(".maplibregl-ctrl-attrib-button")), scale: mid(document.querySelector(".maplibregl-ctrl-scale")),
+      corner: [Math.round(innerWidth - t.right), Math.round(innerHeight - t.bottom)], size: Math.round(t.width),
+      logo: !!document.querySelector(".search-box > img.search-logo")?.naturalWidth, wheelTop: Math.round(w.top), searchTop: Math.round(sb.top), phone: innerWidth <= 600 }; })()`);
+  check("раскладка: ⓘ и шкала в линию с шестерёнкой", Math.abs(lay.info - lay.gear) <= 2 && Math.abs(lay.scale - lay.gear) <= 2, JSON.stringify(lay));
+  check("раскладка: треугольник в правом нижнем углу, крупный", lay.corner.every((v) => v >= 6 && v <= 14) && lay.size >= 48, JSON.stringify(lay));
+  check("раскладка: логотип в строке поиска", lay.logo);
+  if (!lay.phone) check("раскладка: верх колеса — вровень с поиском", Math.abs(lay.wheelTop - lay.searchTop) <= 2, JSON.stringify(lay));
 } catch (err) {
   errors.push("проверка прервалась: " + err.message);
 }

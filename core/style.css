@@ -195,6 +195,29 @@ html, body {
 }
 
 /* окно настроек */
+/* «Поделиться» — первой строкой настроек */
+.share-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--panel-hover);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.share-btn:hover {
+  background: var(--active);
+  color: #fff;
+}
+
 .set-title {
   margin: 14px 0 6px;
   font-size: 13px;
@@ -373,14 +396,25 @@ html, body {
   max-width: calc(100vw - 2 * var(--gap));
 }
 
+/* строка поиска как у Google на телефоне (Грегори, 2026-10-29, по снимку): тёмная, справа под кнопками
+   светлеет, тонкая светлая кайма; логотип слева */
 .search-box {
   display: flex;
   align-items: center;
   height: 48px;
-  padding: 0 4px 0 16px;
-  background: var(--panel);
+  padding: 0 4px 0 8px;
+  background: linear-gradient(90deg, #161718 0%, #1b1c1d 55%, #555b5d 72%, #7f8688 84%, #7a8183 100%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 24px;
   box-shadow: var(--shadow);
+  color: #fff;
+}
+
+.search-logo {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  margin-right: 8px;
 }
 
 .search-box input {
@@ -389,9 +423,13 @@ html, body {
   border: none;
   outline: none;
   background: none;
-  color: var(--text);
+  color: #fff;
   font: inherit;
   font-size: 16px; /* 16px — иначе телефон приближает страницу при вводе */
+}
+
+.search-box input::placeholder {
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .search-box input::-webkit-search-cancel-button {
@@ -404,14 +442,14 @@ html, body {
   border: none;
   border-radius: 50%;
   background: none;
-  color: var(--muted);
+  color: #fff;
   cursor: pointer;
   display: grid;
   place-items: center;
 }
 
 .search-box > button:hover {
-  background: var(--panel-hover);
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .search-box > button[hidden] {
@@ -535,9 +573,9 @@ html, body {
   padding: 0 2px 0 10px;
   margin-left: 2px;
   border: none;
-  border-left: 1px solid #dadce0;
+  border-left: 1px solid rgba(255, 255, 255, 0.35);
   background: none;
-  color: var(--text);
+  color: #fff;
   font: inherit;
   font-size: 14px;
   cursor: pointer;
@@ -873,15 +911,16 @@ body.has-photo-strip .status {
 }
 
 /* ---------- колесо слоёв (core/layers-panel.js) ---------- */
-/* боковая панель справа: барабан кнопок по центру высоты (на компьютере — 60 % высоты окна,
-   на телефоне — от строки поиска до низа); спрятанная уезжает вправо */
+/* боковая панель справа (Грегори, 2026-10-29): верхний край — вровень со строкой поиска, нижний —
+   постоянно над треугольником, при любом размере окна; на телефоне — от строки поиска до ленты фото.
+   Спрятанная уезжает вправо */
 .wheel {
   position: fixed;
   right: 0;
-  top: 20vh;
+  top: calc(var(--top-inset) + var(--gap));
+  bottom: 76px;
   z-index: 20;
   width: calc(var(--button) + 3 * var(--gap));
-  height: 60vh;
   touch-action: none;
   transition: transform 0.25s ease, opacity 0.25s ease;
 }
@@ -910,21 +949,36 @@ body.has-photo-strip .status {
 
 @media (max-width: 600px) {
   .wheel {
-    top: calc(var(--top-inset) + var(--gap) + 64px);
-    bottom: var(--gap);
-    height: auto;
+    top: calc(var(--top-inset) + var(--gap) + 58px);
+    bottom: 96px;
   }
 }
 
-/* треугольник справа внизу, над лентой фото: ◀ — показать кнопки, ▶ — спрятать; на телефоне —
-   поверх барабана */
+/* треугольник в правом нижнем углу, поверх ленты фото (Грегори, 2026-10-29): крупный, прозрачный
+   фон, тонкая белая кайма; ◀ — показать кнопки, ▶ — спрятать */
 .wheel-toggle {
   position: fixed;
   right: var(--gap);
-  bottom: 100px;
+  bottom: var(--gap);
   z-index: 26;
   display: grid;
   place-items: center;
+  width: 52px;
+  height: 52px;
+  background: rgba(0, 0, 0, 0.12);
+  border: 1.5px solid #fff;
+  box-shadow: none;
+  color: #fff;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+}
+
+.wheel-toggle:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.wheel-toggle svg {
+  width: 30px;
+  height: 30px;
 }
 
 .wheel-toggle.open svg {
@@ -1001,19 +1055,24 @@ body.has-photo-strip .status {
 }
 
 /* ---------- слева внизу: столбик кнопок карты, справа от него — ⓘ и шкала ---------- */
+/* ⓘ и шкала — в одну линию с шестерёнкой: по её середине (Грегори, 2026-10-29) */
 .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib,
 .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-scale {
   position: absolute;
-  bottom: 0;
+  bottom: calc(var(--gap) + var(--gear-h, 29px) / 2);
+  transform: translateY(50%);
 }
 
 .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib {
   left: calc(var(--button) + var(--gap));
-  margin: 0 0 var(--gap) var(--gap);
+  margin: 0 0 0 var(--gap);
+  /* у кнопки ⓘ внутри свой отступ — на 2 px выше середины */
+  transform: translateY(calc(50% + 2px));
 }
 
 .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-scale {
   left: calc(var(--button) + 2 * var(--gap) + 34px);
+  margin: 0 0 0 var(--gap);
 }
 
 /* ⓘ — совсем тонкий ободок (Грегори, 2026-10-29) */
