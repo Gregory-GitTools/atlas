@@ -39,6 +39,8 @@ export async function repoFiles(dir) {
     .filter((f) => !/^[_.]/.test(f.name));
 }
 
+// файл сайта travel-earth вне папок данных (границы стран)
+export const repoSite = (path) => `${SITE}${path}`;
 export const repoUrl = (f) => `${SITE}${f.path.split("/").map(encodeURIComponent).join("/")}?v=${encodeURIComponent(f.sha)}`;
 
 // текст файла (UTF-8, иначе Windows-1251 — как в travel-earth)

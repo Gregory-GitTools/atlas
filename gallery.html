@@ -124,12 +124,25 @@ const tellMap = (msg) => { try { window.opener?.postMessage({ gallery: msg.galle
 const photoEl = $(".photo");
 let index = -1;
 
+// картинку, которой нет в списке (свои файлы), даёт окно карты — по одной, когда нужна
+const ask = (kind, p) => { try { return window.opener?.atlasGalleryMedia?.(kind, p.id) || Promise.resolve(""); } catch { return Promise.resolve(""); } };
+const thumbOf = async (p) => (p.thumb ||= await ask("thumb", p).catch(() => ""));
 // миниатюры — по одной, когда видны
+const seen = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    seen.unobserve(e.target);
+    const p = photos[Number(e.target.dataset.i)];
+    thumbOf(p).then((src) => { if (src) e.target.querySelector("img").src = src; });
+  }
+}, { root: $(".thumbs"), rootMargin: "0px 300px" });
 const thumbs = photos.map((p, i) => {
   const b = Object.assign(document.createElement("button"), { className: "thumb", title: p.title || "" });
-  b.append(Object.assign(document.createElement("img"), { src: p.thumb, alt: "", loading: "lazy" }));
+  b.dataset.i = i;
+  b.append(Object.assign(document.createElement("img"), { alt: "", loading: "lazy", ...(p.thumb && { src: p.thumb }) }));
   b.addEventListener("click", () => show(i));
   $(".thumbs").append(b);
+  if (!p.thumb) seen.observe(b);
   return b;
 });
 
@@ -147,14 +160,21 @@ function show(i) {
   thumbs.forEach((b, k) => b.classList.toggle("active", k === index));
   thumbs[index].scrollIntoView({ block: "nearest", inline: "center" });
   // сначала миниатюра (размытая), потом крупный снимок
-  photoEl.src = p.thumb;
+  if (p.thumb) photoEl.src = p.thumb; else photoEl.removeAttribute("src");
   photoEl.classList.add("loading");
-  if (p.full && p.full !== p.thumb) {
-    const big = new Image();
-    big.onload = () => { if (photos[index] === p) { photoEl.src = p.full; photoEl.classList.remove("loading"); } };
-    big.src = p.full;
-  } else photoEl.classList.remove("loading");
   tellMap({ gallery: "photo", id: p.id });
+  loadFull(p);
+}
+
+async function loadFull(p) {
+  if (!p.thumb) { const t = await thumbOf(p); if (photos[index] === p && t && photoEl.classList.contains("loading")) photoEl.src = t; }
+  const full = p.full || await ask("full", p).catch(() => "");
+  if (photos[index] !== p) return;
+  if (full && full !== p.thumb) {
+    const big = new Image();
+    big.onload = () => { if (photos[index] === p) { photoEl.src = full; photoEl.classList.remove("loading"); } };
+    big.src = full;
+  } else photoEl.classList.remove("loading");
 }
 
 $(".prev").addEventListener("click", () => show(index - 1));

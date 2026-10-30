@@ -8,7 +8,7 @@
 // снимок выделяется, карта подвигается к нему.
 //
 // Источник (модуль) отдаёт свои снимки: setStripItems(source, items), где снимок —
-// { id, coordinates, thumb, title, full?, credit?, link?: { href, text }, select() };
+// { id, coordinates, thumb, title, full?, credit?, link?: { href, text }, select(), gallery()? };
 // выключили слой — setStripItems(source, []). Ядро источники по именам не знает
 import { emit } from "./events.js";
 
@@ -63,7 +63,8 @@ function update() {
         el = Object.assign(document.createElement("button"), { className: "photo-strip-item", title: p.title || "" });
         el.append(Object.assign(document.createElement("img"), { src: p.thumb, alt: "", loading: "lazy" }));
         el.addEventListener("click", () => { selectStripItem(p.id); byId(p.id)?.select?.(); });
-        el.addEventListener("dblclick", () => openGallery(p.id));
+        // у источника может быть своя галерея (альбом целиком — «Мои альбомы»)
+        el.addEventListener("dblclick", () => { const x = byId(p.id); if (x?.gallery) x.gallery(); else openGallery(p.id); });
         buttons.set(p.id, el);
       }
       el.classList.toggle("active", p.id === selected);
@@ -75,14 +76,24 @@ function update() {
 }
 
 // ---------- галерея в отдельном окне ----------
-// Список галерея берёт сама у окна карты (window.opener.atlasGallery()) — наружу ничего не уходит
-let gallery = { photos: [], start: 0 };
+// Список галерея берёт сама у окна карты (window.opener.atlasGallery()) — наружу ничего не уходит.
+// Снимок без готовой картинки (свои файлы: читать заранее весь альбом нельзя — на 1000 снимков
+// браузер виснет, опыт travel-earth) галерея просит по одному: atlasGalleryMedia("thumb"|"full", id)
+let gallery = { photos: [], start: 0 }, media = null;
 window.atlasGallery = () => gallery;
+window.atlasGalleryMedia = (kind, id) => media?.(kind, id) ?? Promise.resolve("");
+
+const pick = ({ id, thumb, full, title, credit, link, coordinates }) => ({ id, thumb, full, title, credit, link, coordinates });
 
 export function openGallery(id) {
   const from = list.some((p) => p.id === id) ? list : [byId(id), ...list].filter(Boolean);
-  gallery = { photos: from.map(({ id: pid, thumb, full, title, credit, link }) => ({ id: pid, thumb, full, title, credit, link })),
-    start: Math.max(0, from.findIndex((p) => p.id === id)) };
+  openGalleryWith(from, id);
+}
+
+// галерея со своим списком (альбом целиком, и снимки без координат); resolve(kind, id) → адрес картинки
+export function openGalleryWith(photos, startId, resolve = null) {
+  gallery = { photos: photos.map(pick), start: Math.max(0, photos.findIndex((p) => p.id === startId)) };
+  media = resolve;
   const mobile = matchMedia("(pointer: coarse)").matches;
   const w = Math.round(screen.availWidth * (mobile ? 0.98 : 0.8)), h = Math.round(screen.availHeight * (mobile ? 0.98 : 0.85));
   // то же окно — перезагружается с новым списком
@@ -95,10 +106,12 @@ export function openGallery(id) {
 window.addEventListener("message", (e) => {
   if (e.origin !== location.origin || !e.data?.gallery || !map) return;
   if (e.data.gallery === "closed") { if (galleryFocus) selectStripItem(null); galleryFocus = false; return; }
-  const p = byId(e.data.id);
-  if (!p) return;
+  const p = byId(e.data.id) || gallery.photos.find((x) => x.id === e.data.id);
+  if (!p?.coordinates) return;
   galleryFocus = true;
-  selectStripItem(p.id);
+  selectStripItem(byId(p.id) ? p.id : null);
+  // снимок альбома может быть на другом конце глобуса — туда перелёт с приближением
+  if (map.getZoom() < 12) { map.flyTo({ center: p.coordinates, zoom: 15, duration: 2000 }); return; }
   const { x, y } = map.project(p.coordinates);
   const { clientWidth: w, clientHeight: h } = map.getContainer();
   if (x < w * 0.2 || x > w * 0.8 || y < h * 0.2 || y > h - 110 - h * 0.1) map.easeTo({ center: p.coordinates, duration: 700 });

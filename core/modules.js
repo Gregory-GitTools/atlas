@@ -17,6 +17,7 @@
 //               toggle(id) → остались ли отмеченные } — готовый собирает profileMenu() из core/profiles.js
 //   load()    — тяжёлое грузится здесь, при первом включении, а не при старте
 //   enable(ctx) / disable(ctx) — включить и выключить; ctx = { map, status }
+//   settings(ctx) — свой раздел в окне настроек (DOM-узел), заголовок — title модуля («Мои альбомы»: своя папка)
 
 import * as settings from "./settings.js";
 import { emit } from "./events.js";
@@ -31,6 +32,7 @@ export const MODULES = [
   "../layers/photos.js",
   "../content/tours.js",
   "../content/languages.js",
+  "../content/albums.js",
 ];
 
 const registry = new Map();

@@ -37,6 +37,7 @@
   --tone-weather: #039be5;
   --tone-lang: #26a69a;
   --tone-tour: #e53935;
+  --tone-my: #7c4dff;
 
   --radius: 10px;
   --button: 40px;
@@ -1013,6 +1014,7 @@ body.has-photo-strip .status {
 .tone-weather { --tone: var(--tone-weather); }
 .tone-lang { --tone: var(--tone-lang); }
 .tone-tour { --tone: var(--tone-tour); }
+.tone-my { --tone: var(--tone-my); }
 
 /* «Карты» — миниатюра текущей карты в кольце цвета группы */
 .maps-circle {
@@ -1600,4 +1602,64 @@ body.has-photo-strip .status {
     width: auto;
     height: calc((100vw - 2 * var(--gap)) * 9 / 16);
   }
+}
+
+/* ---------- мои альбомы ---------- */
+.al-cover {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: color-mix(in srgb, var(--tone-my) 14%, #fff);
+}
+
+.al-facts {
+  margin: 4px 6px 8px;
+}
+
+.al-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 4px;
+  padding: 0 4px 8px;
+}
+
+.al-cell {
+  aspect-ratio: 1;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--tone-my) 14%, #fff);
+  cursor: pointer;
+}
+
+.al-cell img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.al-cell:hover img {
+  filter: brightness(1.08);
+}
+
+/* снимок без места — только в галерее */
+.al-cell.no-place {
+  opacity: 0.75;
+}
+
+.al-access {
+  display: block;
+  margin: 4px 6px 8px;
+}
+
+.al-folder {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

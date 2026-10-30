@@ -25,7 +25,7 @@
 // Включённые слои и открытость панели помнятся. Открылась панель настроек — барабан уступает место,
 // и наоборот
 import { closeOpen } from "./panel.js";
-import { modules, toggle, available, allowed, onRegister } from "./modules.js";
+import { modules, toggle, available, allowed, onRegister, MODULES } from "./modules.js";
 import { on } from "./events.js";
 import { BASEMAPS, currentBasemap, setBasemap, thumbOf } from "./basemaps.js";
 import * as settings from "./settings.js";
@@ -115,7 +115,8 @@ export function initLayersPanel(ctx) {
   // кнопки барабана: «Карты», потом разделы и модули с видами
   const entries = () => {
     const usable = modules("layer").filter(available).filter((m) => m.group !== "hidden");
-    const content = modules("content").filter(available).map((m) => ({ key: m.id, title: m.title, icon: m.icon, tone: m.tone, content: m, plain: [] }));
+    // порядок — как в MODULES (модули грузятся параллельно, регистрируются вразнобой)
+    const content = modules("content").filter(available).sort((a, b) => MODULES.findIndex((p) => p.includes(a.id)) - MODULES.findIndex((p) => p.includes(b.id))).map((m) => ({ key: m.id, title: m.title, icon: m.icon, tone: m.tone, content: m, plain: [] }));
     const maps = { key: "maps", title: "Карты", tone: "maps", maps: true, plain: usable.filter((m) => groupOf(m) === MAPS_GROUP) };
     return [maps, ...GROUPS.flatMap((g) => {
       const mods = usable.filter((m) => groupOf(m) === g.id);

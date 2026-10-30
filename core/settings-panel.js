@@ -35,6 +35,12 @@ export function initSettingsPanel(ctx) {
     body.push(shareRow(ctx));
     body.push(h("h3", "set-title", "Установка"), installSection());
 
+    // свои разделы модулей (например, папка «Моих альбомов»)
+    for (const m of modules().filter((m) => m.settings && available(m))) {
+      const node = m.settings(ctx, render);
+      if (node) body.push(h("h3", "set-title", m.title), node);
+    }
+
     // перенос
     body.push(h("h3", "set-title", "Перенос на другое устройство"));
     const row = h("div", "set-row");

@@ -433,6 +433,39 @@ try {
     await run(closeLayers);
   }
 
+  // мои альбомы: кнопка в барабане, в столбике — страны; альбом папки «Альбомы» (Какумяэ) — в Эстонии,
+  // в панели — снимки сеткой, на карте — точки и миниатюры, в ленте — его снимки; режим «Найти альбом»
+  if (want("content/albums") && mods.some((m) => m.id === "content/albums")) {
+    const as = `atlas.modules().find((m) => m.id === "content/albums").stats()`;
+    await run(openLayers("content/albums"));
+    for (let i = 0; i < 60 && !(await run(`[...document.querySelectorAll(".layers-sub .layers-item")].some((b) => /^Эстония/.test(b.firstChild.textContent))`)); i++) await sleep(500);
+    const cs = await run(`[...document.querySelectorAll(".layers-sub .layers-item")].map((b) => b.firstChild.textContent)`);
+    check("альбомы: в столбике — страны", cs.some((c) => /^Эстония/.test(c)), JSON.stringify(cs));
+    await run(`${itemFor("Эстония (1)")}.click(); true`);
+    await sleep(600);
+    const lst = await run(`({ panel: !document.querySelector('[data-panel="albums"]').hidden, rows: [...document.querySelectorAll(".al-row .tr-row-title")].map((r) => r.textContent),
+      mode: document.querySelector(".search-box input").placeholder, icons: !!atlas.map.getLayer("albums-icons") })`);
+    check("альбомы: список страны в панели, значки на карте, режим поиска", lst.panel && lst.rows.length >= 1 && lst.mode === "Найти альбом" && lst.icons, JSON.stringify(lst));
+    await run(`document.querySelector(".al-row").click(); true`);
+    for (let i = 0; i < 40 && !(await run(`${as}.located >= 5 && document.querySelectorAll(".al-cell img[src]").length >= 5`)); i++) await sleep(1000);
+    await sleep(2500);
+    await idle();
+    for (let i = 0; i < 30 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["albums-dots", "albums-thumbs"] }).length > 0`)); i++) await sleep(1000);
+    const al = await run(`({ ...${as}, cells: document.querySelectorAll(".al-cell").length, imgs: document.querySelectorAll(".al-cell img[src]").length,
+      onMap: atlas.map.queryRenderedFeatures({ layers: ["albums-dots", "albums-thumbs"] }).length, zoom: atlas.map.getZoom() })`);
+    check("альбомы: альбом открыт, снимки с местом на карте", al.open && al.cells >= 10 && al.imgs >= 5 && al.located >= 5 && al.onMap > 0, JSON.stringify(al));
+    await shot("99-albums");
+    for (let i = 0; i < 20 && !(await run(`document.querySelectorAll(".photo-strip-item").length > 0`)); i++) await sleep(1000);
+    check("альбомы: снимки — в ленте внизу", await run(`document.querySelectorAll(".photo-strip-item").length > 0`));
+    const found = await run(`(async () => { const i = document.querySelector(".search-box input"); i.value = "kakum"; i.dispatchEvent(new Event("input"));
+      await new Promise((r) => setTimeout(r, 200)); return [...document.querySelectorAll(".al-row .tr-row-title")].map((r) => r.textContent); })()`);
+    check("альбомы: поиск из строки поиска", found.length === 1, JSON.stringify(found));
+    await run(`document.querySelector(".search-mode").click(); true`);
+    await sleep(300);
+    check("альбомы: крестик значка — закрыть, снимки с карты и ленты убраны", await run(`document.querySelector('[data-panel="albums"]').hidden && !atlas.map.getLayer("albums-dots") && !document.querySelectorAll(".photo-strip-item").length`));
+    await run(closeLayers);
+  }
+
   // фото: у Таллина издалека — только точки Commons, вблизи — миниатюры; снимки улиц Mapillary;
   // веб-камеры — по всему миру (QLever)
   if (want("photo/commons") && mods.some((m) => m.id === "photo/commons")) {
@@ -626,6 +659,11 @@ try {
   const share = await run(`(async () => { const b = document.querySelector(".panel:not([hidden]) .panel-body > :first-child");
     const m = await import("./core/settings-panel.js"); return { first: b?.classList.contains("share-btn") && b.textContent.includes("Поделиться"), link: m.SITE }; })()`);
   check("настройки: первой строкой «Поделиться», ссылка на сайт", share.first && share.link === "https://gregory-gittools.github.io/atlas/", JSON.stringify(share));
+  // своя папка «Моих альбомов» — только на компьютере
+  // (эмуляция телефона здесь меняет только размер экрана — телефон узнаётся так же, как в программе)
+  const albumsSet = await run(`(async () => { const m = await import("./core/modules.js");
+    return { shown: [...document.querySelectorAll(".panel:not([hidden]) .set-title")].some((t) => t.textContent === "Мои альбомы"), phone: m.isMobile() }; })()`);
+  check("настройки: раздел «Мои альбомы» (папка) — только на компьютере", albumsSet.shown === !albumsSet.phone, JSON.stringify(albumsSet));
   // раскладка: ⓘ и шкала — в линию с шестерёнкой, треугольник — в правом нижнем углу, логотип в поиске,
   // верх колеса — вровень с поиском (на компьютере)
   const lay = await run(`(() => { const mid = (el) => { const r = el.getBoundingClientRect(); return Math.round(r.top + r.height / 2); };
