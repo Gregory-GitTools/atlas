@@ -510,6 +510,15 @@ try {
     await sleep(500);
     const ed3 = await run(`document.querySelector(".tk-fact b").textContent`);
     check("треки: «Назад» — трек как был", /^(1,9\d|2,0\d) км$/.test(ed3), ed3);
+    // ползунок внизу окна: потянуть вверх — окно ниже; двойное нажатие — снова по содержимому
+    const gr = await run(`(() => { const p = document.querySelector('[data-panel="tracks"]'), g = p.querySelector(".panel-grip"), before = p.getBoundingClientRect().height, r = g.getBoundingClientRect();
+      const ev = (type, y) => g.dispatchEvent(new PointerEvent(type, { clientX: r.left + r.width / 2, clientY: y, pointerId: 1, bubbles: true }));
+      ev("pointerdown", r.top + 8); ev("pointermove", r.top - 100); ev("pointerup", r.top - 100);
+      const after = p.getBoundingClientRect().height; g.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      return { before: Math.round(before), after: Math.round(after), reset: Math.round(p.getBoundingClientRect().height), icons: document.querySelectorAll(".tk-edit svg").length,
+        labels: [...document.querySelectorAll(".tk-edit .text-btn")].map((b) => b.textContent) }; })()`);
+    check("окно: ползунок внизу меняет высоту; правка — значки «Обрезать», «Вырезать»", Math.abs(gr.before - gr.after - 108) < 3 && gr.reset === gr.before && gr.icons === 4
+      && gr.labels[0] === "Обрезать" && gr.labels[1] === "Вырезать", JSON.stringify(gr));
     // удалить (без вопроса — подтверждение подменено), трек уходит и с устройства
     await run(`window.confirm = () => true; document.querySelector('[data-panel="tracks"] .pb-bar .tr-bar-left:last-child .pb-btn:last-child').click(); true`);
     await sleep(500);

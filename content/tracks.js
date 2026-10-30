@@ -24,6 +24,12 @@ const BACK = svg("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
 const SAVE = svg("M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z", 20);
 const UNDO = svg("M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62A7.95 7.95 0 0 1 12.5 10c3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 10.53 17.15 8 12.5 8z", 20);
 const DELETE = svg("M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z", 20);
+// правка трека: линия с краями; оранжевое — выбранное, серое пунктиром — то, что уберётся
+const toolIcon = (inner) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke-linecap="round">${inner}</svg>`;
+const TRIM = toolIcon('<path d="M1.5 12h3M19.5 12h3" stroke="#9aa0a6" stroke-width="2" stroke-dasharray="1.5 2.5"/><path d="M6 12h12" stroke="#ff6d00" stroke-width="3"/><path d="M6 6v12M18 6v12" stroke="currentColor" stroke-width="2"/>');
+const CUT = toolIcon('<path d="M1.5 12H6M18 12h4.5" stroke="#3949ab" stroke-width="3"/><path d="M6 6v12M18 6v12" stroke="currentColor" stroke-width="2"/><path d="M9.5 9.5l5 5M14.5 9.5l-5 5" stroke="#ff6d00" stroke-width="2.2"/>');
+const ZOOM = toolIcon('<circle cx="10" cy="10" r="6" stroke="currentColor" stroke-width="2"/><path d="M14.5 14.5L20 20M7.5 10h5M10 7.5v5" stroke="currentColor" stroke-width="2"/>');
+const WHOLE = toolIcon('<path d="M2 12h20M5 9l-3 3 3 3M19 9l3 3-3 3" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>');
 const COLOR = "#3949ab"; // --tone-track
 const SEL_COLOR = "#ff6d00"; // выбранный кусок
 
@@ -516,14 +522,22 @@ async function openTrack(id, keep = false) {
   const whole = () => sel.a === 0 && sel.b === last;
   const selInfo = h("div", "tk-sel-info");
   const tools = h("div", "tk-edit");
-  const tool = (text, title, fn) => { const b = h("button", "text-btn", text); b.title = title; b.addEventListener("click", fn); tools.append(b); return b; };
-  const bTrim = tool("Оставить только выбранное", "Обрезать трек: всё за краями выбранного убирается",
+  const tool = (icon, text, title, fn) => {
+    const b = h("button", "text-btn");
+    b.innerHTML = icon;
+    b.append(text);
+    b.title = title;
+    b.addEventListener("click", fn);
+    tools.append(b);
+    return b;
+  };
+  const bTrim = tool(TRIM, "Обрезать", "Оставить только выбранное: всё за краями убирается",
     () => { const { a, b } = sel; edit(t, pieces(t, (g) => g >= a && g <= b)); sel = null; openTrack(id, true); });
-  const bCut = tool("Вырезать выбранное", "Убрать выбранный кусок из трека",
+  const bCut = tool(CUT, "Вырезать", "Убрать выбранный кусок из трека",
     () => { const { a, b } = sel; edit(t, pieces(t, (g) => g <= a || g >= b)); sel = null; openTrack(id, true); });
-  const bZoom = tool("Крупнее", "График — только по выбранному, чтобы поставить края точнее",
+  const bZoom = tool(ZOOM, "Крупнее", "График — только по выбранному, чтобы поставить края точнее",
     () => { Object.assign(sel, { v0: sel.a, v1: sel.b }); openTrack(id, true); });
-  const bAll = tool("Весь трек", "Снять выбор, график по всему треку",
+  const bAll = tool(WHOLE, "Весь трек", "Снять выбор, график по всему треку",
     () => { sel = { a: 0, b: last, v0: 0, v1: last }; openTrack(id, true); });
   let markSplit = null;
   const showSel = (final) => {
@@ -531,7 +545,7 @@ async function openTrack(id, keep = false) {
     bTrim.disabled = bCut.disabled = w;
     bZoom.disabled = w || (sel.v0 === sel.a && sel.v1 === sel.b);
     bAll.disabled = w && sel.v0 === 0 && sel.v1 === last;
-    if (w) selInfo.textContent = "Потяните края графика, чтобы выбрать кусок трека — его можно оставить или вырезать";
+    if (w) selInfo.textContent = "Потяните оранжевые края графика, чтобы выбрать кусок трека — его можно обрезать или вырезать";
     else {
       const p = s.profile, x = stats({ segs: pieces(t, (g) => g >= sel.a && g <= sel.b) });
       selInfo.textContent = `Выбрано ${km(p[sel.a][0])} – ${km(p[sel.b][0])}: ` + [km(x.dist), x.moving && hm(x.moving),

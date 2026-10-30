@@ -177,8 +177,38 @@ html, body {
 }
 
 .panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  padding: 10px 12px 12px;
+  padding: 10px 12px 4px;
+}
+
+/* ползунок внизу окна: потянуть — окно выше или ниже */
+.panel-grip {
+  flex: none;
+  height: 16px;
+  cursor: ns-resize;
+  touch-action: none;
+  position: relative;
+}
+
+.panel-grip::after {
+  content: "";
+  position: absolute;
+  left: calc(50% - 20px);
+  top: 6px;
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: #c4c7cc;
+}
+
+.panel-grip:hover::after {
+  background: var(--muted);
+}
+
+.panel.min .panel-grip {
+  display: none;
 }
 
 /* телефон: панель во всю ширину под верхней строкой */
@@ -1845,6 +1875,17 @@ body.has-photo-strip .status {
   flex-wrap: wrap;
   gap: 6px;
   margin: 0 6px 12px;
+}
+
+.tk-edit .text-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 7px;
+}
+
+.tk-edit svg {
+  flex: none;
 }
 
 .tk-edit .text-btn:disabled,
