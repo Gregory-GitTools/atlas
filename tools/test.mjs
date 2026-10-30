@@ -141,7 +141,7 @@ try {
     const ok = await run(`atlas.map.isStyleLoaded() && atlas.map.getStyle().layers.length > 0`);
     check(`карта «${basemaps[i]}»`, ok);
   }
-  const mapsCircle = await run(`document.querySelector('.layers-circle[data-key="maps"]').title`);
+  const mapsCircle = await run(`document.querySelector('.layers-circle[data-key="maps"]').ariaLabel`);
   check("на кнопке «Карты» — текущая карта", /Тёмная/.test(mapsCircle), mapsCircle);
   await run(`${openLayers("maps")}.then(() => { [...document.querySelectorAll(".layers-sub .layers-item")].filter((b) => b.querySelector(".thumb"))[1].click(); return true; })`);
   await idle();
@@ -269,7 +269,7 @@ try {
     await idle();
     const multi = await run(`({ subway: atlas.map.queryRenderedFeatures({ layers: ["places-poi-transport"] }).some((f) => f.properties.subclass === "subway"),
       lines: atlas.map.queryRenderedFeatures({ layers: ["places-lift-line"] }).length,
-      label: document.querySelector('.layers-circle[data-key="places/transport"]').title })`);
+      label: document.querySelector('.layers-circle[data-key="places/transport"]').ariaLabel })`);
     check("транспорт: несколько видов сразу (метро + канатки)", multi.subway && multi.lines > 0 && multi.label === "Транспорт", JSON.stringify(multi));
     await pick("Метро");
     await idle();
@@ -333,12 +333,12 @@ try {
   if (want("trails/cycling") && mods.some((m) => m.id === "trails/cycling")) {
     const bike = await run(`(async () => {
       await ${openLayers("trails/cycling")};
-      const circles = [...document.querySelectorAll(".wheel .layers-circle")].map((c) => c.title.split(":")[0]);
+      const circles = [...document.querySelectorAll(".wheel .layers-circle")].map((c) => c.ariaLabel.split(":")[0]);
       const items = [...document.querySelectorAll(".layers-sub .layers-item")].map((i) => i.firstChild.textContent);
       ${itemFor("Маунтинбайк")}.click();
       await new Promise((r) => setTimeout(r, 1500));
       const layers = { cycling: !!atlas.map.getLayer("trails-cycling-line"), mtb: !!atlas.map.getLayer("trails-mtb-line") };
-      const label = document.querySelector('.layers-circle[data-key="trails/cycling"]').title;
+      const label = document.querySelector('.layers-circle[data-key="trails/cycling"]').ariaLabel;
       // тот же вид ещё раз — выключает
       ${itemFor("Маунтинбайк")}.click();
       await new Promise((r) => setTimeout(r, 800));
@@ -656,9 +656,9 @@ try {
   // «Слои»: столбик разделов (Места, Тропы, Дороги, Рельеф, Погода, Пляжи и сёрфинг), подменю у кружка
   await run(`atlas.toggle("layers/railways", true).then(() => true)`);
   await run(openLayers("layers/roads"));
-  const lm = await run(`({ groups: [...document.querySelectorAll(".wheel .layers-circle")].map((c) => c.title.split(":")[0]),
+  const lm = await run(`({ groups: [...document.querySelectorAll(".wheel .layers-circle")].map((c) => c.ariaLabel.split(":")[0]),
     sub: [...document.querySelectorAll(".layers-sub .layers-item")].map((c) => c.firstChild.textContent),
-    on: [...document.querySelectorAll(".wheel .layers-circle.on")].map((c) => c.title) })`);
+    on: [...document.querySelectorAll(".wheel .layers-circle.on")].map((c) => c.ariaLabel) })`);
   check("«Слои»: кружки, «Дороги» — виды и железные дороги, «Фото»", ["Карты", "Места", "Транспорт", "Магазины", "Тропы", "Велодорожки", "Дороги", "Погода", "Фото", "Экскурсии", "Языки"].every((g) => lm.groups.includes(g))
     && !lm.groups.includes("Пляжи и сёрфинг") && !lm.groups.includes("Рельеф") && lm.sub.length === 5
     && lm.sub.includes("Железные дороги") && lm.on.includes("Дороги"), JSON.stringify(lm));
@@ -679,6 +679,11 @@ try {
   await sleep(1200);
   const after = await run(centerKey);
   check("колесо: колёсико мыши крутит барабан", before !== after, `${before} → ${after}`);
+  // подпись — только у центральной кнопки, промежуток в центре небольшой
+  const tipInfo = await run(`({ tip: document.querySelector(".wheel-tip").classList.contains("show") ? document.querySelector(".wheel-tip").textContent : "",
+    center: document.querySelector('.layers-circle[data-key=' + JSON.stringify(${centerKey}) + ']').ariaLabel,
+    titles: document.querySelectorAll(".wheel .layers-circle[title]").length })`);
+  check("колесо: подпись только у центральной кнопки, промежуток ≤ 60", tipInfo.tip && tipInfo.tip === tipInfo.center && !tipInfo.titles && drum.gaps[mid] <= 60, JSON.stringify({ ...tipInfo, gap: drum.gaps[mid] }));
   await run(`document.querySelector('.layers-circle[data-key="photo"]').click(); true`);
   await sleep(1500);
   const spun = await run(`({ center: ${centerKey}, open: !document.querySelector(".layers-sub").hidden && document.querySelector('.layers-circle[data-key="photo"]').classList.contains("open") })`);

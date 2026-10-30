@@ -47,8 +47,9 @@ const BLOCKED = "Выключено в настройках: обращаетс�
 const CLEAR_ICON = '<svg viewBox="0 0 24 24" width="12" height="12"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
 const ARROW = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M15.5 5v14L6 12z"/></svg>';
 
-// барабан: видно до 7 кнопок (по 3,5 в каждую сторону от центра), притормаживание у центра
-const HALF = 3.5, DETENT = 0.7, BTN = 40;
+// барабан: промежуток между кнопками в центре — GAP (Грегори, 2026-10-30: «расстояние между кнопками
+// поменьше»), притормаживание у центра
+const GAP = 54, DETENT = 0.7, BTN = 40;
 
 export function initLayersPanel(ctx) {
   const wheel = Object.assign(document.createElement("div"), { className: "wheel closed" });
@@ -57,7 +58,9 @@ export function initLayersPanel(ctx) {
   const toggleBtn = Object.assign(document.createElement("button"), { className: "btn wheel-toggle", innerHTML: ARROW });
   // столбик кнопки — слева от барабана
   const sub = Object.assign(document.createElement("div"), { className: "layers-sub", hidden: true });
-  document.body.append(wheel, sub, toggleBtn);
+  // подпись — только у центральной кнопки, слева от неё (Грегори, 2026-10-30)
+  const tip = Object.assign(document.createElement("div"), { className: "wheel-tip" });
+  document.body.append(wheel, sub, toggleBtn, tip);
 
   // ---------- панель: открыть и спрятать ----------
   let isOpen = false;
@@ -67,7 +70,7 @@ export function initLayersPanel(ctx) {
     toggleBtn.classList.toggle("open", open);
     toggleBtn.title = open ? "Спрятать кнопки" : "Показать кнопки";
     settings.set("layers.panel", open || null);
-    if (open) { closeOpen("right"); layout(); } else show(null);
+    if (open) { closeOpen("right"); layout(); setTimeout(showTip, 300); } else { hideTip(); show(null); }
   };
   toggleBtn.addEventListener("click", () => setOpen(!isOpen));
   // открылась панель настроек (на телефоне — любая) — барабан уступает место
@@ -135,6 +138,7 @@ export function initLayersPanel(ctx) {
   let list = []; // кнопки барабана по порядку: { e, cell, c, x }
   function show(key) {
     openKey = key;
+    if (key) hideTip();
     for (const { e, c } of list) c.classList.toggle("open", e.key === key);
     const e = key && list.find((x) => x.e.key === key)?.e;
     if (!e) { sub.hidden = true; return; }
@@ -176,14 +180,20 @@ export function initLayersPanel(ctx) {
   // на экране — с притормаживанием у центра: возле целого значения кнопки движутся медленнее
   let raw = 0, target = 0, frame = 0, onArrive = null;
   const n = () => list.length;
-  const half = () => Math.min(HALF, n() / 2); // мало кнопок — без повторов по кругу
+  // промежуток в центре — GAP; кнопок хватает — барабан на всю высоту, мало — короче и без повторов по кругу
+  const geom = () => {
+    const full = drum.clientHeight / 2 - BTN / 2 - 4;
+    const half = Math.max(1, Math.min(n() / 2, Math.PI / 2 / Math.asin(Math.min(1, GAP / full))));
+    const step = Math.PI / 2 / half;
+    return { step, radius: Math.min(full, GAP / Math.sin(step)) };
+  };
   const shown = (v) => v - (DETENT * Math.sin(2 * Math.PI * v)) / (2 * Math.PI);
   const wrap = (d) => { const k = n(); return ((d % k) + k + k / 2) % k - k / 2; };
   const centerIndex = () => ((Math.round(raw) % n()) + n()) % n();
 
   function layout() {
     if (!n() || !isOpen) return;
-    const h = drum.clientHeight, radius = h / 2 - BTN / 2 - 4, step = Math.PI / 2 / half();
+    const h = drum.clientHeight, { radius, step } = geom();
     const off = shown(raw);
     list.forEach(({ cell }, i) => {
       const a = wrap(i - off) * step;
@@ -207,6 +217,7 @@ export function initLayersPanel(ctx) {
         layout();
         const done = onArrive; onArrive = null;
         done?.();
+        showTip();
         return;
       }
       raw += d * 0.18;
@@ -215,6 +226,24 @@ export function initLayersPanel(ctx) {
     };
     frame = requestAnimationFrame(tick);
   };
+  // подпись центральной кнопки: встал барабан или навели мышь — видна пару секунд
+  let tipTimer = 0;
+  function showTip() {
+    clearTimeout(tipTimer);
+    const l = list[centerIndex()];
+    if (!isOpen || openKey || !l || drag?.moved) return hideTip();
+    tip.textContent = l.c.ariaLabel;
+    const r = l.c.getBoundingClientRect();
+    tip.style.right = `${innerWidth - r.left + 8}px`;
+    tip.style.top = `${r.top + r.height / 2}px`;
+    tip.classList.add("show");
+    tipTimer = setTimeout(hideTip, 2500);
+  }
+  function hideTip() {
+    clearTimeout(tipTimer);
+    tip.classList.remove("show");
+  }
+
   // докрутить кнопку i в центр — кратчайшим путём по кругу
   const spinTo = (i, then) => {
     target = Math.round(raw) + wrap(i - Math.round(raw));
@@ -226,6 +255,7 @@ export function initLayersPanel(ctx) {
   let snapTimer = 0;
   wheel.addEventListener("wheel", (e) => {
     e.preventDefault();
+    hideTip();
     if (openKey) show(null);
     target += e.deltaY / (e.deltaMode === 1 ? 3 : 100);
     onArrive = null;
@@ -248,10 +278,11 @@ export function initLayersPanel(ctx) {
       if (Math.abs(dy) < 6) return;
       drag.moved = true;
       wheel.setPointerCapture(e.pointerId);
+      hideTip();
       if (openKey) show(null);
       cancelAnimationFrame(frame);
     }
-    const step = (drum.clientHeight / 2 - BTN / 2 - 4) * (Math.PI / 2 / half()); // промежуток в центре
+    const { radius, step: a } = geom(), step = radius * a; // промежуток в центре
     const now = performance.now(), next = drag.raw - dy / step;
     drag.v = (next - raw) / Math.max(1, now - drag.t);
     drag.t = now;
@@ -271,26 +302,28 @@ export function initLayersPanel(ctx) {
   wheel.addEventListener("pointerup", endDrag);
   wheel.addEventListener("pointercancel", endDrag);
   wheel.addEventListener("click", (e) => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); suppressClick = false; } }, true);
-  addEventListener("resize", () => { layout(); if (openKey) show(openKey); });
+  addEventListener("resize", () => { hideTip(); layout(); if (openKey) show(openKey); });
 
   // ---------- кнопки барабана ----------
   const render = () => {
     const centered = list[centerIndex()]?.e.key;
     list = entries().map((e) => {
       const cell = Object.assign(document.createElement("div"), { className: "layers-cell wheel-cell" });
-      const c = Object.assign(document.createElement("button"), { className: `btn layers-circle tone-${e.tone}`, title: e.title });
+      const c = Object.assign(document.createElement("button"), { className: `btn layers-circle tone-${e.tone}` });
+      c.ariaLabel = e.title;
       if (e.maps) {
         c.classList.add("maps-circle");
         c.innerHTML = '<img alt="">';
         c.firstChild.src = thumbOf(currentBasemap());
-        c.title = `Карты: ${currentBasemap().name}`;
+        c.ariaLabel = `Карты: ${currentBasemap().name}`;
       } else c.innerHTML = e.icon;
       const x = Object.assign(document.createElement("button"), { className: "layers-clear", title: "Снять всё", hidden: true, innerHTML: CLEAR_ICON });
       cell.append(c, x);
       // у модуля с видами в подсказке — выбранный вид
       const label = e.module?.menu.label();
-      if (label && label !== e.title) c.title = `${e.title}: ${label}`;
+      if (label && label !== e.title) c.ariaLabel = `${e.title}: ${label}`;
       c.dataset.key = e.key;
+      c.addEventListener("mouseenter", () => list[centerIndex()]?.c === c && Math.abs(raw - target) < 0.01 && showTip());
       const anyOn = !!e.module?.active || e.plain.some((m) => m.active) || !!e.content?.column.isOpen();
       c.classList.toggle("on", anyOn);
       x.hidden = !anyOn;

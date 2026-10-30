@@ -950,6 +950,27 @@ body.has-photo-strip .status {
   display: none;
 }
 
+/* подпись центральной кнопки — слева от неё, появляется и гаснет */
+.wheel-tip {
+  position: fixed;
+  z-index: 21;
+  transform: translateY(-50%);
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.wheel-tip.show {
+  opacity: 1;
+}
+
 @media (max-width: 600px) {
   .wheel {
     top: calc(var(--top-inset) + var(--gap) + 50px);
