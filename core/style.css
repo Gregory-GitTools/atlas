@@ -38,6 +38,7 @@
   --tone-lang: #26a69a;
   --tone-tour: #e53935;
   --tone-my: #7c4dff;
+  --tone-track: #3949ab;
 
   --radius: 10px;
   --button: 40px;
@@ -1015,6 +1016,7 @@ body.has-photo-strip .status {
 .tone-lang { --tone: var(--tone-lang); }
 .tone-tour { --tone: var(--tone-tour); }
 .tone-my { --tone: var(--tone-my); }
+.tone-track { --tone: var(--tone-track); }
 
 /* «Карты» — миниатюра текущей карты в кольце цвета группы */
 .maps-circle {
@@ -1662,4 +1664,93 @@ body.has-photo-strip .status {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ---------- мои треки ---------- */
+.tk-open {
+  display: block;
+  margin: 4px 6px 8px;
+}
+
+.tk-icon {
+  background: var(--tone-track);
+}
+
+.tk-when {
+  margin: 4px 6px 6px;
+}
+
+.tk-facts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0 6px 10px;
+}
+
+.tk-fact {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--tone-track) 8%, #fff);
+}
+
+.tk-fact b {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tk-fact span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tk-chart {
+  margin: 0 6px 8px;
+}
+
+.tk-chart svg {
+  display: block;
+  width: 100%;
+  height: 120px;
+  border-radius: 8px;
+  background: #f6f7fb;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.tk-ele {
+  fill: color-mix(in srgb, var(--tone-track) 22%, #fff);
+  stroke: color-mix(in srgb, var(--tone-track) 55%, #fff);
+  stroke-width: 1;
+}
+
+.tk-speed {
+  fill: none;
+  stroke: var(--tone-photo);
+  stroke-width: 1.3;
+  vector-effect: non-scaling-stroke;
+}
+
+.tk-cursor {
+  stroke: var(--text);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.tk-legend {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.tk-leg-ele { color: var(--tone-track); }
+.tk-leg-speed { color: var(--tone-photo); }
+
+.tk-read {
+  min-height: 1.4em;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
 }

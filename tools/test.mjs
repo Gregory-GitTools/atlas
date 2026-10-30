@@ -466,6 +466,44 @@ try {
     await run(closeLayers);
   }
 
+  // мои треки: выдуманный трек (не настоящий — личное в репозиторий не кладём): 2 км на восток вдоль
+  // Пирита, 10 минут, подъём на 20 м; открывается файлом — панель, линия, начало и конец, график
+  if (want("content/tracks") && mods.some((m) => m.id === "content/tracks")) {
+    const gpx = `<?xml version="1.0"?><gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="test"><metadata><name>Проверочный трек</name></metadata><trk><trkseg>${
+      Array.from({ length: 61 }, (_, i) => `<trkpt lat="59.47" lon="${(24.83 + i * 0.000585).toFixed(6)}"><ele>${(5 + i / 3).toFixed(1)}</ele><time>${new Date(Date.UTC(2026, 4, 26, 9, 0, i * 10)).toISOString()}</time></trkpt>`).join("")}</trkseg></trk></gpx>`;
+    const ts = `atlas.modules().find((m) => m.id === "content/tracks")`;
+    const st = await run(`${ts}.statsOf(${JSON.stringify(gpx)})`);
+    check("треки: расчёт — 2 км, 10 минут, подъём 20 м", Math.abs(st.dist - 2000) < 60 && st.moving === 600000 && Math.abs(st.up - 20) < 4, JSON.stringify(st));
+    await run(openLayers("content/tracks"));
+    await sleep(500);
+    const items = await run(`[...document.querySelectorAll(".layers-sub .layers-item")].map((b) => b.firstChild.textContent)`);
+    check("треки: в столбике — «Открыть файл…» и все треки", items[0] === "Открыть файл…" && /^Все треки/.test(items[1]), JSON.stringify(items));
+    await run(`${itemFor("Все треки (0)")}?.click(); true`);
+    await sleep(500);
+    await run(`${ts}.addText("test.gpx", ${JSON.stringify(gpx)}).then(() => true)`);
+    await sleep(2500);
+    await idle();
+    const tk = await run(`({ ...${ts}.stats(), panel: !document.querySelector('[data-panel="tracks"]').hidden, facts: [...document.querySelectorAll(".tk-fact b")].map((b) => b.textContent),
+      chart: !!document.querySelector(".tk-chart svg .tk-ele"), line: atlas.map.queryRenderedFeatures({ layers: ["tracks-line"] }).length,
+      ends: atlas.map.queryRenderedFeatures({ layers: ["tracks-ends"] }).length, mode: document.querySelector(".search-box input").placeholder })`);
+    check("треки: файл открыт — панель, цифры, график, линия и концы на карте", tk.panel && tk.open === "Проверочный трек" && /^(1,9\d|2,0\d) км$/.test(tk.facts[0]) && tk.chart && tk.line > 0 && tk.ends === 2 && tk.mode === "Найти трек", JSON.stringify(tk));
+    // график: точка бежит по треку
+    const here = await run(`(() => { const r = document.querySelector(".tk-chart svg").getBoundingClientRect();
+      document.querySelector(".tk-chart svg").dispatchEvent(new PointerEvent("pointermove", { clientX: r.left + r.width / 2, clientY: r.top + 20, bubbles: true }));
+      return document.querySelector(".tk-read").textContent; })()`);
+    await sleep(300);
+    check("треки: наведение на график — точка на треке", /км/.test(here) && (await run(`atlas.map.getSource("tracks-ends").serialize().data.features.length`)) === 3, here);
+    await shot("99b-tracks");
+    // удалить (без вопроса — подтверждение подменено), трек уходит и с устройства
+    await run(`window.confirm = () => true; document.querySelector('[data-panel="tracks"] .pb-bar .tr-bar-left:last-child .pb-btn:last-child').click(); true`);
+    await sleep(500);
+    check("треки: удаление", (await run(`${ts}.stats().tracks`)) === 0);
+    await run(`document.querySelector(".search-mode").click(); true`);
+    await sleep(300);
+    check("треки: закрыть — линии с карты убраны", await run(`document.querySelector('[data-panel="tracks"]').hidden && !atlas.map.getLayer("tracks-line")`));
+    await run(closeLayers);
+  }
+
   // фото: у Таллина издалека — только точки Commons, вблизи — миниатюры; снимки улиц Mapillary;
   // веб-камеры — по всему миру (QLever)
   if (want("photo/commons") && mods.some((m) => m.id === "photo/commons")) {

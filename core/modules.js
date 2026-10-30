@@ -33,6 +33,7 @@ export const MODULES = [
   "../content/tours.js",
   "../content/languages.js",
   "../content/albums.js",
+  "../content/tracks.js",
 ];
 
 const registry = new Map();
