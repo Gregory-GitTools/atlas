@@ -494,6 +494,22 @@ try {
     await sleep(300);
     check("треки: наведение на график — точка на треке", /км/.test(here) && (await run(`atlas.map.getSource("tracks-ends").serialize().data.features.length`)) === 3, here);
     await shot("99b-tracks");
+    // правка: наибольшие скорость и высота, отрезки по км; выбрать вторую половину — оставить её; «Назад»
+    const ed0 = await run(`({ labels: [...document.querySelectorAll(".tk-fact span")].map((x) => x.textContent), splits: document.querySelectorAll(".tk-splits tbody tr").length,
+      kind: !!document.querySelector(".tk-kind"), trim: document.querySelector(".tk-edit .text-btn").disabled })`);
+    check("треки: наибольшая скорость и высота, вид занятия, отрезки по 1 км", ["наибольшая скорость", "высшая точка"].every((l) => ed0.labels.includes(l)) && ed0.splits === 2 && ed0.kind && ed0.trim, JSON.stringify(ed0));
+    await run(`${ts}.select(0.5, 1).then(() => true)`);
+    await sleep(300);
+    const ed1 = await run(`({ info: document.querySelector(".tk-sel-info").textContent, sel: atlas.map.getSource("tracks-sel").serialize().data.features.length })`);
+    check("треки: выбран кусок — его цифры и линия на карте", /^Выбрано .*: (9\d\d м|1,0\d км)/.test(ed1.info) && ed1.sel === 1, JSON.stringify(ed1));
+    await run(`document.querySelector(".tk-edit .text-btn").click(); true`);
+    await sleep(500);
+    const ed2 = await run(`({ dist: document.querySelector(".tk-fact b").textContent, undo: !document.querySelector('[data-panel="tracks"] .pb-bar .tr-bar-left:last-child .pb-btn').disabled, restore: !!document.querySelector(".tk-restore") })`);
+    check("треки: «Оставить только выбранное» — трек обрезан", /^(9\d\d м|1,0\d км)$/.test(ed2.dist) && ed2.undo && ed2.restore, JSON.stringify(ed2));
+    await run(`document.querySelector('[data-panel="tracks"] .pb-bar .tr-bar-left:last-child .pb-btn').click(); true`);
+    await sleep(500);
+    const ed3 = await run(`document.querySelector(".tk-fact b").textContent`);
+    check("треки: «Назад» — трек как был", /^(1,9\d|2,0\d) км$/.test(ed3), ed3);
     // удалить (без вопроса — подтверждение подменено), трек уходит и с устройства
     await run(`window.confirm = () => true; document.querySelector('[data-panel="tracks"] .pb-bar .tr-bar-left:last-child .pb-btn:last-child').click(); true`);
     await sleep(500);

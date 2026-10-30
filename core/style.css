@@ -1775,3 +1775,152 @@ body.has-photo-strip .status {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* вид занятия */
+.tk-kind {
+  display: block;
+  margin: 0 6px 8px;
+  padding: 5px 8px;
+  border: 1px solid #dadce0;
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+/* график с ручками выбора куска */
+.tk-plot {
+  position: relative;
+}
+
+.tk-out {
+  fill: rgba(60, 64, 67, 0.18);
+}
+
+.tk-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  margin-left: -12px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.tk-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 11px;
+  width: 2px;
+  background: #ff6d00;
+}
+
+.tk-handle::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 12px);
+  left: 6px;
+  width: 12px;
+  height: 24px;
+  border-radius: 4px;
+  background: #ff6d00;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.tk-leg-zoom {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.tk-sel-info {
+  margin: 0 6px 6px;
+  font-size: 12px;
+}
+
+.tk-edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 6px 12px;
+}
+
+.tk-edit .text-btn:disabled,
+.tk-restore:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.tk-restore {
+  margin: 0 6px 10px;
+}
+
+/* отрезки по км */
+.tk-split-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 6px 6px;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.tk-split-head span {
+  margin-right: auto;
+}
+
+.tk-chip {
+  padding: 3px 8px;
+  border: 1px solid #dadce0;
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tk-chip.on {
+  border-color: var(--tone-track);
+  background: color-mix(in srgb, var(--tone-track) 12%, #fff);
+}
+
+.tk-splits {
+  width: calc(100% - 12px);
+  margin: 0 6px 10px;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tk-splits th {
+  color: var(--muted);
+  font-weight: normal;
+  text-align: right;
+  padding: 2px 4px;
+}
+
+.tk-splits td {
+  text-align: right;
+  padding: 4px;
+  border-top: 1px solid #eee;
+}
+
+.tk-splits th:first-child,
+.tk-splits td:first-child {
+  text-align: left;
+}
+
+.tk-splits tbody tr {
+  cursor: pointer;
+}
+
+.tk-splits tbody tr:hover {
+  background: var(--panel-hover);
+}
+
+.tk-splits tbody tr.on {
+  background: color-mix(in srgb, #ff6d00 14%, #fff);
+}
