@@ -464,6 +464,59 @@ try {
     await sleep(300);
     check("альбомы: крестик значка — закрыть, снимки с карты и ленты убраны", await run(`document.querySelector('[data-panel="albums"]').hidden && !atlas.map.getLayer("albums-dots") && !document.querySelectorAll(".photo-strip-item").length`));
     await run(closeLayers);
+
+    // своя папка с поездкой (выдуманная, в памяти): поездка с днями-подпапками — одной строкой в стране,
+    // внутри — «Избранное» (-Albom) первым, дни по порядку папок, снимки самой папки поездки — последними, «[Originals]» пропущены; назад — в поездку
+    if (!PHONE) {
+      const gear = `document.querySelector(".maplibregl-ctrl-bottom-left button[title=Настройки]")`;
+      const setBtn = (text) => `[...document.querySelectorAll(".panel:not([hidden]) .text-btn")].find((b) => b.textContent === ${JSON.stringify(text)})`;
+      await run(`(async () => {
+        const jpg = await new Promise((r) => { const c = Object.assign(document.createElement("canvas"), { width: 8, height: 8 }); c.toBlob(r, "image/jpeg"); });
+        const file = (name) => ({ kind: "file", name, getFile: async () => new File([jpg], name, { type: "image/jpeg", lastModified: 1 }) });
+        const folder = (name, items) => ({ kind: "directory", name, async *entries() { for (const i of items) yield [i.name, i]; },
+          queryPermission: async () => "granted", requestPermission: async () => "granted" });
+        const trip = "20230625-0716 (Travel) Испания";
+        window.showDirectoryPicker = async () => folder("Фото", [
+          folder(trip, [file("0.jpg"), folder("20230626 Варшава", [file("3.jpg"), folder("[Originals]", [file("3.jpg")])]),
+            folder("20230625 Таллин", [file("1.jpg"), file("2.jpg")]), folder(trip + "-Albom", [file("1.jpg")])]),
+          folder("20240101 Рига", [file("r.jpg")])]);
+        return true; })()`);
+      await run(`${gear}.click(); true`);
+      await sleep(600);
+      await run(`${setBtn("Выбрать папку…")}.click(); true`);
+      for (let i = 0; i < 30 && !(await run(`${as}.groups === 1 && !${as}.busy`)); i++) await sleep(500);
+      await run(`${gear}.click(); true`);
+      await run(openLayers("content/albums"));
+      for (let i = 0; i < 20 && !(await run(`!!${itemFor("Без страны (2)")}`)); i++) await sleep(500);
+      const tc = await run(`({ ...${as}, items: [...document.querySelectorAll(".layers-sub .layers-item")].map((b) => b.firstChild.textContent) })`);
+      check("альбомы: поездка с подпапками — одна строка, дни — свои альбомы, «[Originals]» пропущены",
+        tc.groups === 1 && tc.albums === 6 && tc.items.includes("Без страны (2)"), JSON.stringify(tc));
+      await run(`${itemFor("Без страны (2)")}.click(); true`);
+      await sleep(600);
+      const rows = await run(`[...document.querySelectorAll(".al-row")].map((r) => r.textContent)`);
+      await run(`[...document.querySelectorAll(".al-row")].find((r) => r.textContent.startsWith("Испания")).click(); true`);
+      await sleep(400);
+      const inTrip = await run(`({ title: document.querySelector('[data-panel="albums"] .panel-title')?.textContent,
+        kids: [...document.querySelectorAll(".al-row .tr-row-title")].map((r) => r.textContent) })`);
+      check("альбомы: поездка открыта — «Избранное» первым, дни по порядку, «Снимки поездки» последними",
+        rows.some((r) => /^Испания4 альб\. · 4 фото/.test(r)) && JSON.stringify(inTrip.kids) === JSON.stringify(["Избранное", "Таллин", "Варшава", "Снимки поездки"]), JSON.stringify({ rows, inTrip }));
+      await run(`document.querySelectorAll(".al-row")[2].click(); true`);
+      await sleep(400);
+      const day = await run(`({ open: ${as}.open, back: document.querySelector('[data-panel="albums"] .pb-btn').title, cells: document.querySelectorAll(".al-cell").length })`);
+      await run(`document.querySelector('[data-panel="albums"] .pb-btn').click(); true`);
+      await sleep(300);
+      const back = await run(`${as}.open`);
+      check("альбомы: день поездки — свой альбом, стрелка назад — в поездку", day.open === "Варшава" && day.cells === 1 && day.back === "К поездке: Испания" && back === "Испания",
+        JSON.stringify({ day, back }));
+      await run(`document.querySelector(".search-mode").click(); true`);
+      await run(closeLayers);
+      await run(`${gear}.click(); true`);
+      await sleep(600);
+      await run(`${setBtn("Убрать")}.click(); true`);
+      for (let i = 0; i < 20 && (await run(`${as}.groups`)); i++) await sleep(500);
+      await run(`${gear}.click(); true`);
+      await sleep(300);
+    }
   }
 
   // мои треки: выдуманный трек (не настоящий — личное в репозиторий не кладём): 2 км на восток вдоль

@@ -54,14 +54,15 @@ function dates(a) {
 const photoDate = (p) => (p.rec?.date ? new Date(p.rec.date).toLocaleDateString("ru") : "");
 
 // ---------- данные ----------
-const albums = new Map(); // путь папки → { id, name, title, local, photos, point, country, cover, from, to, done }
+const albums = new Map(); // путь папки → { id, name, title, local, parent, photos, point, country, cover, from, to, done }
+const groups = new Map(); // путь папки-поездки → { id, name, title, local, parent, group: true }
 const photos = new Map(); // "album/12" → { id, album, name, path, url | handle, key, rec, thumb, img }
 let seq = 0, scan = 0, ctx = null, loading = null;
 let dir = null, needsAccess = false, busy = false, checked = 0;
 const canFolders = () => "showDirectoryPicker" in window && !isMobile();
 
 function addAlbum(path, name, local, files) {
-  const a = { id: path, name, title: displayName(name), local, photos: [], point: null, country: undefined, cover: null, from: 0, to: 0, done: false };
+  const a = { id: path, name, title: displayName(name), local, parent: null, photos: [], point: null, country: undefined, cover: null, from: 0, to: 0, done: false };
   for (const f of files.sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }))) {
     const p = { id: `album/${++seq}`, album: a, rec: null, thumb: "", img: "", ...f };
     photos.set(p.id, p);
@@ -72,7 +73,7 @@ function addAlbum(path, name, local, files) {
 
 async function listRepo() {
   const by = new Map();
-  for (const f of (await repoFiles("Альбомы")).filter((f) => IMAGE_RE.test(f.name))) {
+  for (const f of (await repoFiles("Альбомы")).filter((f) => IMAGE_RE.test(f.name) && !f.path.includes("/["))) {
     const d = f.path.slice(0, f.path.lastIndexOf("/"));
     if (!by.has(d)) by.set(d, []);
     by.get(d).push({ name: f.name, path: f.path, url: repoUrl(f), key: `exif/${f.sha}` });
@@ -80,18 +81,54 @@ async function listRepo() {
   for (const [d, files] of by) addAlbum(d, d.split("/").pop(), false, files);
 }
 
-// своя папка: альбом — каждая папка, где есть снимки (подпапки — свои альбомы)
+// своя папка: альбом — каждая папка, где есть снимки (подпапки — свои альбомы); «[Originals]» —
+// исходники поправленных снимков, повторы — пропускаются
 async function walk(handle, path, token) {
   const files = [], dirs = [];
   try {
     for await (const [name, h] of handle.entries()) {
-      if (h.kind === "directory") { if (!/^[._]/.test(name)) dirs.push([name, h]); }
+      if (h.kind === "directory") { if (!/^[._[]/.test(name)) dirs.push([name, h]); }
       else if (IMAGE_RE.test(name)) files.push({ name, path: `${path}/${name}`, handle: h });
     }
   } catch { return; }
   if (token !== scan) return;
   if (files.length) addAlbum(path, handle.name, true, files);
   for (const [name, h] of dirs.sort((x, y) => x[0].localeCompare(y[0], undefined, { numeric: true }))) await walk(h, `${path}/${name}`, token);
+}
+
+// поездки — структура папок как на диске (Грегори 2026-11-02: «подпапки воспринимать как отдельные
+// альбомы, повторить структуру папок»): папка ниже корня, где лежат альбомы, — поездка; в списке
+// страны она одной строкой, внутри — её альбомы-дни. «-Albom» внутри поездки — «Избранное»
+const up = (path) => path.slice(0, path.lastIndexOf("/"));
+function nest(root) {
+  for (const a of [...albums.values()].filter((a) => a.id.startsWith(`${root}/`))) {
+    let child = a;
+    for (let p = up(a.id); p.length > root.length; p = up(p)) {
+      child.parent = p;
+      if (groups.has(p)) break;
+      const name = p.split("/").pop();
+      child = { id: p, name, title: displayName(name), local: a.local, parent: null, group: true };
+      groups.set(p, child);
+    }
+  }
+  // снимки, лежащие прямо в папке поездки, — внутри неё последней строкой
+  for (const g of groups.values()) if (albums.has(g.id)) Object.assign(albums.get(g.id), { parent: g.id, title: "Снимки поездки" });
+  for (const a of albums.values()) if (a.parent && /albom$/i.test(a.name)) a.title = "Избранное";
+}
+const kidsOf = (g) => [...groups.values(), ...albums.values()].filter((x) => x.parent === g.id)
+  .sort((x, y) => (y.title === "Избранное") - (x.title === "Избранное") || (x.id === g.id) - (y.id === g.id)
+    || x.name.localeCompare(y.name, undefined, { numeric: true }));
+const albumsIn = (g) => kidsOf(g).flatMap((x) => (x.group ? albumsIn(x) : [x]));
+const topOf = (x) => { while (x.parent) x = groups.get(x.parent); return x; };
+// поездка — в стране, где больше всего её снимков; даты — от первого до последнего дня
+function tally(g) {
+  const list = albumsIn(g), by = new Map();
+  for (const a of list) if (a.country) by.set(a.country.name, (by.get(a.country.name) || 0) + a.photos.length);
+  const ds = list.filter((a) => a.from);
+  return { list, photos: list.filter((a) => a.title !== "Избранное").reduce((n, a) => n + a.photos.length, 0), country: [...by].sort((x, y) => y[1] - x[1])[0]?.[0],
+    from: ds.length ? Math.min(...ds.map((a) => a.from)) : 0, to: ds.length ? Math.max(...ds.map((a) => a.to)) : 0,
+    cover: list.filter((a) => a.title !== "Избранное" && a.cover).sort((x, y) => y.photos.length - x.photos.length)[0]?.cover
+      || list.find((a) => a.photos.length)?.photos[0] };
 }
 
 // ---------- EXIF: координаты и дата, помнятся на устройстве ----------
@@ -157,7 +194,7 @@ async function locate(a) {
   const f = countryAt(a.point, await loadBorders());
   a.country = f ? { name: f.properties.name, iso: f.properties.iso } : null;
 }
-const countryOf = (a) => a.country?.name || NO_COUNTRY;
+const countryOf = (a) => (a.group ? tally(a).country : a.country?.name) || NO_COUNTRY;
 
 // ---------- обход ----------
 // проход 1 — у каждого альбома первый снимок с координатами (точка и страна сразу), проход 2 — все
@@ -185,14 +222,17 @@ async function finish(a) {
 async function rescan() {
   const token = ++scan;
   albums.clear();
+  groups.clear();
   photos.clear();
   checked = 0;
   busy = true;
   refresh();
   try { await exifr(); } catch { busy = false; ctx?.status("Не загрузилась программа чтения снимков — проверьте интернет"); return; }
   await listRepo().catch(() => {});
+  nest("Альбомы");
   if (dir && !needsAccess) await walk(dir, dir.name, token);
   if (token !== scan) return;
+  if (dir) nest(dir.name);
   for (const a of albums.values()) {
     for (const id of a.photos.slice(0, PROBE)) {
       const r = await exifOf(photos.get(id));
@@ -230,9 +270,11 @@ async function load(c) {
   return loading;
 }
 
+// в столбике и в списке страны — альбомы и поездки верхнего уровня
+const tops = () => [...groups.values(), ...albums.values()].filter((x) => !x.parent);
 const countries = () => {
   const by = new Map();
-  for (const a of albums.values()) { const k = countryOf(a); by.set(k, (by.get(k) || 0) + 1); }
+  for (const a of tops()) { const k = countryOf(a); by.set(k, (by.get(k) || 0) + 1); }
   // «Без страны» — первой, остальные по алфавиту
   return [...by].sort((x, y) => (y[0] === NO_COUNTRY) - (x[0] === NO_COUNTRY) || x[0].localeCompare(y[0], "ru"));
 };
@@ -351,7 +393,7 @@ function refresh() {
       ctx.map.getSource("albums-thumbs")?.setData(thumbData());
       setStripItems("albums", located().filter((p) => p.thumb).map(stripItem));
     }
-    if (isOpen("albums") && !openAlbum && !searchText) renderList(currentCountry);
+    if (isOpen("albums") && !openAlbum && !searchText) { if (openGroup) renderGroup(true); else renderList(currentCountry); }
   });
 }
 const stripItem = (p) => ({ id: p.id, coordinates: pt(p), thumb: p.thumb, title: [p.album.title, photoDate(p)].filter(Boolean).join(" · "),
@@ -385,14 +427,18 @@ function showPhoto(p) {
   if (p.thumb) selectStripItem(p.id);
 }
 
+// у поездки — снимки всех её альбомов подряд, без «Избранного» (там копии)
+const photosOf = (x) => (x.group ? tally(x).list.filter((a) => a.title !== "Избранное").flatMap((a) => a.photos) : x.photos);
+
 function gallery(a, startId) {
-  openGalleryWith(a.photos.map((id) => photos.get(id)).map((p) => ({ id: p.id, thumb: p.thumb, full: p.url,
-    title: a.title, credit: [photoDate(p), p.name].filter(Boolean).join(" · "), coordinates: p.rec?.lat ? pt(p) : null })),
-  startId || a.photos[0], media);
+  const ids = photosOf(a);
+  openGalleryWith(ids.map((id) => photos.get(id)).map((p) => ({ id: p.id, thumb: p.thumb, full: p.url,
+    title: p.album.title, credit: [photoDate(p), p.name].filter(Boolean).join(" · "), coordinates: p.rec?.lat ? pt(p) : null })),
+  startId || ids[0], media);
 }
 
 function fitAlbum(a) {
-  const pts = a.photos.map((id) => photos.get(id)).filter((p) => p.rec?.lat).map(pt);
+  const pts = photosOf(a).map((id) => photos.get(id)).filter((p) => p.rec?.lat).map(pt);
   if (!pts.length && !a.point) return;
   if (!pts.length) pts.push(a.point);
   const lng = pts.map((p) => p[0]), lat = pts.map((p) => p[1]);
@@ -405,7 +451,7 @@ function fitAlbum(a) {
 const panel = createPanel({ id: "albums", title: "Мои альбомы", icon: svg(STACK_D, 18), side: "left" });
 const h = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls || "", textContent: text || "" });
 const btn = (icon, title, fn) => { const b = h("button", "pb-btn"); b.innerHTML = icon; b.title = title; b.addEventListener("click", fn); return b; };
-let currentCountry = null, openAlbum = null, searchText = "";
+let currentCountry = null, openAlbum = null, openGroup = null, searchText = "";
 
 // миниатюра, которая сама просит картинку, когда видна
 const seen = new IntersectionObserver((entries) => {
@@ -433,6 +479,27 @@ function albumRow(a) {
   return r;
 }
 
+function groupRow(g) {
+  const t = tally(g);
+  const r = h("button", "tr-row al-row");
+  const text = h("span", "tr-row-text");
+  text.append(h("span", "tr-row-title", g.title), h("span", "tr-row-sub",
+    [`${kidsOf(g).length} альб.`, `${t.photos} фото`, dates(t)].filter(Boolean).join(" · ")));
+  r.append(lazyImg(photos.get(t.cover), "al-cover"), text);
+  r.addEventListener("click", () => openGroupById(g.id));
+  return r;
+}
+const row = (x) => (x.group ? groupRow(x) : albumRow(x));
+
+// стрелка назад — в поездку, где лежит альбом, иначе к списку страны
+function backBtn(x) {
+  const g = x.parent && groups.get(x.parent);
+  return btn(BACK, g ? `К поездке: ${g.title}` : `К альбомам: ${countryOf(x)}`, () => {
+    if (g) openGroupById(g.id); else renderList(countryOf(x));
+    panel.body.scrollTop = 0;
+  });
+}
+
 function accessRow() {
   const b = h("button", "text-btn al-access", `Открыть мою папку «${dir.name}»`);
   b.addEventListener("click", askAccess);
@@ -441,20 +508,47 @@ function accessRow() {
 
 function renderList(country, query = "") {
   openAlbum = null;
+  openGroup = null;
   currentCountry = country ?? currentCountry;
   searchText = query;
   const q = query.toLowerCase();
-  const list = [...albums.values()].filter((a) => (q ? [a.title, a.name, a.id, countryOf(a)].join(" ").toLowerCase().includes(q) : countryOf(a) === currentCountry))
-    .sort((x, y) => (y.from || 0) - (x.from || 0) || x.title.localeCompare(y.title, "ru"));
+  const from = (x) => (x.group ? tally(x).from : x.from) || 0;
+  const list = (q ? [...groups.values(), ...albums.values()] : tops())
+    .filter((a) => (q ? [a.title, a.name, a.id, countryOf(a)].join(" ").toLowerCase().includes(q) : countryOf(a) === currentCountry))
+    .sort((x, y) => from(y) - from(x) || x.title.localeCompare(y.title, "ru"));
   panel.setTitle(q ? "Найденные альбомы" : currentCountry || "Мои альбомы");
   const nodes = [];
   if (needsAccess && dir) nodes.push(accessRow());
   if (busy) nodes.push(h("p", "pb-hint", `Читаю снимки… проверено ${checked}`));
   if (q && !list.length) nodes.push(h("p", "pb-hint", "Ничего не нашлось"));
-  nodes.push(...list.map(albumRow));
+  nodes.push(...list.map(row));
   const keep = panel.body.scrollTop;
   panel.body.replaceChildren(...nodes);
   panel.body.scrollTop = keep;
+}
+
+// поездка — в той же панели: назад, ▶ все снимки поездки, даты, её альбомы по порядку папок
+function renderGroup(keepScroll) {
+  const g = openGroup, t = tally(g);
+  panel.setTitle(g.title);
+  const bar = h("div", "pb-bar");
+  const left = h("div", "tr-bar-left");
+  left.append(backBtn(g), btn(PLAYER.play, "Смотреть всю поездку в галерее", () => gallery(g)));
+  bar.append(left);
+  const lands = [...new Set(t.list.map((a) => a.country?.name).filter(Boolean))];
+  const facts = h("div", "tr-facts al-facts", [`${t.photos} фото`, dates(t), lands.join(", "), g.local ? "на этом компьютере" : ""].filter(Boolean).join(" · "));
+  const keep = panel.body.scrollTop;
+  panel.body.replaceChildren(bar, facts, ...kidsOf(g).map(row));
+  panel.body.scrollTop = keepScroll ? keep : 0;
+}
+
+function openGroupById(id) {
+  const g = groups.get(id);
+  if (!g) return;
+  openAlbum = null;
+  openGroup = g;
+  renderGroup();
+  fitAlbum(g);
 }
 
 function renderAlbum() {
@@ -462,8 +556,7 @@ function renderAlbum() {
   panel.setTitle(a.title);
   const bar = h("div", "pb-bar");
   const left = h("div", "tr-bar-left");
-  left.append(btn(BACK, `К альбомам: ${countryOf(a)}`, () => { renderList(countryOf(a)); panel.body.scrollTop = 0; }),
-    btn(PLAYER.play, "Смотреть альбом в галерее", () => gallery(a)));
+  left.append(backBtn(a), btn(PLAYER.play, "Смотреть альбом в галерее", () => gallery(a)));
   bar.append(left);
   const facts = h("div", "tr-facts al-facts", [`${a.photos.length} фото`, dates(a), a.country?.name, a.local ? "на этом компьютере" : ""].filter(Boolean).join(" · "));
   const grid = h("div", "al-grid");
@@ -490,6 +583,7 @@ function openAlbumById(id) {
   const a = albums.get(id);
   if (!a) return;
   openAlbum = a;
+  openGroup = null;
   renderAlbum();
   fitAlbum(a);
   if (!a.done) finish(a).then(() => { refresh(); if (openAlbum === a) renderAlbum(); });
@@ -549,7 +643,7 @@ if (canFolders()) cacheGet("albums/dir").then((d) => { if (d && !dir) dir = d; }
 
 // ---------- режим в строке поиска ----------
 const MODE = { icon: svg(STACK_D, 20), title: "Мои альбомы", placeholder: "Найти альбом", tone: "my",
-  filter: (text) => { if (text) renderList(null, text); else if (openAlbum) renderAlbum(); else renderList(currentCountry); },
+  filter: (text) => { if (text) renderList(null, text); else if (openAlbum) renderAlbum(); else if (openGroup) renderGroup(); else renderList(currentCountry); },
   exit: () => panel.close() };
 
 function openCountry(country) {
@@ -563,6 +657,7 @@ function openCountry(country) {
 
 panel.onClose(() => {
   openAlbum = null;
+  openGroup = null;
   currentCountry = null;
   searchText = "";
   showOnMap(false);
@@ -581,7 +676,7 @@ function wire() {
     if (!shown) return;
     const f = map.queryRenderedFeatures(e.point, { layers: LAYERS.filter((id) => map.getLayer(id)) })[0];
     if (!f) return;
-    if (f.properties.album) { const a = albums.get(f.properties.album); if (a) { renderList(countryOf(a)); openAlbumById(a.id); } return; }
+    if (f.properties.album) { const a = albums.get(f.properties.album); if (a) { renderList(countryOf(topOf(a))); openAlbumById(a.id); } return; }
     if (f.properties.cluster) {
       map.getSource("albums-photos").getClusterExpansionZoom(f.properties.cluster_id)
         .then((zoom) => map.easeTo({ center: f.geometry.coordinates, zoom: Math.min(zoom, 19) })).catch(() => {});
@@ -621,7 +716,7 @@ register({
   },
   settings: settingsSection,
   // для проверки
-  stats: () => ({ albums: albums.size, photos: photos.size, located: located().length, thumbs: [...photos.values()].filter((p) => p.thumb).length,
-    countries: countries().map(([n, k]) => `${n}:${k}`), busy, shown, open: openAlbum?.title || null, country: currentCountry }),
+  stats: () => ({ albums: albums.size, groups: groups.size, photos: photos.size, located: located().length, thumbs: [...photos.values()].filter((p) => p.thumb).length,
+    countries: countries().map(([n, k]) => `${n}:${k}`), busy, shown, open: openAlbum?.title || openGroup?.title || null, country: currentCountry }),
   openFirst: () => { const a = [...albums.values()][0]; if (!a) return false; openCountry(countryOf(a)); openAlbumById(a.id); return true; },
 });
