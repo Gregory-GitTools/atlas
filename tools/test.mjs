@@ -116,32 +116,37 @@ try {
       await atlas.toggle(${id}, false); return { off, refused, back }; })()`);
     check("режим «без сети» выключает модуль и не даёт включить", offline.off === false && offline.refused === false && offline.back === true, JSON.stringify(offline));
   }
-  // колесо справа: треугольник открывает панель, кнопка барабана — свой столбик (как человек щёлкает)
-  // разделы с панелью (content/…) — в строке под поиском: стрелка под лупой показывает строку, кнопка — список
+  // два барабана справа: слои — открывает треугольник, кнопка — свой столбик; разделы (content/…) —
+  // открывает лупа справа вверху, кнопка — сразу панель раздела со списком (как человек щёлкает)
   const openLayers = (key) => key.startsWith("content/") ? `(async () => {
-    if (document.querySelector(".search-sections").hidden) document.querySelector(".search-sections-toggle").click();
-    const c = document.querySelector('.bar-chip[data-key=${JSON.stringify(key)}]');
-    if (!c.classList.contains("open")) c.click();
-    for (let t = 0; t < 30 && document.querySelector(".bar-sub").hidden; t++) await new Promise((r) => setTimeout(r, 100));
+    if (document.querySelector(".wheel-content").classList.contains("closed")) {
+      document.querySelector(".search-toggle").click();
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    [...document.querySelectorAll(".wheel-content .layers-circle")].find((b) => b.dataset.key === ${JSON.stringify(key)}).click();
+    for (let t = 0; t < 30 && !document.querySelector(".panel-left:not([hidden])"); t++) await new Promise((r) => setTimeout(r, 100));
     await new Promise((r) => setTimeout(r, 150));
     return true; })()` : `(async () => {
-    if (document.querySelector(".wheel").classList.contains("closed")) document.querySelector(".wheel-toggle").click();
-    await new Promise((r) => setTimeout(r, 300));
-    const c = [...document.querySelectorAll(".wheel .layers-circle")].find((b) => b.dataset.key === ${JSON.stringify(key)});
+    if (document.querySelector(".wheel-layers").classList.contains("closed")) {
+      document.querySelector(".wheel-toggle").click();
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    const c = [...document.querySelectorAll(".wheel-layers .layers-circle")].find((b) => b.dataset.key === ${JSON.stringify(key)});
     if (!c.classList.contains("open")) c.click();
-    for (let t = 0; t < 30 && document.querySelector(".layers-sub:not(.bar-sub)").hidden; t++) await new Promise((r) => setTimeout(r, 100));
+    for (let t = 0; t < 30 && document.querySelector(".sub-layers").hidden; t++) await new Promise((r) => setTimeout(r, 100));
     await new Promise((r) => setTimeout(r, 150));
     return true; })()`;
-  const closeLayers = `(() => { if (!document.querySelector(".wheel").classList.contains("closed")) document.querySelector(".wheel-toggle").click(); return true; })()`;
-  // кнопка в столбике по названию
-  const itemFor = (title) => `[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].find((c) => c.firstChild.textContent === ${JSON.stringify(title)})`;
+  // двойной щелчок по треугольнику — спрятать барабан слоёв
+  const closeLayers = `(() => { if (!document.querySelector(".wheel-layers").classList.contains("closed")) { const t = document.querySelector(".wheel-toggle"); t.click(); t.click(); } return true; })()`;
+  // кнопка в столбике слоёв или строка списка в панели раздела — по названию
+  const itemFor = (title) => `[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].find((c) => c.firstChild.textContent === ${JSON.stringify(title)})`;
 
   // карты: в колесе справа кнопка «Карты» — в её столбике виды карт с миниатюрами; каждая загружается без ошибок
   await run(openLayers("maps"));
-  const basemaps = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].filter((b) => b.querySelector(".thumb")).map((b) => b.title)`);
+  const basemaps = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].filter((b) => b.querySelector(".thumb")).map((b) => b.title)`);
   check("виды карт в «Картах»", basemaps.length >= 5, `${basemaps.length} карт`);
   for (let i = 0; i < basemaps.length; i++) {
-    await run(`${openLayers("maps")}.then(() => { [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].filter((b) => b.querySelector(".thumb"))[${i}].click(); return true; })`);
+    await run(`${openLayers("maps")}.then(() => { [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].filter((b) => b.querySelector(".thumb"))[${i}].click(); return true; })`);
     await sleep(500);
     await idle();
     if (i === 0) await shot("50-satellite");
@@ -150,7 +155,7 @@ try {
   }
   const mapsCircle = await run(`document.querySelector('.layers-circle[data-key="maps"]').ariaLabel`);
   check("на кнопке «Карты» — текущая карта", /Тёмная/.test(mapsCircle), mapsCircle);
-  await run(`${openLayers("maps")}.then(() => { [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].filter((b) => b.querySelector(".thumb"))[1].click(); return true; })`);
+  await run(`${openLayers("maps")}.then(() => { [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].filter((b) => b.querySelector(".thumb"))[1].click(); return true; })`);
   await idle();
   await run(closeLayers);
 
@@ -260,11 +265,11 @@ try {
     // виды транспорта из меню: «Метро» — только красные «М», «Фуникулёры и канатные дороги» — без метро
     const pick = async (title) => run(`(async () => {
       await ${openLayers("places/transport")};
-      const items = [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].map((i) => i.firstChild.textContent);
+      const items = [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((i) => i.firstChild.textContent);
       ${itemFor(title)}.click();
       await new Promise((r) => setTimeout(r, 1500));
       // столбик кнопок не закрывается после выбора
-      const open = !document.querySelector(".layers-sub:not(.bar-sub)").hidden;
+      const open = !document.querySelector(".sub-layers").hidden;
       ${closeLayers};
       return { items, open }; })()`);
     const { items, open } = await pick("Метро");
@@ -290,7 +295,7 @@ try {
       const shown = !x.hidden;
       x.click(); await new Promise((r) => setTimeout(r, 800));
       const res = { shown, off: !atlas.modules().find((m) => m.id === "places/transport").active,
-        closed: document.querySelector(".layers-sub:not(.bar-sub)").hidden };
+        closed: document.querySelector(".sub-layers").hidden };
       // открыть снова: ничего не отмечено, у видов кольца цвета
       await ${openLayers("places/transport")};
       res.noneMarked = !document.querySelector(".layers-sub:not([hidden]) .layers-item.on");
@@ -340,8 +345,8 @@ try {
   if (want("trails/cycling") && mods.some((m) => m.id === "trails/cycling")) {
     const bike = await run(`(async () => {
       await ${openLayers("trails/cycling")};
-      const circles = [...document.querySelectorAll(".wheel .layers-circle")].map((c) => c.ariaLabel.split(":")[0]);
-      const items = [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].map((i) => i.firstChild.textContent);
+      const circles = [...document.querySelectorAll(".wheel-layers .layers-circle")].map((c) => c.ariaLabel.split(":")[0]);
+      const items = [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((i) => i.firstChild.textContent);
       ${itemFor("Маунтинбайк")}.click();
       await new Promise((r) => setTimeout(r, 1500));
       const layers = { cycling: !!atlas.map.getLayer("trails-cycling-line"), mtb: !!atlas.map.getLayer("trails-mtb-line") };
@@ -378,10 +383,11 @@ try {
   if (want("content/tours") && mods.some((m) => m.id === "content/tours")) {
     const ts = `atlas.modules().find((m) => m.id === "content/tours").stats()`;
     await run(openLayers("content/tours"));
-    for (let i = 0; i < 40 && !(await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].length > 3`)); i++) await sleep(500);
-    const cs = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].map((b) => b.firstChild.textContent)`);
+    for (let i = 0; i < 40 && !(await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].length > 3`)); i++) await sleep(500);
+    await shot("98-tours-home");
+    const cs = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((b) => b.firstChild.textContent)`);
     check("экскурсии: в столбике — страны", cs.length >= 5 && cs.some((c) => /^Италия/.test(c)), JSON.stringify(cs));
-    await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].find((b) => /^Италия/.test(b.firstChild.textContent)).click(); true`);
+    await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].find((b) => /^Италия/.test(b.firstChild.textContent)).click(); true`);
     await sleep(600);
     const lst = await run(`({ panel: !document.querySelector('[data-panel="tours"]').hidden, rows: [...document.querySelectorAll(".tr-row-title")].map((r) => r.textContent),
       mode: document.querySelector(".search-box input").placeholder })`);
@@ -415,15 +421,15 @@ try {
   // в строке поиска — значок режима, ввод ищет фразу; крестик значка — обратно к поиску мест
   if (want("content/languages") && mods.some((m) => m.id === "content/languages")) {
     await run(openLayers("content/languages"));
-    for (let i = 0; i < 40 && !(await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].length > 3`)); i++) await sleep(500);
-    const langs = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].map((b) => b.firstChild.textContent)`);
+    for (let i = 0; i < 40 && !(await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].length > 3`)); i++) await sleep(500);
+    const langs = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((b) => b.firstChild.textContent)`);
     check("языки: в столбике — языки", langs.length >= 5 && langs.some((l) => /Итальянский/.test(l)), JSON.stringify(langs));
     await run(`${itemFor("Итальянский")}.click(); true`);
     await sleep(800);
     const pb = await run(`({ panel: !document.querySelector('[data-panel="languages"]').hidden, title: document.querySelector('[data-panel="languages"] .panel-title span').textContent,
       tabs: [...document.querySelectorAll(".pb-tab")].map((t) => t.textContent), phrases: document.querySelectorAll(".pb-phrase").length,
       mode: !document.querySelector(".search-mode").hidden, placeholder: document.querySelector(".search-box input").placeholder,
-      wheelOn: document.querySelector('.bar-chip[data-key="content/languages"]').classList.contains("on") })`);
+      wheelOn: document.querySelector('.layers-circle[data-key="content/languages"]').classList.contains("on") })`);
     check("языки: разговорник открыт в панели, в поиске — значок режима", pb.panel && pb.title === "Итальянский" && pb.phrases > 20 && pb.tabs.length >= 2
       && pb.mode && pb.placeholder === "Найти фразу" && pb.wheelOn, JSON.stringify(pb));
     await shot("97-languages");
@@ -445,8 +451,8 @@ try {
   if (want("content/albums") && mods.some((m) => m.id === "content/albums")) {
     const as = `atlas.modules().find((m) => m.id === "content/albums").stats()`;
     await run(openLayers("content/albums"));
-    for (let i = 0; i < 60 && !(await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].some((b) => /^Эстония/.test(b.firstChild.textContent))`)); i++) await sleep(500);
-    const cs = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].map((b) => b.firstChild.textContent)`);
+    for (let i = 0; i < 60 && !(await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].some((b) => /^Эстония/.test(b.firstChild.textContent))`)); i++) await sleep(500);
+    const cs = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((b) => b.firstChild.textContent)`);
     // телефон узнаётся так же, как в программе (эмуляция здесь меняет только размер экрана)
     const phone = await run(`import("./core/modules.js").then((m) => m.isMobile())`);
     check("альбомы: в столбике — страны, на компьютере первой строкой — выбор папки", cs.some((c) => /^Эстония/.test(c))
@@ -502,7 +508,7 @@ try {
       await run(`${gear}.click(); true`);
       await run(openLayers("content/albums"));
       for (let i = 0; i < 20 && !(await run(`!!${itemFor("Без страны (2)")}`)); i++) await sleep(500);
-      const tc = await run(`({ ...${as}, items: [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].map((b) => b.firstChild.textContent) })`);
+      const tc = await run(`({ ...${as}, items: [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((b) => b.firstChild.textContent) })`);
       check("альбомы: поездка с подпапками — одна строка, дни — свои альбомы, «[Originals]» пропущены",
         tc.groups === 1 && tc.albums === 6 && tc.items.includes("Без страны (2)"), JSON.stringify(tc));
       await run(`${itemFor("Без страны (2)")}.click(); true`);
@@ -639,8 +645,9 @@ try {
       await run(openLayers("content/tracks"));
       await sleep(500);
     }
-    const items = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].map((b) => b.firstChild.textContent)`);
-    check("треки: в столбике — «Открыть файл…» и все треки", items[0] === "Открыть файл…" && /^Все треки/.test(items[1]), JSON.stringify(items));
+    const items = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((b) => b.firstChild.textContent)`);
+    const tkHome = await run(`({ panel: !document.querySelector('[data-panel="tracks"]').hidden, open: document.querySelector('[data-panel="tracks"] .tk-open')?.textContent })`);
+    check("треки: кнопка раздела — сразу панель со списком, первой строкой «Открыть файл трека…»", tkHome.panel && tkHome.open === "Открыть файл трека…", JSON.stringify({ items, tkHome }));
     await run(`${itemFor("Все треки (0)")}?.click(); true`);
     await sleep(500);
     await run(`${ts}.addText("test.gpx", ${JSON.stringify(gpx)}).then(() => true)`);
@@ -916,60 +923,66 @@ try {
   // «Слои»: столбик разделов (Места, Тропы, Дороги, Рельеф, Погода, Пляжи и сёрфинг), подменю у кружка
   await run(`atlas.toggle("layers/railways", true).then(() => true)`);
   await run(openLayers("layers/roads"));
-  const lm = await run(`({ groups: [...document.querySelectorAll(".wheel .layers-circle")].map((c) => c.ariaLabel.split(":")[0]),
-    sub: [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].map((c) => c.firstChild.textContent),
-    on: [...document.querySelectorAll(".wheel .layers-circle.on")].map((c) => c.ariaLabel) })`);
+  const lm = await run(`({ groups: [...document.querySelectorAll(".wheel-layers .layers-circle")].map((c) => c.ariaLabel.split(":")[0]),
+    sub: [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((c) => c.firstChild.textContent),
+    on: [...document.querySelectorAll(".wheel-layers .layers-circle.on")].map((c) => c.ariaLabel) })`);
   check("«Слои»: кружки, «Дороги» — виды и железные дороги, «Фото»", ["Карты", "Места", "Транспорт", "Магазины", "Тропы", "Велодорожки", "Дороги", "Погода", "Фото"].every((g) => lm.groups.includes(g))
     && !lm.groups.includes("Экскурсии") && !lm.groups.includes("Языки")
     && !lm.groups.includes("Пляжи и сёрфинг") && !lm.groups.includes("Рельеф") && lm.sub.length === 5
     && lm.sub.includes("Железные дороги") && lm.on.includes("Дороги"), JSON.stringify(lm));
   await shot("95-panel-layers");
-  // строка разделов под поиском: Фото, Экскурсии, Языки, Треки; стрелка под лупой прячет и показывает её
-  const sb = await run(`(async () => { const row = document.querySelector(".search-sections"), arrow = document.querySelector(".search-sections-toggle");
-    if (row.hidden) arrow.click();
-    const chips = [...row.querySelectorAll(".bar-chip")].map((c) => c.textContent);
-    const go = document.querySelector(".search-go").getBoundingClientRect(), a = arrow.getBoundingClientRect(), rr = row.querySelector(".bar-chip").getBoundingClientRect();
-    const under = Math.abs(a.left - go.left) < 2 && a.top >= rr.bottom;
-    arrow.click(); await new Promise((r) => setTimeout(r, 100));
-    const hidden = row.hidden, b = arrow.getBoundingClientRect(), box = document.querySelector(".search-box").getBoundingClientRect();
-    arrow.click();
-    return { chips, under, hidden, upHigh: b.top < a.top && b.top >= box.bottom, op: getComputedStyle(arrow).backgroundColor }; })()`);
-  check("строка разделов: Фото, Экскурсии, Языки, Треки; стрелка под лупой прячет её", ["Фото", "Экскурсии", "Языки", "Треки"].every((t) => sb.chips.includes(t))
-    && sb.under && sb.hidden && sb.upHigh, JSON.stringify(sb));
+  // лупа справа вверху: щелчок — барабан разделов (Экскурсии, Языки, Треки, Фото) вместо барабана слоёв;
+  // треугольник — обратно; двойной щелчок по лупе прячет поиск и барабан разделов, ещё раз — показывает
+  const lens = await run(`(async () => { const wait = () => new Promise((r) => setTimeout(r, 450));
+    const L = document.querySelector(".search-toggle"), A = document.querySelector(".wheel-toggle");
+    const st = () => ({ layers: !document.querySelector(".wheel-layers").classList.contains("closed"), content: !document.querySelector(".wheel-content").classList.contains("closed"),
+      search: getComputedStyle(document.querySelector(".search")).display !== "none" });
+    if (!st().layers) { A.click(); await wait(); }
+    L.click(); await wait(); const s1 = st();
+    const keys = [...document.querySelectorAll(".wheel-content .wheel-cell:not([hidden]) .layers-circle")].map((c) => c.ariaLabel).sort();
+    A.click(); await wait(); const s2 = st();
+    L.click(); await wait(); L.click(); L.click(); await wait(); const s3 = st();
+    L.click(); L.click(); await wait(); const s4 = st();
+    const lr = L.getBoundingClientRect(), sr = document.querySelector(".search").getBoundingClientRect();
+    A.click(); await wait();
+    return { s1, s2, s3, s4, keys, corner: innerWidth - lr.right < 16 && lr.top < 20, apart: sr.right <= lr.left }; })()`);
+  check("лупа: барабан разделов вместо слоёв, треугольник — обратно, двойной щелчок прячет поиск и разделы",
+    lens.s1.content && !lens.s1.layers && lens.s1.search && lens.s2.layers && !lens.s2.content && !lens.s3.content && !lens.s3.search && lens.s4.content && lens.s4.search
+    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои треки", "Экскурсии", "Языки"]) && lens.corner && lens.apart, JSON.stringify(lens));
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико
   // крутит его, нажатие по кнопке не в центре докручивает её и открывает столбик
-  await run(`document.querySelector(".layers-sub:not(.bar-sub)").hidden || document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); true`);
-  const drum = await run(`(() => { const cells = [...document.querySelectorAll(".wheel-cell")].filter((c) => !c.hidden)
+  await run(`document.querySelector(".sub-layers").hidden || document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); true`);
+  const drum = await run(`(() => { const cells = [...document.querySelectorAll(".wheel-layers .wheel-cell")].filter((c) => !c.hidden)
     .map((c) => { const r = c.getBoundingClientRect(); return { y: r.top + r.height / 2, b: parseFloat(c.style.filter.replace("brightness(", "")) }; })
     .sort((a, b) => a.y - b.y); const gaps = cells.slice(1).map((c, i) => Math.round(c.y - cells[i].y));
     return { n: cells.length, gaps, edge: cells[0].b, mid: Math.max(...cells.map((c) => c.b)) }; })()`);
   const mid = Math.floor(drum.gaps.length / 2);
   check("колесо: в центре промежутки больше, к краям меньше и темнее", drum.n >= 5 && drum.gaps[0] < drum.gaps[mid] && drum.gaps.at(-1) < drum.gaps[mid] && drum.edge < drum.mid, JSON.stringify(drum));
-  const centerKey = `(() => { const r = document.querySelector(".wheel").getBoundingClientRect(), m = r.top + r.height / 2;
-    return [...document.querySelectorAll(".wheel-cell")].filter((c) => !c.hidden).map((c) => { const b = c.getBoundingClientRect(); return [Math.abs(b.top + b.height / 2 - m), c.querySelector(".layers-circle").dataset.key]; }).sort((a, b) => a[0] - b[0])[0][1]; })()`;
+  const centerKey = `(() => { const r = document.querySelector(".wheel-layers").getBoundingClientRect(), m = r.top + r.height / 2;
+    return [...document.querySelectorAll(".wheel-layers .wheel-cell")].filter((c) => !c.hidden).map((c) => { const b = c.getBoundingClientRect(); return [Math.abs(b.top + b.height / 2 - m), c.querySelector(".layers-circle").dataset.key]; }).sort((a, b) => a[0] - b[0])[0][1]; })()`;
   const before = await run(centerKey);
-  await run(`document.querySelector(".wheel").dispatchEvent(new WheelEvent("wheel", { deltaY: 200, bubbles: true, cancelable: true })); true`);
+  await run(`document.querySelector(".wheel-layers").dispatchEvent(new WheelEvent("wheel", { deltaY: 200, bubbles: true, cancelable: true })); true`);
   await sleep(1200);
   const after = await run(centerKey);
   check("колесо: колёсико мыши крутит барабан", before !== after, `${before} → ${after}`);
   // подпись — только у центральной кнопки, промежуток в центре небольшой
   const tipInfo = await run(`({ tip: document.querySelector(".wheel-tip").classList.contains("show") ? document.querySelector(".wheel-tip").textContent : "",
     center: document.querySelector('.layers-circle[data-key=' + JSON.stringify(${centerKey}) + ']').ariaLabel,
-    titles: document.querySelectorAll(".wheel .layers-circle[title]").length })`);
+    titles: document.querySelectorAll(".wheel-layers .layers-circle[title]").length })`);
   check("колесо: подпись только у центральной кнопки, промежуток ≤ 60", tipInfo.tip && tipInfo.tip === tipInfo.center && !tipInfo.titles && drum.gaps[mid] <= 60, JSON.stringify({ ...tipInfo, gap: drum.gaps[mid] }));
   await run(`document.querySelector('.layers-circle[data-key="photo"]').click(); true`);
   await sleep(1500);
-  const spun = await run(`({ center: ${centerKey}, open: !document.querySelector(".layers-sub:not(.bar-sub)").hidden && document.querySelector('.layers-circle[data-key="photo"]').classList.contains("open") })`);
+  const spun = await run(`({ center: ${centerKey}, open: !document.querySelector(".sub-layers").hidden && document.querySelector('.layers-circle[data-key="photo"]').classList.contains("open") })`);
   check("колесо: нажатие — кнопка докручивается в центр и открывается", spun.center === "photo" && spun.open, JSON.stringify(spun));
   await shot("95b-wheel");
   await run(openLayers("maps"));
-  const relief = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].map((c) => c.firstChild.textContent)`);
+  const relief = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((c) => c.firstChild.textContent)`);
   check("«Карты»: виды карт, под чертой тени и 3D и высоты", relief.includes("Высоты") && relief.includes("Тени и 3D") && relief.length === 7
     && (await run(`!!document.querySelector(".layers-sub .layers-sep")`)), JSON.stringify(relief));
   await run(`atlas.toggle("layers/railways", false).then(() => true)`);
   await run(`document.querySelector(".maplibregl-ctrl-bottom-left button[title=Настройки]").click(); true`);
   await sleep(800);
-  check("настройки прячут колесо", await run(`document.querySelector(".wheel").classList.contains("closed") && document.querySelector(".layers-sub:not(.bar-sub)").hidden && document.querySelectorAll(".panel:not([hidden])").length === 1`));
+  check("настройки прячут колесо", await run(`document.querySelector(".wheel-layers").classList.contains("closed") && document.querySelector(".sub-layers").hidden && document.querySelectorAll(".panel:not([hidden])").length === 1`));
   await shot("96-panel-settings");
   // «Поделиться» — первой строкой, ссылка на сайт программы
   const share = await run(`(async () => { const b = document.querySelector(".panel:not([hidden]) .panel-body > :first-child");
@@ -981,10 +994,10 @@ try {
     return { shown: [...document.querySelectorAll(".panel:not([hidden]) .set-title")].some((t) => t.textContent === "Мои альбомы"), phone: m.isMobile() }; })()`);
   check("настройки: раздел «Мои альбомы» (папка) — только на компьютере", albumsSet.shown === !albumsSet.phone, JSON.stringify(albumsSet));
   // раскладка: ⓘ и шкала — в линию с шестерёнкой, треугольник — в правом нижнем углу, логотип в поиске,
-  // верх колеса — вровень с поиском (на компьютере)
+  // верх колеса — под лупой справа вверху (на компьютере)
   const lay = await run(`(() => { const mid = (el) => { const r = el.getBoundingClientRect(); return Math.round(r.top + r.height / 2); };
     const gear = document.querySelector(".maplibregl-ctrl-bottom-left button[title=Настройки]");
-    const t = document.querySelector(".wheel-toggle").getBoundingClientRect(), w = document.querySelector(".wheel").getBoundingClientRect();
+    const t = document.querySelector(".wheel-toggle").getBoundingClientRect(), w = document.querySelector(".wheel-layers").getBoundingClientRect();
     const sb = document.querySelector(".search-box").getBoundingClientRect();
     return { gear: mid(gear), info: mid(document.querySelector(".maplibregl-ctrl-attrib-button")), scale: mid(document.querySelector(".maplibregl-ctrl-scale")),
       corner: [Math.round(innerWidth - t.right), Math.round(innerHeight - t.bottom)], size: Math.round(t.width),
@@ -992,7 +1005,7 @@ try {
   check("раскладка: ⓘ и шкала в линию с шестерёнкой", Math.abs(lay.info - lay.gear) <= 2 && Math.abs(lay.scale - lay.gear) <= 2, JSON.stringify(lay));
   check("раскладка: треугольник в правом нижнем углу, размером с кнопки", lay.corner.every((v) => v >= 6 && v <= 14) && lay.size === 40, JSON.stringify(lay));
   check("раскладка: логотип в строке поиска", lay.logo);
-  if (!lay.phone) check("раскладка: верх колеса — вровень с поиском", Math.abs(lay.wheelTop - lay.searchTop) <= 2, JSON.stringify(lay));
+  if (!lay.phone) check("раскладка: верх колеса — под лупой", Math.abs(lay.wheelTop - (lay.searchTop + 50)) <= 2, JSON.stringify(lay));
 } catch (err) {
   errors.push("проверка прервалась: " + err.message);
 }

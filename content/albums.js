@@ -13,7 +13,7 @@
 // значком ▶; живое фото iPhone — снимок и ролик с одним именем (IMG_1234.JPG + IMG_1234.MOV) — одна
 // клетка со значком LIVE, ролик оживает в галерее
 import { register, isMobile } from "../core/modules.js";
-import { createPanel, isOpen } from "../core/panel.js";
+import { createPanel, isOpen, homeList } from "../core/panel.js";
 import { repoFiles, repoUrl, repoSite } from "../core/repo.js";
 import { flagUrl } from "../core/flags.js";
 import { emit } from "../core/events.js";
@@ -624,8 +624,19 @@ function renderList(country, query = "") {
   const list = (q ? [...groups.values(), ...albums.values()] : tops())
     .filter((a) => (q ? [a.title, a.name, a.id, countryOf(a)].join(" ").toLowerCase().includes(q) : countryOf(a) === currentCountry))
     .sort((x, y) => from(y) - from(x) || x.title.localeCompare(y.title, "ru"));
+  // без страны — список стран (первой строкой — своя папка), у списка страны — стрелка «Все страны»
+  if (!q && !currentCountry) {
+    panel.setTitle("Мои альбомы");
+    panel.body.replaceChildren(...(busy ? [h("p", "pb-hint", `Читаю снимки… проверено ${checked}`)] : []), homeList(countryItems(), chooseItem));
+    return;
+  }
   panel.setTitle(q ? "Найденные альбомы" : currentCountry || "Мои альбомы");
   const nodes = [];
+  if (!q) {
+    const bar = h("div", "pb-bar");
+    bar.append(btn(BACK, "Все страны", () => { currentCountry = null; renderList(null); panel.body.scrollTop = 0; }));
+    nodes.push(bar);
+  }
   if (needsAccess && dir) nodes.push(accessRow());
   if (busy) nodes.push(h("p", "pb-hint", `Читаю снимки… проверено ${checked}`));
   if (q && !list.length) nodes.push(h("p", "pb-hint", "Ничего не нашлось"));
@@ -760,6 +771,21 @@ const MODE = { icon: svg(STACK_D, 20), title: "Мои альбомы", placehold
   filter: (text) => { if (text) renderList(null, text); else if (openAlbum) renderAlbum(); else if (openGroup) renderGroup(); else renderList(currentCountry); },
   exit: () => panel.close() };
 
+// первой строкой — своя папка со снимками (на компьютере), прямо здесь, а не в настройках
+// (Грегори, 2026-11-02: «в треках файлы выбираются на месте, для фото надо лазать по меню»)
+function countryItems() {
+  const folder = !canFolders() ? [] : [{ id: "#folder", icon: OPEN_ICON, hint: "Снимки с этого компьютера никуда не отправляются",
+    title: !dir ? "Открыть папку со снимками…" : needsAccess ? `Открыть мою папку «${dir.name}»` : "Открыть другую папку…" }];
+  const list = countries().map(([name, n]) => ({ id: name, title: `${name} (${n})`, thumb: flagUrl(isoOf(name)) || "",
+    icon: isoOf(name) ? "" : ICON, selected: currentCountry === name && isOpen("albums") }));
+  return [...folder, ...(list.length || !loading ? list : [{ id: "", title: busy ? "Читаю альбомы…" : "Альбомов пока нет", icon: ICON }])];
+}
+// окно выбора папки — прямо по нажатию (иначе браузер его не откроет); после выбора — снова список стран
+function chooseItem(country) {
+  if (country === "#folder") { (dir && needsAccess ? askAccess() : pickFolder()).then(() => isOpen("albums") && !currentCountry && renderList(null)); return; }
+  if (country) openCountry(country);
+}
+
 function openCountry(country) {
   renderList(country);
   panel.body.scrollTop = 0;
@@ -817,25 +843,18 @@ register({
   hint: "Свои снимки по альбомам: на карте, в ленте и в галерее",
   icon: ICON,
   sends: "чтение альбомов папки «Альбомы» (GitHub, сайт travel-earth), флаги (flagcdn); снимки с компьютера никуда не уходят",
-  short: "Фото",
   column: {
-    load: (c) => { ctx = c; wire(); return load(c); },
-    // первой строкой — своя папка со снимками (на компьютере), прямо здесь, а не в настройках
-    // (Грегори, 2026-11-02: «в треках файлы выбираются на месте, для фото надо лазать по меню»)
-    items: () => {
-      const folder = !canFolders() ? [] : [{ id: "#folder", icon: OPEN_ICON, hint: "Снимки с этого компьютера никуда не отправляются",
-        title: !dir ? "Открыть папку со снимками…" : needsAccess ? `Открыть мою папку «${dir.name}»` : "Открыть другую папку…" }];
-      const list = countries().map(([name, n]) => ({ id: name, title: `${name} (${n})`, thumb: flagUrl(isoOf(name)) || "",
-        icon: isoOf(name) ? "" : ICON, selected: currentCountry === name && isOpen("albums") }));
-      return [...folder, ...(list.length || !loading ? list : [{ id: "", title: busy ? "Читаю альбомы…" : "Альбомов пока нет", icon: ICON }])];
-    },
-    choose: (country, c) => {
+    // кнопка раздела — панель со списком стран
+    home: (c) => {
       ctx = c;
       wire();
-      // окно выбора папки — прямо по нажатию (иначе браузер его не откроет)
-      if (country === "#folder") { (dir && needsAccess ? askAccess() : pickFolder()).then(() => { const c0 = currentCountry ?? countries()[0]?.[0]; if (c0) openCountry(c0); }); return; }
-      if (country) openCountry(country);
+      currentCountry = null;
+      openCountry(null);
+      load(c).then(() => isOpen("albums") && !currentCountry && !openAlbum && !openGroup && renderList(null)).catch(() => {});
     },
+    load: (c) => { ctx = c; wire(); return load(c); },
+    items: countryItems,
+    choose: (country, c) => { ctx = c; wire(); chooseItem(country); },
     isOpen: () => isOpen("albums"),
     close: () => panel.close(),
   },

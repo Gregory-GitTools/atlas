@@ -5,7 +5,6 @@ import { initLayersPanel } from "./layers-panel.js";
 import { initSettingsPanel } from "./settings-panel.js";
 import { initBasemaps, currentBasemap, styleOf } from "./basemaps.js";
 import { initSearch } from "./search.js";
-import { initContentBar } from "./content-bar.js";
 import { addScale, addGeolocate, addStars } from "./controls.js";
 import { initPopups } from "./popups.js";
 import { initPlaceInfo } from "./place-info.js";
@@ -50,7 +49,6 @@ initPopups(map);
 initPlaceInfo(ctx);
 initPhotoStrip(ctx);
 initSearch(ctx);
-initContentBar(ctx);
 initBasemaps(ctx);
 initLayersPanel(ctx);
 // столбик слева внизу, снизу вверх: настройки, «+ −», компас, «Где я» (Грегори, 2026-10-29: справа

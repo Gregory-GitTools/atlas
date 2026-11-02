@@ -316,6 +316,7 @@ register({
   needs: ["network"],
   sends: "чтение разговорников (GitHub, сайт travel-earth), флаги (flagcdn)",
   column: {
+    panel,
     load,
     // языки по алфавиту; открытый — выделен
     items: () => [...languages.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"))

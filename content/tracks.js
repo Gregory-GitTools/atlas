@@ -1029,8 +1029,9 @@ register({
   tone: "track",
   hint: "Свои треки из Sports Tracker и других программ: на карте, расстояние, время, высота",
   icon: ICON,
-  short: "Треки",
   column: {
+    // список треков — сама панель раздела, «Открыть файл трека…» в ней первой строкой
+    home: (c) => { ctx = c; wire(); return load().then(openPanel); },
     load: (c) => { ctx = c; wire(); return load(); },
     // первой строкой — «Открыть файл…», потом треки, новые сверху
     items: () => [{ id: "", title: "Открыть файл…", icon: OPEN_ICON, hint: "GPX или KML" },

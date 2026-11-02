@@ -12,7 +12,7 @@
 // рядом с регионом, у экскурсии по городу — сначала в ±0,3° от города (опыт travel-earth: «Sorrento»
 // находился в США, «Castel Sant'Angelo» — под Риети); «широта, долгота» — как есть
 import { register } from "../core/modules.js";
-import { createPanel, isOpen } from "../core/panel.js";
+import { createPanel, isOpen, homeList } from "../core/panel.js";
 import { repoFiles, repoText } from "../core/repo.js";
 import { speakText, stopSpeech } from "../core/speech.js";
 import { countryCode, flagUrl } from "../core/flags.js";
@@ -268,8 +268,10 @@ function renderList(country, query = "") {
   const q = query.toLowerCase();
   const list = [...tours.values()].filter((t) => (q ? [t.title, t.region, countryOf(t), t.city, t.kind, t.tags, t.group].join(" ").toLowerCase().includes(q)
     : countryOf(t) === currentCountry)).sort((a, b) => a.title.localeCompare(b.title, "ru"));
+  if (!q && !currentCountry) { panel.setTitle("Экскурсии"); panel.body.replaceChildren(homeList(countryItems(), (c) => openCountry(c))); return; }
   panel.setTitle(q ? "Найденные экскурсии" : currentCountry);
   const nodes = [];
+  if (!q) nodes.push(allCountries());
   if (q && !list.length) nodes.push(h("p", "pb-hint", "Ничего не нашлось"));
   // группы (несколько экскурсий одной «Группы»/«Города») — первыми, с заголовком
   const by = new Map();
@@ -569,6 +571,16 @@ const MODE = { icon: svg(MAP_D, 20), title: "Экскурсии", placeholder: "
   filter: (text) => { if (text) renderList(null, text); else if (openTour) renderTour(); else renderList(currentCountry); },
   exit: () => panel.close() };
 
+// стрелка над списком страны — к списку всех стран
+function allCountries() {
+  const bar = h("div", "pb-bar");
+  bar.append(btn(BACK, "Все страны", () => { currentCountry = null; renderList(null); panel.body.scrollTop = 0; }));
+  return bar;
+}
+
+const countryItems = () => countries().map(([name, n]) => ({ id: name, title: `${name} (${n})`, thumb: flagUrl(countryCode(name)) || "",
+  icon: !countryCode(name) ? ICON : "", selected: currentCountry === name && isOpen("tours") }));
+
 function openCountry(country, c) {
   if (c) ctx = c;
   renderList(country);
@@ -605,9 +617,16 @@ register({
   needs: ["network"],
   sends: "чтение экскурсий (GitHub, сайт travel-earth), названия мест (Nominatim), снимки у остановок (Wikimedia Commons), флаги (flagcdn)",
   column: {
+    // кнопка раздела — панель со списком стран (пока грузится — «Загрузка…»)
+    home: (c) => {
+      ctx = c;
+      wire();
+      currentCountry = null;
+      openCountry(null);
+      load(c).then(() => isOpen("tours") && !currentCountry && !openTour && renderList(null)).catch(() => {});
+    },
     load: (c) => { ctx = c; wire(); return load(c); },
-    items: () => countries().map(([name, n]) => ({ id: name, title: `${name} (${n})`, thumb: flagUrl(countryCode(name)) || "",
-      icon: !countryCode(name) ? ICON : "", selected: currentCountry === name && isOpen("tours") })),
+    items: countryItems,
     choose: (country, c) => { ctx = c; wire(); openCountry(country, c); },
     isOpen: () => isOpen("tours"),
     close: () => panel.close(),

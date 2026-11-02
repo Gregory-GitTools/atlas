@@ -95,6 +95,22 @@ export function close(id, replaced = false) {
 
 export const isOpen = (id) => openId === id;
 
+// список раздела в его панели (страны, языки; Грегори 2026-11-02: «сразу панели… проще прокрутка, если
+// список вырастет»): items — [{ id, title, thumb, icon, hint, selected }], флаг или значок слева
+export function homeList(items, choose) {
+  const list = Object.assign(document.createElement("div"), { className: "home-list" });
+  if (!items.length) list.append(Object.assign(document.createElement("p"), { className: "pb-hint", textContent: "Загрузка…" }));
+  for (const it of items) {
+    const r = Object.assign(document.createElement("button"), { className: "tr-row home-row" + (it.selected ? " selected" : ""), title: it.hint || "" });
+    r.innerHTML = `<span class="tr-row-text"><span class="tr-row-title"></span></span><i class="tr-icon">${it.thumb ? '<img alt="">' : it.icon || ""}</i>`;
+    r.querySelector(".tr-row-title").textContent = it.title;
+    if (it.thumb) r.querySelector("img").src = it.thumb;
+    r.addEventListener("click", () => choose(it.id));
+    list.append(r);
+  }
+  return list;
+}
+
 // закрыть открытую панель (колесо открылось — правая панель, настройки, уступает ему место); side —
 // только панель этой стороны
 export const closeOpen = (side) => openId && (!side || panels.get(openId).side === side) && close(openId);

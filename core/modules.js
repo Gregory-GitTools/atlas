@@ -30,10 +30,10 @@ export const MODULES = [
   "../layers/terrain.js",
   "../layers/weather.js",
   "../layers/photos.js",
-  "../content/albums.js",
   "../content/tours.js",
   "../content/languages.js",
   "../content/tracks.js",
+  "../content/albums.js",
 ];
 
 const registry = new Map();
