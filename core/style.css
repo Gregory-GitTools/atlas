@@ -489,8 +489,13 @@ html, body {
   display: none;
 }
 
+/* список найденного — поверх строки разделов, сразу под полем */
 .search-results {
-  margin-top: 6px;
+  position: absolute;
+  top: 46px;
+  left: 0;
+  right: 0;
+  z-index: 2;
   max-height: calc(100vh - 200px);
 }
 
@@ -1152,13 +1157,14 @@ body.has-photo-strip .status {
 }
 
 /* ---------- левая панель (Языки, Экскурсии, Альбомы) — под строкой поиска ---------- */
+/* под строкой поиска, строкой разделов и стрелкой под лупой (--search-h ставит core/content-bar.js) */
 .panel.panel-left {
-  top: calc(var(--top-inset) + var(--gap) + 48px);
+  top: calc(var(--top-inset) + var(--gap) + var(--search-h, 40px) + 28px);
   left: var(--gap);
   right: auto;
   width: 400px;
   max-width: calc(100vw - 2 * var(--gap));
-  max-height: calc(100vh - var(--top-inset) - 48px - 3 * var(--gap) - 200px);
+  max-height: calc(100vh - var(--top-inset) - var(--search-h, 40px) - 28px - 3 * var(--gap) - 200px);
 }
 
 @media (max-width: 600px) {
@@ -2179,4 +2185,114 @@ body.has-photo-strip .status {
   white-space: normal;
   line-height: 1.15;
   vertical-align: bottom;
+}
+
+/* строка разделов под поиском (core/content-bar.js, Грегори 2026-11-02): кнопка — как кнопка столбика
+   (белая, круглая, с тенью), значок — в кружке цвета раздела, как в колесе; панель раздела открыта —
+   светлая заливка цвета раздела */
+.search-sections {
+  display: flex;
+  gap: 6px;
+  /* место для тени кнопок — прокрутка вбок её не обрезает */
+  margin: 2px -6px -6px;
+  padding: 4px 6px 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+/* на телефоне четыре кнопки помещаются в ширину экрана */
+@media (max-width: 600px) {
+  .search-sections {
+    gap: 4px;
+  }
+
+  .bar-chip {
+    gap: 4px;
+    padding-right: 9px;
+  }
+}
+
+.search-sections[hidden] {
+  display: none;
+}
+
+.bar-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px 0 4px;
+  border: none;
+  border-radius: 17px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.bar-chip:hover {
+  background: var(--panel-hover);
+}
+
+.bar-chip.on {
+  background: color-mix(in srgb, var(--tone) 20%, #fff);
+}
+
+.bar-chip.open {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.bar-chip-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--tone);
+  color: #fff;
+}
+
+.bar-chip-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* стрелка под лупой — как треугольник колеса: полупрозрачная, без каймы; ▼ — показать, ▲ — спрятать */
+.search-sections-toggle {
+  position: absolute;
+  top: calc(100% + 3px);
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 11px;
+  background: rgba(0, 0, 0, 0.12);
+  color: #fff;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
+  cursor: pointer;
+}
+
+.search-sections-toggle:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.search-sections-toggle.open svg {
+  transform: rotate(180deg);
+}
+
+/* список раздела — вниз под кнопкой, значок слева */
+.bar-sub {
+  align-items: flex-start;
+}
+
+.bar-sub .layers-item {
+  flex-direction: row-reverse;
+  padding: 0 14px 0 6px;
 }

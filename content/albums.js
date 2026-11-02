@@ -27,6 +27,8 @@ const svg = (d, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="
 const STACK_D = "M22 16V4c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2zm-11-4 2.03 2.71L16 11l4 5H8l3-4zM2 6v14c0 1.1.9 2 2 2h14v-2H4V6H2z";
 const CAMERA_D = "M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM9 2 7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z";
 const ICON = svg(STACK_D);
+// строка «Открыть папку…» в списке — тот же плюс, что «Открыть файл…» у треков
+const OPEN_ICON = svg("M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z");
 const BACK = svg("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z", 20);
 const COLOR = "#7c4dff"; // --tone-my
 const VIDEO_RE = /\.(mov|mp4|m4v)$/i;
@@ -815,14 +817,25 @@ register({
   hint: "Свои снимки по альбомам: на карте, в ленте и в галерее",
   icon: ICON,
   sends: "чтение альбомов папки «Альбомы» (GitHub, сайт travel-earth), флаги (flagcdn); снимки с компьютера никуда не уходят",
+  short: "Фото",
   column: {
     load: (c) => { ctx = c; wire(); return load(c); },
+    // первой строкой — своя папка со снимками (на компьютере), прямо здесь, а не в настройках
+    // (Грегори, 2026-11-02: «в треках файлы выбираются на месте, для фото надо лазать по меню»)
     items: () => {
+      const folder = !canFolders() ? [] : [{ id: "#folder", icon: OPEN_ICON, hint: "Снимки с этого компьютера никуда не отправляются",
+        title: !dir ? "Открыть папку со снимками…" : needsAccess ? `Открыть мою папку «${dir.name}»` : "Открыть другую папку…" }];
       const list = countries().map(([name, n]) => ({ id: name, title: `${name} (${n})`, thumb: flagUrl(isoOf(name)) || "",
         icon: isoOf(name) ? "" : ICON, selected: currentCountry === name && isOpen("albums") }));
-      return list.length || !loading ? list : [{ id: "", title: busy ? "Читаю альбомы…" : "Альбомов пока нет", icon: ICON }];
+      return [...folder, ...(list.length || !loading ? list : [{ id: "", title: busy ? "Читаю альбомы…" : "Альбомов пока нет", icon: ICON }])];
     },
-    choose: (country, c) => { if (!country) return; ctx = c; wire(); openCountry(country); },
+    choose: (country, c) => {
+      ctx = c;
+      wire();
+      // окно выбора папки — прямо по нажатию (иначе браузер его не откроет)
+      if (country === "#folder") { (dir && needsAccess ? askAccess() : pickFolder()).then(() => { const c0 = currentCountry ?? countries()[0]?.[0]; if (c0) openCountry(c0); }); return; }
+      if (country) openCountry(country);
+    },
     isOpen: () => isOpen("albums"),
     close: () => panel.close(),
   },

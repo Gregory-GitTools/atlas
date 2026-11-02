@@ -30,9 +30,9 @@ export const MODULES = [
   "../layers/terrain.js",
   "../layers/weather.js",
   "../layers/photos.js",
+  "../content/albums.js",
   "../content/tours.js",
   "../content/languages.js",
-  "../content/albums.js",
   "../content/tracks.js",
 ];
 

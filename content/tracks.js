@@ -1029,6 +1029,7 @@ register({
   tone: "track",
   hint: "Свои треки из Sports Tracker и других программ: на карте, расстояние, время, высота",
   icon: ICON,
+  short: "Треки",
   column: {
     load: (c) => { ctx = c; wire(); return load(); },
     // первой строкой — «Открыть файл…», потом треки, новые сверху
