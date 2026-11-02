@@ -7,9 +7,11 @@
 // Режимы (Грегори, 2026-10-29: «без окна поиска не обойтись; после выбора режимов в окне поиска должен
 // появляться соответствующий значок»): раздел (Языки, Экскурсии, Альбомы) включает свой режим —
 // setSearchMode({ icon, title, placeholder, filter(text), exit() }): у поля его значок с крестиком,
-// ввод ищет внутри раздела (filter на каждую букву — это своё, не Nominatim), крестик — обратно к местам
+// ввод ищет внутри раздела (filter на каждую букву — это своё, не Nominatim). Значок режима — не в строке,
+// а на кнопке справа вверху (событие search-mode, Грегори 2026-11-02: «логотип меняется на выбранную
+// функцию, значок из окна поиска убираем»); там же — выход из режима
 import { register, modules, allowed } from "./modules.js";
-import { emit } from "./events.js";
+import { emit, on } from "./events.js";
 import * as settings from "./settings.js";
 import { uiLanguage, languageButton } from "./labels.js";
 import { track } from "./popups.js";
@@ -42,8 +44,6 @@ export function initSearch({ map, maplibregl }) {
   const bar = Object.assign(document.createElement("div"), { className: "search" });
   // слева — логотип Atlas (Грегори, 2026-10-29: строка поиска как у Google, логотип внутри слева)
   bar.innerHTML = `<div class="search-box">
-      <img class="search-logo" src="icons/logo.png" alt="">
-      <button class="search-mode" hidden></button>
       <input type="search" placeholder="Поиск места" autocomplete="off" enterkeyhint="search" aria-label="Поиск места">
       <button class="search-clear" title="Очистить" hidden>${CLEAR_ICON}</button>
       <button class="search-go" title="Найти">${SEARCH_ICON}</button>
@@ -53,7 +53,6 @@ export function initSearch({ map, maplibregl }) {
   document.body.append(bar);
   const input = bar.querySelector("input");
   const clearBtn = bar.querySelector(".search-clear");
-  const modeBtn = bar.querySelector(".search-mode");
   // ---------- режим раздела ----------
   setMode = (m) => {
     if (mode === m) return;
@@ -62,19 +61,12 @@ export function initSearch({ map, maplibregl }) {
     input.value = "";
     clearBtn.hidden = true;
     close();
-    modeBtn.hidden = !m;
-    // значок режима — на месте логотипа (Грегори, 2026-10-29: «логотип глобуса — равный значку режима, при
-    // выборе режима меняй его на соответствующий»)
-    bar.querySelector(".search-logo").hidden = !!m;
     input.placeholder = m?.placeholder || "Поиск места";
-    if (m) {
-      modeBtn.innerHTML = `${m.icon}<i>${CLEAR_ICON}</i>`;
-      modeBtn.title = `${m.title} — щелчок: обратно к поиску мест`;
-      modeBtn.style.background = `var(--tone-${m.tone || "lang"})`;
-    }
+    emit("search-mode", m && { icon: m.icon, title: m.title, tone: m.tone || "lang" });
     old?.filter("");
   };
-  modeBtn.addEventListener("click", () => { const m = mode; setMode(null); m?.exit(); });
+  // закрыли поиск кнопкой справа вверху — выйти из режима раздела (и закрыть его панель)
+  on("search-exit", () => { const m = mode; setMode(null); m?.exit(); }, { replay: false });
   const list = bar.querySelector(".search-results");
   let cursor = null; // display_name выделенной стрелками строки
   let marker = null;

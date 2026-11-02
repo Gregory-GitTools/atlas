@@ -434,26 +434,15 @@ html, body {
   max-width: calc(100vw - 3 * var(--gap) - var(--button));
 }
 
-/* строка поиска — белая (тёмную, как у Google, Грегори вернул обратно 2026-10-29); логотип слева */
+/* строка поиска — белая (тёмную, как у Google, Грегори вернул обратно 2026-10-29); логотип — на кнопке справа вверху */
 .search-box {
   display: flex;
   align-items: center;
   height: 40px; /* ниже (Грегори, 2026-10-29: «слишком высокое») */
-  padding: 0 2px 0 6px;
+  padding: 0 2px 0 16px;
   background: var(--panel);
   border-radius: 20px;
   box-shadow: var(--shadow);
-}
-
-.search-logo[hidden] {
-  display: none;
-}
-
-.search-logo {
-  flex: none;
-  width: 30px;
-  height: 30px;
-  margin-right: 8px;
 }
 
 .search-box input {
@@ -1039,8 +1028,9 @@ body.has-photo-strip .status {
   transform: rotate(180deg);
 }
 
-/* лупа справа вверху (Грегори, 2026-11-02) — как треугольник: прозрачный фон, без каймы; показывает
-   строку поиска и барабан разделов; открыт барабан разделов — фон чуть темнее */
+/* лупа справа вверху (Грегори, 2026-11-02) — как треугольник: прозрачный фон, без каймы; открыт поиск —
+   на её месте логотип Atlas в белом кружке (лупа — в строке поиска), режим раздела — значок раздела в
+   кружке его цвета */
 .search-toggle {
   position: fixed;
   right: var(--gap);
@@ -1054,9 +1044,30 @@ body.has-photo-strip .status {
   filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
 }
 
-.search-toggle:hover,
-.search-toggle.open {
+.search-toggle:hover {
   background: rgba(0, 0, 0, 0.25);
+}
+
+.search-toggle.open,
+.search-toggle.open:hover {
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  filter: none;
+}
+
+.search-toggle.open img {
+  width: 32px;
+  height: 32px;
+}
+
+.search-toggle.mode {
+  box-shadow: var(--shadow);
+  filter: none;
+}
+
+.search-toggle.mode svg {
+  width: 22px;
+  height: 22px;
 }
 
 /* кнопки барабана — цвет группы (Грегори, 2026-10-29: «наоборот»): выключено — яркая заливка, значок белый;
@@ -1209,40 +1220,6 @@ body.has-photo-strip .status {
   color: var(--muted);
   font-size: 13px;
   box-shadow: var(--shadow);
-}
-
-/* значок режима в строке поиска: значок раздела, при наведении — крестик «обратно к местам» */
-.search-box > .search-mode {
-  position: relative;
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  margin-right: 8px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: var(--tone-lang);
-  color: #fff;
-  cursor: pointer;
-}
-
-.search-box > .search-mode[hidden] {
-  display: none;
-}
-
-.search-box > .search-mode i {
-  position: absolute;
-  inset: 0;
-  display: none;
-  place-items: center;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-}
-
-.search-box > .search-mode:hover i {
-  display: grid;
 }
 
 /* ---------- разговорник ---------- */

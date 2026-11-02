@@ -3,8 +3,9 @@
 //  • барабан слоёв — открывает треугольник справа внизу, над лентой фото (◀ — показать, ▶ — спрятать);
 //  • барабан разделов (Экскурсии, Языки, Треки, Фото) — открывает полупрозрачная лупа справа вверху,
 //    вместе со строкой поиска: с ней связаны режимы поиска разделов. Так кнопки сгруппированы по смыслу;
-//  • щелчок по лупе или треугольнику — показать свой барабан вместо другого; двойной щелчок — спрятать
-//    или показать свой барабан (у лупы — вместе со строкой поиска); на телефоне барабан можно смахнуть вправо;
+//  • щелчок по лупе или треугольнику — показать свой барабан вместо другого, второй щелчок — спрятать (у лупы —
+//    вместе со строкой поиска); открыт поиск — на месте лупы логотип, в режиме раздела — значок раздела;
+//    на телефоне барабан можно смахнуть вправо;
 //  • кнопки — на барабане, как в игровом автомате или при выборе даты: размер у всех один, меняются
 //    промежутки — в центре самые большие, к верху и низу всё меньше, кнопки уходят за край барабана
 //    и темнеют. Барабан крутится колёсиком мыши или пальцем, по кругу; кнопка, проходя через центр,
@@ -32,7 +33,7 @@
 // барабан уступает место, и наоборот
 import { closeOpen, homeList } from "./panel.js";
 import { modules, toggle, available, allowed, onRegister, MODULES } from "./modules.js";
-import { on } from "./events.js";
+import { on, emit } from "./events.js";
 import { BASEMAPS, currentBasemap, setBasemap, thumbOf } from "./basemaps.js";
 import * as settings from "./settings.js";
 
@@ -57,8 +58,6 @@ const LENS = '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor
 // барабан: промежуток между кнопками в центре — GAP (Грегори, 2026-10-30: «расстояние между кнопками
 // поменьше»), притормаживание у центра
 const GAP = 54, DETENT = 0.7, BTN = 40;
-// два щелчка по лупе или треугольнику быстрее этого — двойной щелчок
-const DOUBLE_MS = 350;
 
 export function initLayersPanel(ctx) {
   // ---------- слои ----------
@@ -136,20 +135,28 @@ export function initLayersPanel(ctx) {
   };
 
   // ---------- какой барабан виден: "layers", "content" или ни один ----------
+  // Грегори, 2026-11-02 («минимализм»): при первом запуске нет ни барабанов, ни строки поиска.
+  // Треугольник: щелчок — барабан слоёв, второй щелчок — спрятать. Лупа справа вверху: щелчок — строка
+  // поиска и барабан разделов, а на месте лупы — логотип (лупа уходит в строку поиска: двух луп быть не
+  // должно); выбран раздел — вместо логотипа его значок; второй щелчок по логотипу или значку — закрыть всё
   const arrowBtn = Object.assign(document.createElement("button"), { className: "btn wheel-toggle", innerHTML: ARROW });
-  const lensBtn = Object.assign(document.createElement("button"), { className: "btn search-toggle", innerHTML: LENS });
+  const lensBtn = Object.assign(document.createElement("button"), { className: "btn search-toggle" });
   const controls = [arrowBtn, lensBtn];
-  let shown = null, searchOn = settings.get("search.hidden") !== true;
+  let shown = null, searchOn = false, mode = null;
   const paint = () => {
     arrowBtn.classList.toggle("open", shown === "layers");
-    arrowBtn.title = "Слои карты. Щелчок — показать, двойной щелчок — спрятать или показать";
-    lensBtn.classList.toggle("open", shown === "content");
-    lensBtn.title = "Поиск и разделы: экскурсии, языки, треки, фото. Щелчок — показать, двойной щелчок — спрятать или показать";
+    arrowBtn.title = shown === "layers" ? "Спрятать слои карты" : "Слои карты";
+    lensBtn.classList.toggle("open", searchOn && !mode);
+    lensBtn.classList.toggle("mode", searchOn && !!mode);
+    lensBtn.style.background = searchOn && mode ? `var(--tone-${mode.tone})` : "";
+    lensBtn.innerHTML = !searchOn ? LENS : mode ? mode.icon : '<img src="icons/logo.png" alt="">';
+    lensBtn.title = !searchOn ? "Поиск и разделы: экскурсии, языки, треки, фото"
+      : shown === "content" ? `Закрыть ${mode ? `«${mode.title}» и ` : ""}поиск` : "Поиск и разделы";
   };
   const setShown = (which, search = searchOn) => {
     searchOn = search;
     document.body.classList.toggle("search-hidden", !searchOn);
-    settings.set("search.hidden", searchOn ? null : true);
+    settings.set("search.open", searchOn || null);
     if (which !== shown) {
       shown = which;
       settings.set("layers.panel", which);
@@ -158,25 +165,14 @@ export function initLayersPanel(ctx) {
     }
     paint();
   };
-  // щелчок — свой барабан вместо другого; двойной — спрятать или показать свой (по состоянию до первого щелчка)
-  let last = { btn: null, t: 0 };
-  const press = (btn, name) => {
-    const now = performance.now();
-    if (last.btn === btn && now - last.t < DOUBLE_MS) {
-      if (name === "layers") setShown(last.shown === "layers" ? null : "layers", last.search);
-      // лупа: были поиск и разделы — спрятать оба (другой барабан, если был, остаётся); не были — показать
-      else if (last.search && last.shown === "content") setShown(null, false);
-      else if (last.search) setShown(last.shown, false);
-      else setShown("content", true);
-      last = { btn: null, t: 0 };
-      return;
-    }
-    last = { btn, t: now, shown, search: searchOn };
-    if (name === "layers") setShown("layers");
-    else setShown("content", true);
-  };
-  arrowBtn.addEventListener("click", () => press(arrowBtn, "layers"));
-  lensBtn.addEventListener("click", () => press(lensBtn, "content"));
+  // щелчок — свой барабан (вместо другого), второй щелчок — спрятать; у лупы — вместе с поиском и разделом
+  arrowBtn.addEventListener("click", () => setShown(shown === "layers" ? null : "layers"));
+  lensBtn.addEventListener("click", () => {
+    if (shown !== "content") return setShown("content", true);
+    setShown(null, false);
+    if (mode) emit("search-exit");
+  });
+  on("search-mode", (m) => { mode = m; paint(); });
   // открылась панель настроек (на телефоне — любая) — барабан уступает место
   on("panel", (p) => p && shown && (p.side === "right" || innerWidth <= 600) && setShown(null), { replay: false });
 
@@ -440,9 +436,9 @@ export function initLayersPanel(ctx) {
   on("panel", () => renderAll(), { replay: false });
   onRegister(renderAll);
   renderAll();
-  // открытый барабан — с прошлого раза (раньше было только «да» — барабан слоёв)
+  // открытый барабан и поиск — с прошлого раза; при первом запуске — ничего (раньше было только «да» — слои)
   const saved = settings.get("layers.panel");
-  setShown(saved === true ? "layers" : saved || null);
+  setShown(saved === true ? "layers" : saved || null, !!settings.get("search.open") || saved === "content");
 
   // разрешили сеть снова — включить то, что было включено до запрета
   on("modules", async () => {

@@ -13,6 +13,8 @@
 //   languages-wanted — нужен список языков (экскурсии ищут разговорник страны)
 //   languages  — список языков { key, name, countries }[] (отвечают «Языки»)
 //   language-open — открыть разговорник { key }
+//   search-mode — режим строки поиска { icon, title, tone } (раздел) или null (поиск мест)
+//   search-exit — выйти из режима раздела (закрыли поиск кнопкой справа вверху)
 
 const handlers = new Map();
 const last = new Map();
