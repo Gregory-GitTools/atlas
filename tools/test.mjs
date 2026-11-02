@@ -509,7 +509,40 @@ try {
       check("альбомы: стрелка папки раскрывает её альбомы, кнопка в шапке сворачивает все",
         f0.chev === 1 && f0.fold === "Раскрыть все папки" && f1.rows.length === f0.rows.length + 4 && f1.indent === "24px" && f1.fold === "Свернуть все папки"
         && f2.rows.length === f0.rows.length && f2.fold === "Раскрыть все папки", JSON.stringify({ f0, f1, f2 }));
-      // ползунок внизу окна: потянуть мышью вверх — окно ниже; двойное нажатие — снова по содержимому
+      // выбросы GPS: трек с точкой, отскочившей на 330 м, — найдена и убрана; разрезать в отмеченной точке —
+    // два трека, «Назад» — снова один; склеить их; дорисовать щелчками по карте
+    const spiky = gpx.replace(/(<trkpt lat=")59\.47(" lon="24\.84755)/, "$159.473$2").replace("Проверочный трек", "Трек с выбросом");
+    await run(`${ts}.addText("spiky.gpx", ${JSON.stringify(spiky)}).then(() => true)`);
+    await sleep(800);
+    const sp0 = await run(`({ btn: [...document.querySelectorAll(".tk-edit .text-btn")].map((b) => b.textContent).find((x) => /выброс/i.test(x)),
+      red: atlas.map.getSource("tracks-ends").serialize().data.features.filter((f) => f.properties.kind === "spike").length })`);
+    await run(`[...document.querySelectorAll(".tk-edit .text-btn")].find((b) => /Убрать выбросы/.test(b.textContent)).click(); true`);
+    await sleep(500);
+    const sp1 = await run(`({ btn: [...document.querySelectorAll(".tk-edit .text-btn")].map((b) => b.textContent).find((x) => /выброс/i.test(x)), dist: document.querySelector(".tk-fact b").textContent })`);
+    check("треки: выброс GPS найден, на карте красный, убран", sp0.btn === "Убрать выбросы GPS (1)" && sp0.red === 1 && sp1.btn === "Выбросов GPS нет" && /^(1,9\d|2,0\d) км$/.test(sp1.dist), JSON.stringify({ sp0, sp1 }));
+    const btnText = (re) => `[...document.querySelectorAll(".tk-edit .text-btn")].find((b) => ${re}.test(b.textContent))`;
+    await run(`${ts}.pinAt(0.5).then(() => true)`);
+    await sleep(300);
+    await run(`${btnText("/^Разрезать/")}.click(); true`);
+    await sleep(800);
+    const sp2 = await run(`({ n: ${ts}.stats().tracks, dist: document.querySelector(".tk-fact b").textContent })`);
+    await run(`document.querySelector('[data-panel="tracks"] .pb-bar .tr-bar-left:last-child .pb-btn').click(); true`);
+    await sleep(800);
+    const sp3 = await run(`({ n: ${ts}.stats().tracks, dist: document.querySelector(".tk-fact b").textContent })`);
+    check("треки: «Разрезать» — два трека, «Назад» — снова один", sp2.n === 3 && /^(9\d\d м|1,0\d км)$/.test(sp2.dist) && sp3.n === 2 && /^(1,9\d|2,0\d) км$/.test(sp3.dist), JSON.stringify({ sp2, sp3 }));
+    await run(`(() => { const m = document.querySelector(".tk-merge"); m.value = m.options[1].value; m.dispatchEvent(new Event("change")); return true; })()`);
+    await sleep(800);
+    const sp4 = await run(`({ n: ${ts}.stats().tracks, dist: document.querySelector(".tk-fact b").textContent, hint: document.querySelector('[data-panel="tracks"] .pb-hint').textContent })`);
+    check("треки: «Склеить с треком» — один трек из двух", sp4.n === 1 && /^(3,9\d|4,0\d) км$/.test(sp4.dist) && /кусков записи: 2/.test(sp4.hint), JSON.stringify(sp4));
+    await run(`${btnText("/^Дорисовать/")}.click(); true`);
+    await sleep(300);
+    await run(`${ts}.drawAt(24.8705, 59.47).then(() => true)`);
+    await sleep(500);
+    const sp5 = await run(`({ dist: document.querySelector(".tk-fact b").textContent, done: !!${btnText("/^Готово/")}, place: !!document.querySelector(".maplibregl-popup") })`);
+    await run(`${btnText("/^Готово/")}.click(); true`);
+    await sleep(300);
+    check("треки: «Дорисовать» — щелчок по карте продолжает трек", /^(4,\d\d) км$/.test(sp5.dist) && sp5.dist !== sp4.dist && sp5.done && !sp5.place, JSON.stringify(sp5));
+    // ползунок внизу окна: потянуть мышью вверх — окно ниже; двойное нажатие — снова по содержимому
       const box = `document.querySelector('[data-panel="albums"]')`;
       const g = await run(`(() => { const r = ${box}.querySelector(".panel-grip").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2, ${box}.getBoundingClientRect().height]; })()`);
       await send("Input.dispatchMouseEvent", { type: "mousePressed", x: g[0], y: g[1], button: "left", buttons: 1, clickCount: 1 });
@@ -628,6 +661,39 @@ try {
     await sleep(500);
     const ed3 = await run(`document.querySelector(".tk-fact b").textContent`);
     check("треки: «Назад» — трек как был", /^(1,9\d|2,0\d) км$/.test(ed3), ed3);
+    // выбросы GPS: трек с точкой, отскочившей на 330 м, — найдена и убрана; разрезать в отмеченной точке —
+    // два трека, «Назад» — снова один; склеить их; дорисовать щелчками по карте
+    const spiky = gpx.replace(/(<trkpt lat=")59\.47(" lon="24\.84755)/, "$159.473$2").replace("Проверочный трек", "Трек с выбросом");
+    await run(`${ts}.addText("spiky.gpx", ${JSON.stringify(spiky)}).then(() => true)`);
+    await sleep(800);
+    const sp0 = await run(`({ btn: [...document.querySelectorAll(".tk-edit .text-btn")].map((b) => b.textContent).find((x) => /выброс/i.test(x)),
+      red: atlas.map.getSource("tracks-ends").serialize().data.features.filter((f) => f.properties.kind === "spike").length })`);
+    await run(`[...document.querySelectorAll(".tk-edit .text-btn")].find((b) => /Убрать выбросы/.test(b.textContent)).click(); true`);
+    await sleep(500);
+    const sp1 = await run(`({ btn: [...document.querySelectorAll(".tk-edit .text-btn")].map((b) => b.textContent).find((x) => /выброс/i.test(x)), dist: document.querySelector(".tk-fact b").textContent })`);
+    check("треки: выброс GPS найден, на карте красный, убран", sp0.btn === "Убрать выбросы GPS (1)" && sp0.red === 1 && sp1.btn === "Выбросов GPS нет" && /^(1,9\d|2,0\d) км$/.test(sp1.dist), JSON.stringify({ sp0, sp1 }));
+    const btnText = (re) => `[...document.querySelectorAll(".tk-edit .text-btn")].find((b) => ${re}.test(b.textContent))`;
+    await run(`${ts}.pinAt(0.5).then(() => true)`);
+    await sleep(300);
+    await run(`${btnText("/^Разрезать/")}.click(); true`);
+    await sleep(800);
+    const sp2 = await run(`({ n: ${ts}.stats().tracks, dist: document.querySelector(".tk-fact b").textContent })`);
+    await run(`document.querySelector('[data-panel="tracks"] .pb-bar .tr-bar-left:last-child .pb-btn').click(); true`);
+    await sleep(800);
+    const sp3 = await run(`({ n: ${ts}.stats().tracks, dist: document.querySelector(".tk-fact b").textContent })`);
+    check("треки: «Разрезать» — два трека, «Назад» — снова один", sp2.n === 3 && /^(9\d\d м|1,0\d км)$/.test(sp2.dist) && sp3.n === 2 && /^(1,9\d|2,0\d) км$/.test(sp3.dist), JSON.stringify({ sp2, sp3 }));
+    await run(`(() => { const m = document.querySelector(".tk-merge"); m.value = m.options[1].value; m.dispatchEvent(new Event("change")); return true; })()`);
+    await sleep(800);
+    const sp4 = await run(`({ n: ${ts}.stats().tracks, dist: document.querySelector(".tk-fact b").textContent, hint: document.querySelector('[data-panel="tracks"] .pb-hint').textContent })`);
+    check("треки: «Склеить с треком» — один трек из двух", sp4.n === 1 && /^(3,9\d|4,0\d) км$/.test(sp4.dist) && /кусков записи: 2/.test(sp4.hint), JSON.stringify(sp4));
+    await run(`${btnText("/^Дорисовать/")}.click(); true`);
+    await sleep(300);
+    await run(`${ts}.drawAt(24.8705, 59.47).then(() => true)`);
+    await sleep(500);
+    const sp5 = await run(`({ dist: document.querySelector(".tk-fact b").textContent, done: !!${btnText("/^Готово/")}, place: !!document.querySelector(".maplibregl-popup") })`);
+    await run(`${btnText("/^Готово/")}.click(); true`);
+    await sleep(300);
+    check("треки: «Дорисовать» — щелчок по карте продолжает трек", /^(4,\d\d) км$/.test(sp5.dist) && sp5.dist !== sp4.dist && sp5.done && !sp5.place, JSON.stringify(sp5));
     // ползунок внизу окна: потянуть вверх — окно ниже; двойное нажатие — снова по содержимому
     const gr = await run(`(() => { const p = document.querySelector('[data-panel="tracks"]'), g = p.querySelector(".panel-grip"), before = p.getBoundingClientRect().height, r = g.getBoundingClientRect();
       const ev = (type, y) => g.dispatchEvent(new PointerEvent(type, { clientX: r.left + r.width / 2, clientY: y, pointerId: 1, bubbles: true }));
@@ -635,7 +701,7 @@ try {
       const after = p.getBoundingClientRect().height; g.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
       return { before: Math.round(before), after: Math.round(after), reset: Math.round(p.getBoundingClientRect().height), icons: document.querySelectorAll(".tk-edit svg").length,
         labels: [...document.querySelectorAll(".tk-edit .text-btn")].map((b) => b.textContent) }; })()`);
-    check("окно: ползунок внизу меняет высоту; правка — значки «Обрезать», «Вырезать»", Math.abs(gr.before - gr.after - 108) < 3 && gr.reset === gr.before && gr.icons === 4
+    check("окно: ползунок внизу меняет высоту; правка — значки «Обрезать», «Вырезать»", Math.abs(gr.before - gr.after - 108) < 3 && gr.reset === gr.before && gr.icons >= 4
       && gr.labels[0] === "Обрезать" && gr.labels[1] === "Вырезать", JSON.stringify(gr));
     // удалить (без вопроса — подтверждение подменено), трек уходит и с устройства
     await run(`window.confirm = () => true; document.querySelector('[data-panel="tracks"] .pb-bar .tr-bar-left:last-child .pb-btn:last-child').click(); true`);

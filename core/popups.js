@@ -27,3 +27,8 @@ export const ownHit = (map, point) => {
   const layers = [...own].filter((id) => map.getLayer(id));
   return layers.length > 0 && map.queryRenderedFeatures(point, { layers }).length > 0;
 };
+
+// Модуль забрал щелчки по карте себе (рисование трека): окно места не открывается, пока не отпустит
+let captured = null;
+export const captureClicks = (owner) => { captured = owner; };
+export const clicksCaptured = () => !!captured;

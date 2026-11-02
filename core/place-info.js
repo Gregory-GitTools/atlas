@@ -7,7 +7,7 @@
 import { register, modules, allowed } from "./modules.js";
 import { uiLanguage } from "./labels.js";
 import { emit } from "./events.js";
-import { track, anyOpen as popupOpen, closeAll, ownHit } from "./popups.js";
+import { track, anyOpen as popupOpen, closeAll, ownHit, clicksCaptured } from "./popups.js";
 
 register({
   id: "core/place-info",
@@ -155,6 +155,7 @@ export function initPlaceInfo({ map, maplibregl }) {
   map.on("click", async (e) => {
     if (e.originalEvent.target !== map.getCanvas() || !onEarth(e.point)) return;
     if (ownHit(map, e.point)) return; // свой значок модуля — у него своё окно
+    if (clicksCaptured()) return; // щелчки забрал модуль (рисует по карте)
     if (anyOpen()) { closeAll(); return; }
     const f = hit(e.point);
     const n = ++click;

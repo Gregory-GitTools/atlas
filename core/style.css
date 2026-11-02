@@ -1914,6 +1914,45 @@ body.has-photo-strip .status {
   margin: 0 6px 10px;
 }
 
+/* отмеченная на графике точка (там можно разрезать) */
+.tk-pin {
+  stroke: #ff6d00;
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.tk-edit .text-btn.on {
+  border-color: #ff6d00;
+  background: color-mix(in srgb, #ff6d00 14%, #fff);
+}
+
+/* «Склеить с треком…» — список в виде кнопки со значком */
+.tk-merge-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 4px 5px 7px;
+}
+
+.tk-merge-wrap.off {
+  opacity: 0.45;
+}
+
+.tk-merge {
+  max-width: 190px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tk-draw-hint {
+  color: #e65100;
+}
+
 /* отрезки по км */
 .tk-split-head {
   display: flex;

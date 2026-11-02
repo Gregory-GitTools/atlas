@@ -6,13 +6,14 @@
 // график высоты и скорости (водишь по нему — по треку бегает точка), сохранить файлом GPX, удалить.
 // Шаг 2 (Грегори, 2026-10-30: «забыл остановить и уехал на машине»): края на графике выбирают кусок —
 // оставить только его или вырезать, «Назад»; наибольшая скорость и высота, вид занятия, отрезки по км.
-// Дальше (ROADMAP): выбросы GPS, склеить и разрезать, дорисовать, оформить
+// Шаг 3: убрать выбросы GPS, разрезать в точке графика, склеить с другим треком, дорисовать по карте.
+// Дальше (ROADMAP): оформить — название, цвет, заметка, альбом, снимки на треке по времени
 import { register } from "../core/modules.js";
 import { createPanel, isOpen } from "../core/panel.js";
 import { emit } from "../core/events.js";
 import { setSearchMode, searchMode } from "../core/search.js";
 import { cacheGet, cacheSet, cacheDelete } from "../core/storage.js";
-import { claimLayers } from "../core/popups.js";
+import { claimLayers, captureClicks } from "../core/popups.js";
 import * as settings from "../core/settings.js";
 
 const svg = (d, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor"><path d="${d}"/></svg>`;
@@ -30,6 +31,10 @@ const TRIM = toolIcon('<path d="M1.5 12h3M19.5 12h3" stroke="#9aa0a6" stroke-wid
 const CUT = toolIcon('<path d="M1.5 12H6M18 12h4.5" stroke="#3949ab" stroke-width="3"/><path d="M6 6v12M18 6v12" stroke="currentColor" stroke-width="2"/><path d="M9.5 9.5l5 5M14.5 9.5l-5 5" stroke="#ff6d00" stroke-width="2.2"/>');
 const ZOOM = toolIcon('<circle cx="10" cy="10" r="6" stroke="currentColor" stroke-width="2"/><path d="M14.5 14.5L20 20M7.5 10h5M10 7.5v5" stroke="currentColor" stroke-width="2"/>');
 const WHOLE = toolIcon('<path d="M2 12h20M5 9l-3 3 3 3M19 9l3 3-3 3" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>');
+const SPIKES = toolIcon('<path d="M2 16l5-2 3-11 3 13 4-2 5 1" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="10" cy="4" r="2.6" fill="#e53935"/>');
+const SPLIT = toolIcon('<path d="M2 12h7M15 12h7" stroke="#3949ab" stroke-width="3"/><path d="M12 4v16" stroke="#ff6d00" stroke-width="2" stroke-dasharray="2 2.5"/>');
+const MERGE = toolIcon('<path d="M2 8h6l4 4M2 16h6l4-4h10" stroke="#3949ab" stroke-width="2.5" stroke-linejoin="round"/>');
+const DRAW = toolIcon('<path d="M3 21l3.5-1 11-11-2.5-2.5-11 11L3 21z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 5.5l2.5-2.5 2.5 2.5L16.5 8" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>');
 const COLOR = "#3949ab"; // --tone-track
 const SEL_COLOR = "#ff6d00"; // выбранный кусок
 
@@ -213,6 +218,7 @@ addEventListener("drop", (e) => {
 // ---------- карта: все треки тонко, открытый — толще, начало и конец ----------
 let shown = false, openId = null, hoverPt = null;
 let selPiece = null; // выбранный на графике кусок открытого трека — на карте ярче
+let spikePts = []; // выбросы GPS открытого трека — красные точки
 const fc = (features) => ({ type: "FeatureCollection", features });
 const line = (t, open) => ({ type: "Feature", geometry: { type: "MultiLineString", coordinates: t.segs.map((s) => s.map((p) => [p[0], p[1]])) },
   properties: { id: t.id, open: open ? 1 : 0 } });
@@ -224,7 +230,7 @@ function endsData() {
   if (!t) return fc([]);
   const all = t.segs.flat();
   const f = (p, kind) => ({ type: "Feature", geometry: { type: "Point", coordinates: [p[0], p[1]] }, properties: { kind } });
-  return fc([f(all[0], "start"), f(all[all.length - 1], "end"), ...(hoverPt ? [f(hoverPt, "here")] : [])]);
+  return fc([f(all[0], "start"), f(all[all.length - 1], "end"), ...spikePts.map((p) => f(p, "spike")), ...(hoverPt ? [f(hoverPt, "here")] : [])]);
 }
 const selData = () => fc(selPiece ? [{ type: "Feature", geometry: { type: "MultiLineString", coordinates: selPiece.map((s) => s.map((p) => [p[0], p[1]])) }, properties: {} }] : []);
 const LAYERS = ["tracks-casing", "tracks-line", "tracks-sel", "tracks-ends"];
@@ -242,8 +248,8 @@ function addLayers() {
     layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": SEL_COLOR, "line-width": 5 } });
   // начало — зелёная точка, конец — красная, точка с графика — белая в цвет трека
   if (!map.getLayer("tracks-ends")) map.addLayer({ id: "tracks-ends", type: "circle", source: "tracks-ends",
-    paint: { "circle-radius": ["match", ["get", "kind"], "here", 7, 6],
-      "circle-color": ["match", ["get", "kind"], "start", "#43a047", "end", "#e53935", "#fff"],
+    paint: { "circle-radius": ["match", ["get", "kind"], "here", 7, "spike", 5, 6],
+      "circle-color": ["match", ["get", "kind"], "start", "#43a047", "end", "#e53935", "spike", "#e53935", "#fff"],
       "circle-stroke-color": ["match", ["get", "kind"], "here", COLOR, "#fff"], "circle-stroke-width": ["match", ["get", "kind"], "here", 3, 2] } });
   claimLayers("tracks-line");
 }
@@ -288,6 +294,8 @@ function openButton() {
 }
 
 function renderList(query = searchText) {
+  stopDrawing();
+  spikePts = [];
   openId = null;
   hoverPt = null;
   selPiece = null;
@@ -315,7 +323,7 @@ function renderList(query = searchText) {
 // ---------- правка: выбранный кусок, обрезать, вырезать, «Назад» ----------
 // кусок — номера точек a..b по порядку записи (как в profile). Правка меняет segs; прежний вид — в истории
 // («Назад», пока открыта страница), исходный трек из файла — в t.orig навсегда («Вернуть как в файле»)
-const history = new Map(); // id → [segs, …]
+const history = new Map(); // id → [{ segs, revert }, …] — revert: что ещё вернуть (разрезали — убрать второй трек)
 function persist(t) {
   t.date = t.segs[0]?.[0]?.[3] || t.date;
   cacheSet(`tracks/${t.id}`, t).catch(() => {});
@@ -323,10 +331,10 @@ function persist(t) {
   if (x) Object.assign(x, { name: t.name, date: t.date, dist: stats(t).dist, kind: t.kind || null });
   saveIndex();
 }
-function edit(t, segs) {
+function edit(t, segs, revert = null) {
   if (!segs.length) return;
   if (!history.has(t.id)) history.set(t.id, []);
-  history.get(t.id).push(t.segs);
+  history.get(t.id).push({ segs: t.segs, revert });
   t.orig ||= t.segs;
   t.segs = segs;
   persist(t);
@@ -345,6 +353,69 @@ function pieces(t, keep) {
     if (cur.length) out.push(cur);
   }
   return out.filter((s) => s.length > 1);
+}
+
+// выбросы GPS: точка отскочила в сторону и вернулась — крюк через неё намного длиннее прямой, и
+// «скорость» до неё вдвое выше обычной быстрой скорости этого трека (на кайте и велосипеде крутые
+// повороты — не выбросы: там скорость обычная)
+function spikes(t) {
+  const sp = [];
+  for (const s of t.segs) for (let i = 1; i < s.length; i++) { const dt = (s[i][3] - s[i - 1][3]) / 1000; if (dt > 0) sp.push(meters(s[i - 1], s[i]) / dt); }
+  sp.sort((a, b) => a - b);
+  const fast = Math.max(5, sp[Math.floor(sp.length * 0.95)] || 0);
+  const out = new Set();
+  let g = 0;
+  for (const s of t.segs) {
+    s.forEach((p, i) => {
+      const n = g++;
+      if (!i || i === s.length - 1) return;
+      const a = s[i - 1], b = s[i + 1], ap = meters(a, p), pb = meters(p, b), ab = meters(a, b);
+      const dt = a[3] && p[3] ? (p[3] - a[3]) / 1000 : 0, v = dt > 0 ? ap / dt : null;
+      if (ap + pb - ab > Math.max(30, 2 * ab) && Math.min(ap, pb) > 20 && (v == null ? Math.min(ap, pb) > 200 : v > 2 * fast)) out.add(n);
+    });
+  }
+  return out;
+}
+// убрать отдельные точки, не разрывая трек
+function without(t, drop) {
+  let g = 0;
+  return t.segs.map((s) => s.filter(() => !drop.has(g++))).filter((s) => s.length > 1);
+}
+// новый трек на устройство (разрезали) и обратно (склеили, «Назад»)
+async function store(t) {
+  tracks.set(t.id, t);
+  await cacheSet(`tracks/${t.id}`, t).catch(() => {});
+  if (!index.some((x) => x.id === t.id)) index.push({ id: t.id, name: t.name, date: t.date, dist: stats(t).dist, kind: t.kind || null });
+  saveIndex();
+}
+function forget(id) {
+  index = index.filter((x) => x.id !== id);
+  tracks.delete(id);
+  history.delete(id);
+  saveIndex();
+  cacheDelete(`tracks/${id}`).catch(() => {});
+}
+const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+// рисование по карте: щелчок — новая точка, прямой линией от ближнего к первому щелчку конца трека
+let drawing = null; // { id, end: "start" | "end" }
+function stopDrawing() {
+  if (!drawing) return;
+  drawing = null;
+  captureClicks(null);
+  if (ctx) ctx.map.getCanvas().style.cursor = "";
+}
+async function drawClick(e) {
+  if (!drawing) return;
+  const t = await getTrack(drawing.id);
+  if (!t) return stopDrawing();
+  const p = [e.lngLat.lng, e.lngLat.lat, null, null];
+  const all = t.segs.flat();
+  drawing.end ||= meters(p, all[0]) < meters(p, all[all.length - 1]) ? "start" : "end";
+  const segs = t.segs.map((x) => [...x]);
+  if (drawing.end === "end") segs[segs.length - 1].push(p); else segs[0].unshift(p);
+  edit(t, segs);
+  openTrack(t.id, true);
 }
 
 // вид занятия: из файла (если программа его пишет) или выбрать самому
@@ -404,6 +475,7 @@ function chart(s, st, changed) {
   const v = pts.filter((p) => p[2] != null);
   if (hasSpeed && v.length > 1) html += `<path class="tk-speed" d="${v.map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${yS(p[2]).toFixed(1)}`).join(" ")}"/>`;
   html += `<rect class="tk-out tk-out-a" y="0" height="${H}"/><rect class="tk-out tk-out-b" y="0" height="${H}"/>`;
+  html += `<line class="tk-pin" x1="0" x2="0" y1="0" y2="${H}" visibility="hidden"/>`;
   html += `<line class="tk-cursor" x1="0" x2="0" y1="0" y2="${H}" visibility="hidden"/></svg>`;
   plot.innerHTML = html;
   // ручки — поверх графика, их удобно взять и пальцем
@@ -444,8 +516,16 @@ function chart(s, st, changed) {
     draw();
   };
   svgEl.addEventListener("pointermove", (ev) => hover(at(ev.clientX)));
-  svgEl.addEventListener("pointerdown", (ev) => hover(at(ev.clientX)));
-  svgEl.addEventListener("pointerleave", () => { cursor.setAttribute("visibility", "hidden"); hoverPt = null; draw(); });
+  // нажатие — точка остаётся отмеченной (там можно разрезать трек)
+  const pinLine = svgEl.querySelector(".tk-pin");
+  const showPin = () => {
+    const on = st.pin != null && st.pin >= v0 && st.pin <= v1;
+    pinLine.setAttribute("visibility", on ? "visible" : "hidden");
+    if (on) { pinLine.setAttribute("x1", x(prof[st.pin][0])); pinLine.setAttribute("x2", x(prof[st.pin][0])); }
+  };
+  showPin();
+  svgEl.addEventListener("pointerdown", (ev) => { const i = at(ev.clientX); st.pin = i; showPin(); hover(i); changed(false); });
+  svgEl.addEventListener("pointerleave", () => { cursor.setAttribute("visibility", "hidden"); hoverPt = st.pin != null ? prof[st.pin][3] : null; draw(); });
   for (const [el, end] of [[ha, "a"], [hb, "b"]]) {
     el.addEventListener("pointerdown", (ev) => { ev.preventDefault(); el.setPointerCapture(ev.pointerId); el.dataset.drag = "1"; });
     el.addEventListener("pointermove", (ev) => {
@@ -488,12 +568,16 @@ async function openTrack(id, keep = false) {
   const t = await getTrack(id);
   if (!t) return;
   const again = keep && openId === id;
+  if (drawing && drawing.id !== id) stopDrawing();
   openId = id;
   hoverPt = null;
   selPiece = null;
   if (!shown) await showOnMap(true);
   const s = stats(t), last = s.profile.length - 1;
-  if (!again || !sel || sel.b > last) sel = { a: 0, b: last, v0: 0, v1: last };
+  if (!again || !sel || sel.b > last) sel = { a: 0, b: last, v0: 0, v1: last, pin: null };
+  if (sel.pin > last) sel.pin = null;
+  const bad = spikes(t);
+  { let g = 0; spikePts = t.segs.flat().filter(() => bad.has(g++)); }
   draw();
   if (!again) fit(t);
   panel.setTitle(t.name);
@@ -501,7 +585,14 @@ async function openTrack(id, keep = false) {
   const left = h("div", "tr-bar-left");
   left.append(btn(BACK, "Ко всем трекам", () => renderList()));
   const right = h("div", "tr-bar-left");
-  const undo = btn(UNDO, "Назад — отменить последнюю правку", () => { t.segs = history.get(id).pop(); persist(t); sel = null; openTrack(id, true); });
+  const undo = btn(UNDO, "Назад — отменить последнюю правку", async () => {
+    const step = history.get(id).pop();
+    t.segs = step.segs;
+    persist(t);
+    await step.revert?.();
+    sel = null;
+    openTrack(id, true);
+  });
   undo.disabled = !history.get(id)?.length;
   right.append(undo, btn(SAVE, "Сохранить файлом GPX", () => download(t)),
     btn(DELETE, "Удалить трек с этого устройства", () => { if (confirm(`Удалить трек «${t.name}» с этого устройства?`)) removeTrack(id); }));
@@ -539,7 +630,7 @@ async function openTrack(id, keep = false) {
     () => { Object.assign(sel, { v0: sel.a, v1: sel.b }); openTrack(id, true); });
   const bAll = tool(WHOLE, "Весь трек", "Снять выбор, график по всему треку",
     () => { sel = { a: 0, b: last, v0: 0, v1: last }; openTrack(id, true); });
-  let markSplit = null;
+  let markSplit = null, updateSplit = null;
   const showSel = (final) => {
     const w = whole();
     bTrim.disabled = bCut.disabled = w;
@@ -552,11 +643,65 @@ async function openTrack(id, keep = false) {
         x.moving && `${dec(x.dist / (x.moving / 3600000) / 1000, 1)} км/ч`, p[sel.a][3][3] && `${clock(p[sel.a][3][3])}–${clock(p[sel.b][3][3])}`].filter(Boolean).join(" · ");
     }
     selPiece = w ? null : pieces(t, (g) => g >= sel.a && g <= sel.b);
+    updateSplit?.();
     draw();
     if (final) markSplit?.();
   };
   const c = chart(s, sel, showSel);
   if (c) nodes.push(c, selInfo, tools);
+
+  // ещё правка: выбросы, разрезать в отмеченной точке, склеить, дорисовать
+  const more = h("div", "tk-edit");
+  const tool2 = (icon, text, title, fn) => { const b = tool(icon, text, title, fn); more.append(b); return b; };
+  const bSpikes = tool2(SPIKES, bad.size ? `Убрать выбросы GPS (${bad.size})` : "Выбросов GPS нет",
+    "Точки, которые GPS отбросил в сторону, — на карте красные", () => { edit(t, without(t, bad)); openTrack(id, true); });
+  bSpikes.disabled = !bad.size;
+  const bSplit = tool2(SPLIT, "Разрезать", "Разрезать трек на два в отмеченной точке — сначала нажмите на график", async () => {
+    const at = sel.pin;
+    const second = { id: newId(), name: `${t.name} (2)`, file: t.file, kind: t.kind || null, segs: pieces(t, (g) => g >= at) };
+    if (!second.segs.length) return;
+    second.date = second.segs[0][0][3] || t.date;
+    await store(second);
+    edit(t, pieces(t, (g) => g <= at), () => forget(second.id));
+    ctx?.status(`Вторая часть — отдельный трек «${second.name}»`);
+    setTimeout(() => ctx?.status(""), 4000);
+    sel = null;
+    openTrack(id, true);
+  });
+  updateSplit = () => { bSplit.disabled = !c || sel.pin == null || sel.pin <= 0 || sel.pin >= last; };
+  // склеить: другой трек добавляется по времени (раньше — в начало, позже — в конец) отдельным куском
+  // записи, без прямой между ними; тот трек убирается из списка («Назад» вернёт)
+  const others = index.filter((x) => x.id !== id).sort((a, b) => (b.date || 0) - (a.date || 0));
+  const merge = h("select", "tk-merge");
+  merge.title = "Добавить к этому треку другой — например, если запись прерывалась";
+  merge.append(Object.assign(h("option", "", others.length ? "Склеить с треком…" : "Склеить — других треков нет"), { value: "" }),
+    ...others.map((x) => Object.assign(h("option", "", [x.name, day(x.date), km(x.dist)].filter(Boolean).join(" · ")), { value: x.id })));
+  merge.disabled = !others.length;
+  merge.addEventListener("change", async () => {
+    const o = merge.value && await getTrack(merge.value);
+    if (!o) return;
+    const before = (o.segs[0][0][3] || Infinity) < (t.segs[0][0][3] || Infinity);
+    edit(t, before ? [...o.segs, ...t.segs] : [...t.segs, ...o.segs], () => store(o));
+    forget(o.id);
+    sel = null;
+    openTrack(id, true);
+  });
+  const mergeWrap = h("label", "text-btn tk-merge-wrap");
+  mergeWrap.innerHTML = MERGE;
+  mergeWrap.append(merge);
+  mergeWrap.classList.toggle("off", !others.length);
+  more.append(mergeWrap);
+  const bDraw = tool2(DRAW, drawing?.id === id ? "Готово" : "Дорисовать",
+    "Щёлкайте по карте — трек продолжится прямыми от ближнего конца", () => {
+      if (drawing?.id === id) { stopDrawing(); openTrack(id, true); return; }
+      drawing = { id, end: null };
+      captureClicks("tracks");
+      ctx.map.getCanvas().style.cursor = "crosshair";
+      openTrack(id, true);
+    });
+  bDraw.classList.toggle("on", drawing?.id === id);
+  nodes.push(more);
+  if (drawing?.id === id) nodes.push(h("div", "tk-sel-info tk-draw-hint", "Щёлкайте по карте — каждая точка продолжает трек прямой линией. «Назад» убирает последнюю, «Готово» — закончить"));
 
   // по отрезкам: 1, 2, 5, 10 км; нажатие — отрезок выбран на графике и на карте
   if (s.total && s.dist > 1000) {
@@ -624,6 +769,8 @@ async function openPanel() {
 }
 
 panel.onClose(() => {
+  stopDrawing();
+  spikePts = [];
   openId = null;
   hoverPt = null;
   selPiece = null;
@@ -639,7 +786,8 @@ function wire() {
   wired = true;
   ctx.map.on("style.load", () => { if (shown) { addLayers(); draw(); } });
   // щелчок по линии — открыть этот трек
-  ctx.map.on("click", "tracks-line", (e) => { const id = e.features[0]?.properties.id; if (id && id !== openId) openTrack(id); });
+  ctx.map.on("click", "tracks-line", (e) => { const id = e.features[0]?.properties.id; if (!drawing && id && id !== openId) openTrack(id); });
+  ctx.map.on("click", drawClick);
   ctx.map.on("mouseenter", "tracks-line", () => { ctx.map.getCanvas().style.cursor = "pointer"; });
   ctx.map.on("mouseleave", "tracks-line", () => { ctx.map.getCanvas().style.cursor = ""; });
 }
@@ -674,5 +822,12 @@ register({
     Object.assign(sel, { a: Math.round(a * n), b: Math.round(b * n) });
     return openTrack(openId, true);
   },
+  // отметить точку на графике (доля трека 0…1), как нажатием
+  pinAt: (f) => {
+    const t = tracks.get(openId), n = stats(t).profile.length - 1;
+    sel.pin = Math.round(f * n);
+    return openTrack(openId, true);
+  },
+  drawAt: (lng, lat) => drawClick({ lngLat: { lng, lat } }),
   statsOf: (text) => { const s = stats(parseFile("x.gpx", text)); delete s.profile; return s; },
 });
