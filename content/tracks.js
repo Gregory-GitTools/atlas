@@ -567,7 +567,10 @@ function chart(s, st, changed) {
     const v0 = st.v0, v1 = st.v1, D0 = prof[v0][0], D1 = prof[v1][0];
     const view = prof.slice(v0, v1 + 1);
     const eles = view.map((p) => p[1]).filter((e) => e != null), speeds = view.map((p) => p[2]).filter((v) => v != null);
-    const minE = Math.min(...eles), maxE = Math.max(...eles), maxV = Math.max(0, ...speeds);
+    // высота и скорость — в одном масштабе для всего трека (Грегори, 2026-11-02: «при сдвиге графика он
+    // деформируется» — масштаб по видимой части растягивал те же горки по-разному); подписи — по видимой
+    const minE = s.minEle, maxE = s.maxEle, maxV = s.maxSpeed;
+    const seenMinE = Math.min(...eles), seenMaxE = Math.max(...eles), seenMaxV = Math.max(0, ...speeds);
     const x = (d) => pad + ((d - D0) / (D1 - D0 || 1)) * (W - 2 * pad);
     const yE = (e) => H - pad - ((e - minE) / (maxE - minE || 1)) * (H - 2 * pad - 14);
     const yS = (v) => H - pad - (v / (maxV || 1)) * (H - 2 * pad - 14);
@@ -616,8 +619,8 @@ function chart(s, st, changed) {
     }
     plot.append(ha, hb);
     const legend = h("div", "tk-legend");
-    if (hasEle) legend.append(h("span", "tk-leg-ele", `высота ${Math.round(minE)}–${Math.round(maxE)} м`));
-    if (hasSpeed) legend.append(h("span", "tk-leg-speed", `скорость до ${dec(maxV, 1)} км/ч`));
+    if (hasEle) legend.append(h("span", "tk-leg-ele", `высота ${Math.round(seenMinE)}–${Math.round(seenMaxE)} м`));
+    if (hasSpeed) legend.append(h("span", "tk-leg-speed", `скорость до ${dec(seenMaxV, 1)} км/ч`));
     if (v0 > 0 || v1 < prof.length - 1) legend.append(h("span", "tk-leg-zoom", `крупно: ${km(D0)} – ${km(D1)}`));
     const read = h("div", "tk-read", "Наведите на график — точка покажется на треке");
     box.replaceChildren(plot, scroll, legend, read);

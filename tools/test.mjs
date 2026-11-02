@@ -707,6 +707,15 @@ try {
       const th = sc.querySelector(".tk-thumb").getBoundingClientRect();
       ev(sc.querySelector(".tk-thumb"), "pointerdown", th.left + th.width / 2); ev(sc, "pointermove", th.left + th.width / 2 + 60); ev(sc, "pointerup", 0); await wait();
       return { whole: !!document.querySelector(".tk-grip-a") , zoomed, moved: legend() }; })()`);
+    // при сдвиге масштаб не меняется: та же точка на той же высоте графика
+    const steady = await run(`(async () => { const wait = () => new Promise((ok) => setTimeout(ok, 200));
+      const y = () => document.querySelector(".tk-ele").getAttribute("d").split(" ").filter((p) => p.startsWith("L")).map((p) => +p.split(",")[1]);
+      const sc = document.querySelector(".tk-scroll"), th = sc.querySelector(".tk-thumb").getBoundingClientRect();
+      const ev = (el, type, x) => el.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: th.top + th.height / 2, pointerId: 8, bubbles: true }));
+      const before = Math.min(...y());
+      ev(sc.querySelector(".tk-thumb"), "pointerdown", th.left + th.width / 2); ev(sc, "pointermove", th.left + th.width / 2 - 40); ev(sc, "pointerup", 0); await wait();
+      return { before, after: Math.min(...y()) }; })()`);
+    check("треки: при сдвиге графика масштаб высоты не меняется", steady.after > steady.before, JSON.stringify(steady));
     check("треки: ползунок — край тянется (крупнее), середина двигает", /^крупно: 0 м – /.test(gp.zoomed) && /^крупно: /.test(gp.moved) && gp.moved !== gp.zoomed, JSON.stringify(gp));
     // вид активности — список с чёрно-белыми значками
     const kp = await run(`(async () => { document.querySelector(".tk-kind-btn").click(); await new Promise((ok) => setTimeout(ok, 100));
