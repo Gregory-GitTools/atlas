@@ -2048,3 +2048,31 @@ body.has-photo-strip .status {
 .panel-btn[hidden] {
   display: none;
 }
+
+/* наибольшее и наименьшее на графике трека */
+.tk-mark {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  margin-top: -3px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.85);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.tk-mark-down {
+  transform: translate(-50%, 0);
+  margin-top: 3px;
+}
+
+.tk-mark-l { transform: translate(-4px, -100%); }
+.tk-mark-r { transform: translate(calc(-100% + 4px), -100%); }
+.tk-mark-down.tk-mark-l { transform: translate(-4px, 0); }
+.tk-mark-down.tk-mark-r { transform: translate(calc(-100% + 4px), 0); }
+
+.tk-mark-ele { color: var(--tone-track); }
+.tk-mark-speed { color: var(--tone-photo); }

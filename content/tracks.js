@@ -481,6 +481,29 @@ function chart(s, st, changed) {
   // ручки — поверх графика, их удобно взять и пальцем
   const ha = h("div", "tk-handle"), hb = h("div", "tk-handle");
   ha.title = hb.title = "Потяните, чтобы выбрать кусок трека";
+  // наибольшее и наименьшее на графике (как у Mapy.com): ▲ высшая точка, ▼ низшая, ● наибольшая скорость
+  const extreme = (val, better) => view.reduce((b, p) => (val(p) != null && (b == null || better(val(p), val(b))) ? p : b), null);
+  const marks = [];
+  if (hasEle && eles.length) {
+    marks.push([extreme((p) => p[1], (a, b) => a > b), (p) => yE(p[1]), (p) => `▲ ${Math.round(p[1])} м`, "tk-mark-ele tk-mark-up"]);
+    marks.push([extreme((p) => p[1], (a, b) => a < b), (p) => yE(p[1]), (p) => `▼ ${Math.round(p[1])} м`, "tk-mark-ele tk-mark-down"]);
+  }
+  if (hasSpeed && speeds.length) marks.push([extreme((p) => p[2], (a, b) => a > b), (p) => yS(p[2]), (p) => `${dec(p[2], 1)} км/ч`, "tk-mark-speed tk-mark-up"]);
+  for (const [p, y, text, cls] of marks) {
+    if (!p) continue;
+    const m = h("div", `tk-mark ${cls}`, text(p));
+    const left = (x(p[0]) / W) * 100;
+    m.style.left = `${left}%`;
+    const top = (y(p) / H) * 100;
+    m.style.top = `${top}%`;
+    // подпись — внутри графика: у нижнего края — над точкой, у верхнего — под ней
+    if (cls.includes("tk-mark-down") && top > 80) m.classList.replace("tk-mark-down", "tk-mark-up");
+    else if (cls.includes("tk-mark-up") && top < 18) m.classList.replace("tk-mark-up", "tk-mark-down");
+    // у краёв графика подпись не вылезает наружу
+    if (left < 12) m.classList.add("tk-mark-l"); else if (left > 88) m.classList.add("tk-mark-r");
+    m.title = [km(p[0]), clock(p[3][3])].filter(Boolean).join(" · ");
+    plot.append(m);
+  }
   plot.append(ha, hb);
   const legend = h("div", "tk-legend");
   if (hasEle) legend.append(h("span", "tk-leg-ele", `высота ${Math.round(minE)}–${Math.round(maxE)} м`));

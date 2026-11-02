@@ -644,6 +644,8 @@ try {
       return document.querySelector(".tk-read").textContent; })()`);
     await sleep(300);
     check("треки: наведение на график — точка на треке", /км/.test(here) && (await run(`atlas.map.getSource("tracks-ends").serialize().data.features.length`)) === 3, here);
+    const marks = await run(`[...document.querySelectorAll(".tk-chart .tk-mark")].map((m) => m.textContent)`);
+    check("треки: на графике — высшая и низшая точка, наибольшая скорость", marks.includes("▲ 25 м") && marks.includes("▼ 5 м") && marks.some((m) => /^11,9 км\/ч$/.test(m)), JSON.stringify(marks));
     await shot("99b-tracks");
     // правка: наибольшие скорость и высота, отрезки по км; выбрать вторую половину — оставить её; «Назад»
     const ed0 = await run(`({ labels: [...document.querySelectorAll(".tk-fact span")].map((x) => x.textContent), splits: document.querySelectorAll(".tk-splits tbody tr").length,
