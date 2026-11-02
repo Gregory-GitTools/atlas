@@ -224,11 +224,41 @@ html, body {
   }
 }
 
-/* кнопка в столбике кнопок карты (шестерёнка) */
-.ctrl-icon {
-  display: grid !important;
-  place-items: center;
-  color: var(--text);
+/* полупрозрачная кнопка поверх карты — лупа, треугольник, столбик слева внизу (Грегори, 2026-11-02:
+   «под стиль лупы и треугольника»): прозрачный фон, без каймы, значок белый с тёмной тенью */
+.btn.glass {
+  background: rgba(0, 0, 0, 0.12);
+  box-shadow: none;
+  color: #fff;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
+}
+
+.btn.glass:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* столбик слева внизу: кнопки одна над другой */
+.maplibregl-ctrl-bottom-left > .map-btn {
+  margin: 0 0 var(--gap) var(--gap);
+}
+
+/* компас: стрелка ложится при наклоне карты, под ней — 2D или 3D */
+.compass-btn {
+  grid-template-rows: auto auto;
+  align-content: center;
+  gap: 0;
+  perspective: 60px;
+}
+
+.compass-needle {
+  display: block;
+  transition: transform 0.1s linear;
+}
+
+.compass-mode {
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 /* окно настроек */
@@ -675,6 +705,30 @@ html, body {
   animation: geo-pulse 2s ease-out infinite;
 }
 
+/* навигация: стрелка направления движения — поворачивается вместе с картой (Marker rotationAlignment: map) */
+.geo-arrow {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 1px);
+  width: 0;
+  height: 0;
+  margin-left: -9px;
+  border: 9px solid transparent;
+  border-top: none;
+  border-bottom: 14px solid var(--accent);
+  filter: drop-shadow(0 0 1.5px #fff) drop-shadow(0 0 1.5px #fff);
+  display: none;
+}
+
+.geo-dot.moving .geo-arrow {
+  display: block;
+}
+
+/* «Где я» в навигации — кнопка подсвечена */
+.geo-btn.nav {
+  background: rgba(26, 115, 232, 0.35);
+}
+
 @keyframes geo-pulse {
   from { transform: scale(1); opacity: 0.5; }
   to { transform: scale(3.25); opacity: 0; }
@@ -1001,22 +1055,12 @@ body.has-photo-strip .status {
 }
 
 /* треугольник в правом нижнем углу, поверх ленты фото (Грегори, 2026-10-29): размером с другие
-   кнопки, прозрачный фон, без каймы; ◀ — показать кнопки, ▶ — спрятать */
+   кнопки, полупрозрачный (glass); ◀ — показать кнопки, ▶ — спрятать */
 .wheel-toggle {
   position: fixed;
   right: var(--gap);
   bottom: var(--gap);
   z-index: 26;
-  display: grid;
-  place-items: center;
-  background: rgba(0, 0, 0, 0.12);
-  box-shadow: none;
-  color: #fff;
-  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
-}
-
-.wheel-toggle:hover {
-  background: rgba(0, 0, 0, 0.25);
 }
 
 .wheel-toggle svg {
@@ -1028,36 +1072,30 @@ body.has-photo-strip .status {
   transform: rotate(180deg);
 }
 
-/* лупа справа вверху (Грегори, 2026-11-02) — как треугольник: прозрачный фон, без каймы; открыт поиск —
-   на её месте логотип Atlas в белом кружке (лупа — в строке поиска), режим раздела — значок раздела в
+/* лупа справа вверху (Грегори, 2026-11-02) — полупрозрачная (glass), как треугольник; открыт поиск —
+   на её месте логотип Atlas во весь кружок (лупа — в строке поиска), режим раздела — значок раздела в
    кружке его цвета */
 .search-toggle {
   position: fixed;
   right: var(--gap);
   top: calc(var(--top-inset) + var(--gap));
   z-index: 26;
-  display: grid;
-  place-items: center;
-  background: rgba(0, 0, 0, 0.12);
-  box-shadow: none;
-  color: #fff;
-  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
 }
 
-.search-toggle:hover {
-  background: rgba(0, 0, 0, 0.25);
-}
-
+/* логотип — во весь кружок кнопки (глобус в картинке занимает 90 из 96 точек) */
 .search-toggle.open,
 .search-toggle.open:hover {
-  background: var(--panel);
+  padding: 0;
+  overflow: hidden;
+  background: none;
   box-shadow: var(--shadow);
   filter: none;
 }
 
 .search-toggle.open img {
-  width: 32px;
-  height: 32px;
+  width: calc(var(--button) * 96 / 90);
+  height: calc(var(--button) * 96 / 90);
+  max-width: none;
 }
 
 .search-toggle.mode {
@@ -1149,7 +1187,7 @@ body.has-photo-strip .status {
 .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib,
 .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-scale {
   position: absolute;
-  bottom: calc(var(--gap) + var(--gear-h, 29px) / 2);
+  bottom: calc(var(--gap) + var(--button) / 2);
   transform: translateY(50%);
 }
 
@@ -1829,6 +1867,70 @@ body.has-photo-strip .status {
   margin-top: 2px;
   color: var(--muted);
   font-size: 12px;
+}
+
+/* оформление трека: название, цвет, заметка */
+.tk-looks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 4px 6px 8px;
+}
+
+.tk-name,
+.tk-note {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #f6f7fb;
+  color: var(--text);
+  font: inherit;
+}
+
+.tk-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tk-note {
+  min-height: 2.6em;
+  font-size: 13px;
+  resize: none;
+  overflow: hidden;
+}
+
+.tk-name:hover,
+.tk-note:hover {
+  border-color: #dadce0;
+}
+
+.tk-name:focus,
+.tk-note:focus {
+  border-color: var(--tone-track);
+  background: var(--panel);
+  outline: none;
+}
+
+.tk-colors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tk-color {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+
+.tk-color.on {
+  box-shadow: 0 0 0 2px var(--text);
 }
 
 /* вид активности: кнопка со значком и список */

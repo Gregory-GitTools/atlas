@@ -2,6 +2,7 @@
 // и переключатель), режим «без сети», загруженные данные и модели. Список модулей строится из
 // реестра — новый модуль появляется здесь сам
 import { createPanel } from "./panel.js";
+import { addMapButton } from "./controls.js";
 import { modules, available, toggle, onRegister, isBlocked, setBlocked, offline, setOffline } from "./modules.js";
 import * as settings from "./settings.js";
 import { usage, models, removeModel, formatBytes, persist } from "./storage.js";
@@ -18,16 +19,8 @@ export function initSettingsPanel(ctx) {
   const panel = createPanel({ id: "settings", title: "Настройки", icon: GEAR_ICON });
 
   // кнопка-шестерёнка — в столбике кнопок карты слева внизу
-  ctx.map.addControl({
-    onAdd() {
-      const box = h("div", "maplibregl-ctrl maplibregl-ctrl-group");
-      const b = Object.assign(document.createElement("button"), { type: "button", title: "Настройки", innerHTML: GEAR_ICON, className: "ctrl-icon" });
-      b.addEventListener("click", () => { panel.toggle(); if (!panel.el.hidden) render(); });
-      box.append(b);
-      return box;
-    },
-    onRemove() {},
-  }, "bottom-left");
+  addMapButton(ctx.map, { title: "Настройки", html: GEAR_ICON })
+    .addEventListener("click", () => { panel.toggle(); if (!panel.el.hidden) render(); });
 
   async function render() {
     const body = [];

@@ -38,6 +38,8 @@ const MERGE = toolIcon('<path d="M2 8h6l4 4M2 16h6l4-4h10" stroke="#3949ab" stro
 const DRAW = toolIcon('<path d="M3 21l3.5-1 11-11-2.5-2.5-11 11L3 21z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 5.5l2.5-2.5 2.5 2.5L16.5 8" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>');
 const COLOR = "#3949ab"; // --tone-track
 const SEL_COLOR = "#ff6d00"; // выбранный кусок
+// цвет трека на карте и в списке — на выбор (без оранжевого: он у выбранного куска)
+const COLORS = [COLOR, "#1e88e5", "#00897b", "#43a047", "#f9a825", "#e53935", "#d81b60", "#8e24aa", "#6d4c41"];
 
 // ---------- разбор файла ----------
 // трек: { id, name, date, segs: [[[lon, lat, ele|null, t|null], …], …] } — куски записи (паузы) — отдельно
@@ -53,8 +55,9 @@ function parseGpx(text) {
   // маршрут (rte) — тоже линия, обычно без времени
   for (const r of doc.getElementsByTagName("rte")) segs.push([...r.getElementsByTagName("rtept")].map(pt));
   const name = doc.querySelector("metadata > name, trk > name, rte > name")?.textContent.trim() || "";
+  const note = doc.querySelector("trk > desc, metadata > desc")?.textContent.trim() || "";
   const creator = doc.documentElement.getAttribute("creator") || "";
-  return { name, segs, kind: kindFromFile(doc.querySelector("trk > type")?.textContent) || (/ski/i.test(creator) ? "ski" : null) };
+  return { name, note, segs, kind: kindFromFile(doc.querySelector("trk > type")?.textContent) || (/ski/i.test(creator) ? "ski" : null) };
 }
 
 function parseKml(text) {
@@ -81,7 +84,7 @@ function parseFile(name, text) {
   if (!segs.length) throw new Error("в файле нет трека");
   const first = segs[0][0][3];
   return { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: t.name || name.replace(/\.\w+$/, ""),
-    file: name, date: first || null, kind: t.kind || null, segs };
+    file: name, date: first || null, kind: t.kind || null, ...(t.note && { note: t.note }), segs };
 }
 
 // ---------- подсчёт ----------
@@ -183,7 +186,7 @@ async function addFiles(files) {
       const t = parseFile(f.name, await f.text());
       tracks.set(t.id, t);
       await cacheSet(`tracks/${t.id}`, t);
-      index.push({ id: t.id, name: t.name, date: t.date, dist: stats(t).dist, kind: t.kind });
+      index.push({ id: t.id, name: t.name, date: t.date, dist: stats(t).dist, kind: t.kind, note: t.note || "" });
       added.push(t);
     } catch (err) { ctx?.status(`«${f.name}»: ${err.message}`); }
   }
@@ -208,7 +211,7 @@ function toGpx(t) {
   const esc = (s) => String(s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
   const pt = ([lon, lat, ele, time]) => `<trkpt lat="${lat}" lon="${lon}">${ele != null ? `<ele>${ele}</ele>` : ""}${time ? `<time>${new Date(time).toISOString()}</time>` : ""}</trkpt>`;
   return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="Atlas">`
-    + `<metadata><name>${esc(t.name)}</name></metadata><trk><name>${esc(t.name)}</name>`
+    + `<metadata><name>${esc(t.name)}</name></metadata><trk><name>${esc(t.name)}</name>${t.note ? `<desc>${esc(t.note)}</desc>` : ""}`
     + t.segs.map((s) => `<trkseg>${s.map(pt).join("")}</trkseg>`).join("") + "</trk></gpx>\n";
 }
 function download(t) {
@@ -239,7 +242,7 @@ let spikePts = []; // выбросы GPS открытого трека — кр�
 let liftPieces = null; // подъёмники открытого трека (горные лыжи) — серым пунктиром
 const fc = (features) => ({ type: "FeatureCollection", features });
 const line = (t, open) => ({ type: "Feature", geometry: { type: "MultiLineString", coordinates: t.segs.map((s) => s.map((p) => [p[0], p[1]])) },
-  properties: { id: t.id, open: open ? 1 : 0 } });
+  properties: { id: t.id, open: open ? 1 : 0, color: t.color || COLOR } });
 function lineData() {
   return fc(index.map((x) => tracks.get(x.id)).filter(Boolean).map((t) => line(t, t.id === openId)));
 }
@@ -263,7 +266,7 @@ function addLayers() {
     layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#fff", "line-width": 7 } });
   if (!map.getLayer("tracks-line")) map.addLayer({ id: "tracks-line", type: "line", source: "tracks",
     layout: { "line-join": "round", "line-cap": "round" },
-    paint: { "line-color": COLOR, "line-width": ["case", ["==", ["get", "open"], 1], 4, 2.5], "line-opacity": ["case", ["==", ["get", "open"], 1], 1, 0.55] } });
+    paint: { "line-color": ["get", "color"], "line-width": ["case", ["==", ["get", "open"], 1], 4, 2.5], "line-opacity": ["case", ["==", ["get", "open"], 1], 1, 0.55] } });
   if (!map.getLayer("tracks-lift")) map.addLayer({ id: "tracks-lift", type: "line", source: "tracks-lift",
     paint: { "line-color": "#fff", "line-width": 2.5, "line-dasharray": [2, 2] } });
   if (!map.getLayer("tracks-sel")) map.addLayer({ id: "tracks-sel", type: "line", source: "tracks-sel",
@@ -326,7 +329,7 @@ function renderList(query = searchText) {
   searchText = query;
   draw();
   const q = query.toLowerCase();
-  const list = index.filter((x) => !q || [x.name, day(x.date)].join(" ").toLowerCase().includes(q)).sort((a, b) => (b.date || 0) - (a.date || 0));
+  const list = index.filter((x) => !q || [x.name, day(x.date), x.note].join(" ").toLowerCase().includes(q)).sort((a, b) => (b.date || 0) - (a.date || 0));
   panel.setTitle(q ? "Найденные треки" : "Мои треки");
   const nodes = [openButton()];
   if (!index.length) nodes.push(h("p", "pb-hint", "Треков пока нет. Выгрузите трек из программы на телефоне (Sports Tracker: тренировка → ⋯ → «Экспорт GPX») и откройте здесь или перетащите файл на карту. Треки хранятся только на этом устройстве."));
@@ -334,6 +337,7 @@ function renderList(query = searchText) {
   for (const x of list) {
     const r = h("button", "tr-row");
     const icon = h("span", "tr-icon tk-icon");
+    if (x.color) icon.style.background = x.color;
     icon.innerHTML = kindOf(x.kind) ? mdi(kindOf(x.kind)[2]) : svg(TRACK_D, 18);
     const text = h("span", "tr-row-text");
     text.append(h("span", "tr-row-title", x.name), h("span", "tr-row-sub", [kindOf(x.kind)?.[1], day(x.date), km(x.dist)].filter(Boolean).join(" · ")));
@@ -352,7 +356,7 @@ function persist(t) {
   t.date = t.segs[0]?.[0]?.[3] || t.date;
   cacheSet(`tracks/${t.id}`, t).catch(() => {});
   const x = index.find((x) => x.id === t.id);
-  if (x) Object.assign(x, { name: t.name, date: t.date, dist: stats(t).dist, kind: t.kind || null });
+  if (x) Object.assign(x, { name: t.name, date: t.date, dist: stats(t).dist, kind: t.kind || null, color: t.color || null, note: t.note || "" });
   saveIndex();
 }
 function edit(t, segs, revert = null) {
@@ -763,6 +767,43 @@ function factTiles(s, ski) {
   return facts;
 }
 
+// оформление: название, цвет, заметка — сохраняются сразу, на этом устройстве (и в файле GPX: название и заметка)
+function looks(t) {
+  const wrap = h("div", "tk-looks");
+  const name = Object.assign(h("input", "tk-name"), { value: t.name, placeholder: "Название трека", title: "Название трека — можно поменять" });
+  name.addEventListener("keydown", (e) => e.key === "Enter" && name.blur());
+  name.addEventListener("change", () => {
+    t.name = name.value.trim() || t.name;
+    name.value = t.name;
+    persist(t);
+    panel.setTitle(t.name);
+  });
+  const colors = h("div", "tk-colors");
+  for (const c of COLORS) {
+    const b = h("button", "tk-color" + ((t.color || COLOR) === c ? " on" : ""));
+    b.style.background = c;
+    b.title = "Цвет трека на карте";
+    b.addEventListener("click", () => {
+      t.color = c === COLOR ? undefined : c;
+      persist(t);
+      for (const x of colors.children) x.classList.toggle("on", x === b);
+      draw();
+    });
+    colors.append(b);
+  }
+  const note = Object.assign(h("textarea", "tk-note"), { value: t.note || "", rows: 2,
+    placeholder: "Заметка: что запомнилось, с кем были, где перекусили…", title: "Заметка к треку — её находит и поиск" });
+  let timer = null;
+  note.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => { t.note = note.value.trim(); persist(t); }, 500); });
+  note.addEventListener("change", () => { clearTimeout(timer); t.note = note.value.trim(); persist(t); });
+  // высота — по тексту
+  const fitNote = () => { note.style.height = "auto"; note.style.height = `${note.scrollHeight + 2}px`; };
+  note.addEventListener("input", fitNote);
+  requestAnimationFrame(fitNote);
+  wrap.append(name, colors, note);
+  return wrap;
+}
+
 // выбор вида активности: список со значками (в обычном списке браузера значки не нарисовать)
 function kindPicker(t, done) {
   const wrap = h("div", "tk-kind");
@@ -832,7 +873,7 @@ async function openTrack(id, keep = false) {
   const ski = t.kind === "ski" ? skiStats(s) : null;
   s.lifts = ski?.lifts || [];
   liftPieces = ski?.lifts.length ? pieces(t, (g) => ski.lifts.some(([a, b]) => g >= a && g <= b)) : null;
-  const nodes = [bar];
+  const nodes = [bar, looks(t)];
   if (when) nodes.push(h("div", "tr-facts tk-when", when));
   nodes.push(kind, factTiles(s, ski));
 
@@ -885,7 +926,7 @@ async function openTrack(id, keep = false) {
   bSpikes.disabled = !bad.size;
   const bSplit = tool2(SPLIT, "Разрезать", "Разрезать трек на два в отмеченной точке — сначала нажмите на график", async () => {
     const at = sel.pin;
-    const second = { id: newId(), name: `${t.name} (2)`, file: t.file, kind: t.kind || null, segs: pieces(t, (g) => g >= at) };
+    const second = { id: newId(), name: `${t.name} (2)`, file: t.file, kind: t.kind || null, color: t.color, note: t.note, segs: pieces(t, (g) => g >= at) };
     if (!second.segs.length) return;
     second.date = second.segs[0][0][3] || t.date;
     await store(second);

@@ -11,7 +11,7 @@
 //   «Вы: …», «Портье: …» в начале фразы — кто говорит; «- Bonjour. / Здравствуйте.» (формат ChatGPT)
 //   тоже понимается; прочий текст — пояснения
 import { register } from "../core/modules.js";
-import { createPanel, isOpen } from "../core/panel.js";
+import { createPanel, isOpen, homeList } from "../core/panel.js";
 import { repoFiles, repoText } from "../core/repo.js";
 import { speakText, stopSpeech, langVoice } from "../core/speech.js";
 import { langFlag } from "../core/flags.js";
@@ -282,6 +282,21 @@ function filter(text) {
 }
 const MODE = { icon: ICON.replace('width="24" height="24"', 'width="20" height="20"'), title: "Языки", placeholder: "Найти фразу", tone: "lang",
   filter, exit: () => panel.close() };
+// список языков (кнопка раздела на барабане): строка поиска ищет язык, на кнопке справа вверху — значок раздела
+const LIST_MODE = { ...MODE, placeholder: "Найти язык",
+  filter: (text) => { const q = text.toLowerCase(); for (const b of panel.body.querySelectorAll(".home-row")) b.hidden = !b.textContent.toLowerCase().includes(q); } };
+
+const languageItems = () => [...languages.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"))
+  .map((lg) => ({ id: lg.key, title: lg.name, thumb: lg.flag, selected: current === lg && isOpen("languages") }));
+
+function openList() {
+  current = null;
+  panel.setTitle("Языки");
+  panel.body.replaceChildren(homeList(languageItems(), openLanguage));
+  panel.body.scrollTop = 0;
+  panel.open();
+  setSearchMode(LIST_MODE);
+}
 
 function openLanguage(key) {
   current = languages.get(key);
@@ -302,7 +317,7 @@ on("language-open", ({ key }) => load().then(() => openLanguage(key)), { replay:
 panel.onClose(() => {
   stopPlay();
   current = null;
-  if (searchMode() === MODE) setSearchMode(null);
+  if (searchMode() === MODE || searchMode() === LIST_MODE) setSearchMode(null);
   emit("module", { id: "content/languages", on: false });
 });
 
@@ -316,11 +331,11 @@ register({
   needs: ["network"],
   sends: "чтение разговорников (GitHub, сайт travel-earth), флаги (flagcdn)",
   column: {
-    panel,
+    // кнопка раздела — панель со списком языков (пока грузится — «Загрузка…»)
+    home: () => { openList(); return load().then(() => isOpen("languages") && !current && openList()); },
     load,
     // языки по алфавиту; открытый — выделен
-    items: () => [...languages.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"))
-      .map((lg) => ({ id: lg.key, title: lg.name, thumb: lg.flag, selected: current === lg && isOpen("languages") })),
+    items: languageItems,
     choose: openLanguage,
     isOpen: () => isOpen("languages"),
     close: () => panel.close(),

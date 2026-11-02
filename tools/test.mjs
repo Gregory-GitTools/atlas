@@ -92,8 +92,54 @@ try {
   await idle();
   check("карта загрузилась", true, await run(`atlas.map.getProjection()?.type`));
   const extras = await run(`({ stars: document.querySelector("canvas.stars")?.width > 0, scale: document.querySelector(".maplibregl-ctrl-scale")?.textContent,
-    geo: !!document.querySelector(".geo-btn"), order: [...document.querySelectorAll(".maplibregl-ctrl-bottom-left .maplibregl-ctrl-group")].map((c) => c.querySelector("button")?.title || c.className.split(" ").pop()) })`);
+    geo: !!document.querySelector(".geo-btn"), order: [...document.querySelectorAll(".maplibregl-ctrl-bottom-left .map-btn button")].map((b) => b.className.split(" ").pop()),
+    zoom: !!document.querySelector(".maplibregl-ctrl-zoom-in, .maplibregl-ctrl-compass"),
+    glass: [...document.querySelectorAll(".map-btn button, .wheel-toggle, .search-toggle")].every((b) => b.classList.contains("glass")) })`);
   check("звёзды, шкала, «Где я»", extras.stars && /км|м$/.test(extras.scale || "") && extras.geo, JSON.stringify(extras));
+  check("слева внизу: «Где я», компас, настройки — полупрозрачные, без «+ −»",
+    JSON.stringify(extras.order) === '["geo-btn","compass-btn","glass"]' && !extras.zoom && extras.glass, JSON.stringify(extras));
+  const tilt = async () => { await run(`document.querySelector(".compass-btn").click(); true`); await sleep(1300);
+    return run(`({ pitch: Math.round(atlas.map.getPitch()), bearing: Math.round(atlas.map.getBearing()), label: document.querySelector(".compass-mode").textContent })`); };
+  const view0 = await run(`({ center: atlas.map.getCenter().toArray(), zoom: atlas.map.getZoom() })`);
+  await run(`atlas.map.jumpTo({ center: [24.75, 59.44], zoom: 12 }); true`);
+  await run(`atlas.map.jumpTo({ bearing: 30 }); true`);
+  const rot = `atlas.map.dragRotate.isEnabled() && atlas.map.touchZoomRotate._rotationDisabled !== true`;
+  const c3 = await tilt(), cN = { ...(await tilt()), rotate: await run(rot) }, c2 = { ...(await tilt()), rotate: await run(rot) };
+  check("компас: по кругу 3D → Север (2D, не поворачивается) → 2D (поворачивать можно)",
+    c3.pitch >= 55 && c3.label === "3D" && cN.pitch === 0 && cN.bearing === 0 && cN.label === "С" && !cN.rotate
+    && c2.pitch === 0 && c2.label === "2D" && c2.rotate, JSON.stringify([c3, cN, c2]));
+  // издалека космос не растёт: наклон сам уменьшается, со шкалы 100 км — 2D, компас 3D не предлагает
+  const far = await run(`(async () => { const m = atlas.map, at = async (zoom) => { m.jumpTo({ zoom, pitch: 70 }); await new Promise((r) => setTimeout(r, 50)); return Math.round(m.getPitch()); };
+    const r = { near: await at(13), mid: await at(7.5), far: await at(5) }; await new Promise((r) => setTimeout(r, 100)); r.label = document.querySelector(".compass-mode").textContent; m.jumpTo({ pitch: 0 }); return r; })()`);
+  check("наклон: вблизи 70°, при отдалении меньше, на 100 км — 2D", far.near === 70 && far.mid > 0 && far.mid < 70 && far.far === 0 && far.label === "2D", JSON.stringify(far));
+  // навигация: «Где я» + 3D — карта по ходу движения (подставные координаты: иду на восток, потом на север)
+  await send("Browser.grantPermissions", { permissions: ["geolocation"], origin: url.replace(/\/$/, "") });
+  const goTo = (lat, lon) => send("Emulation.setGeolocationOverride", { latitude: lat, longitude: lon, accuracy: 5 });
+  await goTo(59.437, 24.745);
+  await run(`document.querySelector(".geo-btn").click(); true`);
+  await sleep(3500);
+  await run(`document.querySelector(".compass-btn").click(); true`);
+  await sleep(1500);
+  await goTo(59.437, 24.7455);
+  await sleep(1800);
+  const navE = await run(`({ ...atlas.geo.state(), bearing: Math.round(atlas.map.getBearing()), pitch: Math.round(atlas.map.getPitch()),
+    arrow: document.querySelector(".geo-dot.moving .geo-arrow") !== null, btn: document.querySelector(".geo-btn").classList.contains("nav") })`);
+  await goTo(59.4375, 24.7455);
+  await sleep(1800);
+  const navN = await run(`({ ...atlas.geo.state(), bearing: Math.round(atlas.map.getBearing()) })`);
+  const near = (a, b) => Math.abs(((a - b + 540) % 360) - 180) <= 5;
+  check("навигация: «Где я» в 3D — карта по ходу движения, стрелка у точки", navE.nav && navE.pitch >= 55 && near(navE.heading, 90) && near(navE.bearing, 90)
+    && navE.arrow && navE.btn && near(navN.heading, 0) && near(navN.bearing, 0), JSON.stringify([navE, navN]));
+  // сдвинул карту рукой в навигации — через 10 секунд она сама возвращается ко мне
+  await run(`atlas.map.fire("dragstart", { originalEvent: new MouseEvent("mousedown") }); atlas.map.panBy([200, 0], { duration: 0 }); true`);
+  const away = await run(`atlas.geo.state().follow`);
+  await sleep(11500);
+  const backHome = await run(`({ follow: atlas.geo.state().follow, bearing: Math.round(atlas.map.getBearing()) })`);
+  check("навигация: сдвинул карту — через 10 секунд снова ко мне", away === false && backHome.follow && near(backHome.bearing, 0), JSON.stringify({ away, backHome }));
+  await run(`document.querySelector(".geo-btn").click(); true`); // слежение → выключить
+  await send("Emulation.clearGeolocationOverride");
+  check("навигация: выключено", !(await run(`atlas.geo.state().on`)));
+  await run(`atlas.map.jumpTo({ center: ${JSON.stringify(view0.center)}, zoom: ${view0.zoom}, pitch: 0, bearing: 0 }); true`);
   await shot("00-start");
 
   const mods = await run(`atlas.modules().map((m) => ({ id: m.id, kind: m.kind, title: m.title }))`);
@@ -431,6 +477,12 @@ try {
     for (let i = 0; i < 40 && !(await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].length > 3`)); i++) await sleep(500);
     const langs = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((b) => b.firstChild.textContent)`);
     check("языки: в столбике — языки", langs.length >= 5 && langs.some((l) => /Итальянский/.test(l)), JSON.stringify(langs));
+    // уже у списка — значок раздела вместо логотипа, строка поиска ищет язык
+    const ll = await run(`(async () => { const i = document.querySelector(".search-box input"); i.value = "итал"; i.dispatchEvent(new Event("input"));
+      await new Promise((r) => setTimeout(r, 200)); const shown = [...document.querySelectorAll(".home-row:not([hidden])")].map((b) => b.textContent);
+      i.value = ""; i.dispatchEvent(new Event("input"));
+      return { mode: document.querySelector(".search-toggle").classList.contains("mode"), placeholder: i.placeholder, shown }; })()`);
+    check("языки: у списка — значок раздела на кнопке, поиск ищет язык", ll.mode && ll.placeholder === "Найти язык" && ll.shown.length === 1 && /Итальянский/.test(ll.shown[0]), JSON.stringify(ll));
     await run(`${itemFor("Итальянский")}.click(); true`);
     await sleep(800);
     const pb = await run(`({ panel: !document.querySelector('[data-panel="languages"]').hidden, title: document.querySelector('[data-panel="languages"] .panel-title span').textContent,
@@ -664,6 +716,24 @@ try {
       chart: !!document.querySelector(".tk-chart svg .tk-ele"), line: atlas.map.queryRenderedFeatures({ layers: ["tracks-line"] }).length,
       ends: atlas.map.queryRenderedFeatures({ layers: ["tracks-ends"] }).length, mode: document.querySelector(".search-box input").placeholder })`);
     check("треки: файл открыт — панель, цифры, график, линия и концы на карте", tk.panel && tk.open === "Проверочный трек" && /^(1,9\d|2,0\d) км$/.test(tk.facts[0]) && tk.chart && tk.line > 0 && tk.ends === 2 && tk.mode === "Найти трек", JSON.stringify(tk));
+    // оформление: название, цвет, заметка — сразу сохраняются; цвет — на карте, заметку находит поиск
+    const look = await run(`(async () => { const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      const n = document.querySelector(".tk-name"); n.value = "Вокруг озера"; n.dispatchEvent(new Event("change"));
+      const t = document.querySelector(".panel:not([hidden]) .panel-title span").textContent;
+      document.querySelectorAll(".tk-color")[5].click();
+      const note = document.querySelector(".tk-note"); note.value = "Пикник у маяка"; note.dispatchEvent(new Event("change"));
+      await wait(300);
+      const color = atlas.map.getSource("tracks").serialize().data.features[0].properties.color;
+      const i = document.querySelector(".search-box input"); i.value = "маяк"; i.dispatchEvent(new Event("input")); await wait(300);
+      const found = [...document.querySelectorAll('[data-panel="tracks"] .tr-row-title')].map((r) => r.textContent);
+      const icon = document.querySelector('[data-panel="tracks"] .tk-icon').style.background;
+      i.value = ""; i.dispatchEvent(new Event("input")); await wait(200);
+      [...document.querySelectorAll('[data-panel="tracks"] .tr-row')].find((r) => r.textContent.includes("Вокруг озера")).click(); await wait(800);
+      const n2 = document.querySelector(".tk-name"); n2.value = "Проверочный трек"; n2.dispatchEvent(new Event("change"));
+      document.querySelectorAll(".tk-color")[0].click();
+      return { t, color, found, icon, note: document.querySelector(".tk-note").value, open: ${ts}.stats().open }; })()`);
+    check("треки: оформление — название, цвет на карте и в списке, заметку находит поиск", look.t === "Вокруг озера" && look.color === "#e53935"
+      && JSON.stringify(look.found) === '["Вокруг озера"]' && /229, 57, 53/.test(look.icon) && look.note === "Пикник у маяка" && look.open === "Проверочный трек", JSON.stringify(look));
     // график: точка бежит по треку
     const here = await run(`(() => { const r = document.querySelector(".tk-chart svg").getBoundingClientRect();
       document.querySelector(".tk-chart svg").dispatchEvent(new PointerEvent("pointermove", { clientX: r.left + r.width / 2, clientY: r.top + 20, bubbles: true }));
@@ -1015,10 +1085,10 @@ try {
     const sb = document.querySelector(".search-box").getBoundingClientRect();
     return { gear: mid(gear), info: mid(document.querySelector(".maplibregl-ctrl-attrib-button")), scale: mid(document.querySelector(".maplibregl-ctrl-scale")),
       corner: [Math.round(innerWidth - t.right), Math.round(innerHeight - t.bottom)], size: Math.round(t.width),
-      logo: !!document.querySelector(".search-toggle.open img")?.naturalWidth, wheelTop: Math.round(w.top), searchTop: Math.round(sb.top), phone: innerWidth <= 600 }; })()`);
+      logo: (() => { const i = document.querySelector(".search-toggle.open img"), b = i?.parentElement.getBoundingClientRect(); return !!i?.naturalWidth && i.getBoundingClientRect().width >= b.width; })(), wheelTop: Math.round(w.top), searchTop: Math.round(sb.top), phone: innerWidth <= 600 }; })()`);
   check("раскладка: ⓘ и шкала в линию с шестерёнкой", Math.abs(lay.info - lay.gear) <= 2 && Math.abs(lay.scale - lay.gear) <= 2, JSON.stringify(lay));
   check("раскладка: треугольник в правом нижнем углу, размером с кнопки", lay.corner.every((v) => v >= 6 && v <= 14) && lay.size === 40, JSON.stringify(lay));
-  check("раскладка: открыт поиск — на месте лупы логотип", lay.logo);
+  check("раскладка: открыт поиск — на месте лупы логотип во весь кружок", lay.logo);
   if (!lay.phone) check("раскладка: верх колеса — под лупой", Math.abs(lay.wheelTop - (lay.searchTop + 50)) <= 2, JSON.stringify(lay));
 } catch (err) {
   errors.push("проверка прервалась: " + err.message);

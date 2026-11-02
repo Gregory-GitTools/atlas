@@ -139,8 +139,8 @@ export function initLayersPanel(ctx) {
   // Треугольник: щелчок — барабан слоёв, второй щелчок — спрятать. Лупа справа вверху: щелчок — строка
   // поиска и барабан разделов, а на месте лупы — логотип (лупа уходит в строку поиска: двух луп быть не
   // должно); выбран раздел — вместо логотипа его значок; второй щелчок по логотипу или значку — закрыть всё
-  const arrowBtn = Object.assign(document.createElement("button"), { className: "btn wheel-toggle", innerHTML: ARROW });
-  const lensBtn = Object.assign(document.createElement("button"), { className: "btn search-toggle" });
+  const arrowBtn = Object.assign(document.createElement("button"), { className: "btn glass wheel-toggle", innerHTML: ARROW });
+  const lensBtn = Object.assign(document.createElement("button"), { className: "btn glass search-toggle" });
   const controls = [arrowBtn, lensBtn];
   let shown = null, searchOn = false, mode = null;
   const paint = () => {

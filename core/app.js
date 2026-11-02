@@ -5,7 +5,7 @@ import { initLayersPanel } from "./layers-panel.js";
 import { initSettingsPanel } from "./settings-panel.js";
 import { initBasemaps, currentBasemap, styleOf } from "./basemaps.js";
 import { initSearch } from "./search.js";
-import { addScale, addGeolocate, addStars } from "./controls.js";
+import { addScale, addGeolocate, addCompass, addStars, MAX_PITCH } from "./controls.js";
 import { initPopups } from "./popups.js";
 import { initPlaceInfo } from "./place-info.js";
 import { initPhotoStrip, stripState } from "./photo-strip.js";
@@ -18,16 +18,14 @@ export const map = new maplibregl.Map({
   center: [25, 45],
   zoom: 1.6,
   attributionControl: false,
-  // наклон — до 65° вместо стандартных 60 (Грегори, 2026-10-28: «увеличить наклон ещё на 5 градусов»)
-  maxPitch: 65,
+  // наклон — до 70° вместо стандартных 60 (Грегори, 2026-10-28 и 2026-11-02: «ещё на 5 градусов»);
+  // издалека меньше — см. tiltLimit в controls.js
+  maxPitch: MAX_PITCH,
   // подписи кнопок и шкалы MapLibre — по-русски
   locale: {
     "AttributionControl.ToggleAttribution": "Источники карты",
     "Map.Title": "Карта",
     "Marker.Title": "Метка",
-    "NavigationControl.ResetBearing": "Повернуть карту (щелчок — на север)",
-    "NavigationControl.ZoomIn": "Приблизить",
-    "NavigationControl.ZoomOut": "Отдалить",
     "Popup.Close": "Закрыть",
     "ScaleControl.Meters": "м",
     "ScaleControl.Kilometers": "км",
@@ -51,10 +49,9 @@ initPhotoStrip(ctx);
 initSearch(ctx);
 initBasemaps(ctx);
 initLayersPanel(ctx);
-// столбик слева внизу, снизу вверх: настройки, «+ −», компас, «Где я» (Грегори, 2026-10-29: справа
-// остаётся только треугольник панели кнопок); шкала и ⓘ — справа от столбика
+// столбик слева внизу, снизу вверх: настройки, компас 2D/3D, «Где я» — полупрозрачные, как лупа и
+// треугольник (Грегори, 2026-11-02: «+ −» убраны); шкала и ⓘ — справа от столбика
 initSettingsPanel(ctx);
-map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-left");
-map.addControl(new maplibregl.NavigationControl({ showZoom: false }), "bottom-left");
-addGeolocate(map, maplibregl, status);
+addCompass(map);
+window.atlas.geo = addGeolocate(map, maplibregl, status);
 await loadAll();
