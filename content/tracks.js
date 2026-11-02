@@ -91,6 +91,20 @@ function meters(a, b) {
 }
 const MOVING = 0.3; // м/с — медленнее считается стоянкой (около 1 км/ч)
 const PAUSE = 5 * 60 * 1000; // перерыв в записи дольше 5 минут — не время в пути
+// путь между точками — с перепадом высот (Грегори, 2026-11-02: «при расчётах скорости учитывать перепад
+// высот, особенно на горных лыжах — использовать как универсальный»): по склону путь длиннее, чем по
+// карте; на его лыжных днях +3–5 % расстояния и +1–2 км/ч наибольшей скорости, на кайте по воде — почти
+// ничего. Высота сглажена по 5 соседним точкам, иначе дрожание высоты GPS прибавляет путь на ровном месте
+function smoothEle(seg) {
+  // окно поровну с обеих сторон (у концов — уже), чтобы ровный склон не сглаживался в пологий
+  return seg.map((_, i) => {
+    const k = Math.min(2, i, seg.length - 1 - i);
+    const w = seg.slice(i - k, i + k + 1).map((p) => p[2]).filter((e) => e != null);
+    return w.length ? w.reduce((a, b) => a + b, 0) / w.length : null;
+  });
+}
+const along = (a, b, ea, eb) => (ea != null && eb != null ? Math.hypot(meters(a, b), eb - ea) : meters(a, b));
+
 // м — высота меняется хотя бы на столько, иначе это шум GPS (4 м — набор как у Sports Tracker)
 const CLIMB = 4;
 function climb(eles) {
@@ -110,10 +124,11 @@ function stats(t) {
     const [u, d] = climb(seg.map((p) => p[2]));
     up += u;
     down += d;
+    const se = smoothEle(seg);
     seg.forEach((p, i) => {
       let speed = null;
       if (i) {
-        const q = seg[i - 1], d = meters(q, p);
+        const q = seg[i - 1], d = along(q, p, se[i - 1], se[i]);
         dist += d;
         if (p[3] && q[3]) {
           const dt = p[3] - q[3];

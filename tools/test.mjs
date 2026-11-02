@@ -625,6 +625,13 @@ try {
     const ts = `atlas.modules().find((m) => m.id === "content/tracks")`;
     const st = await run(`${ts}.statsOf(${JSON.stringify(gpx)})`);
     check("треки: расчёт — 2 км, 10 минут, подъём 20 м", Math.abs(st.dist - 2000) < 60 && st.moving === 600000 && Math.abs(st.up - 20) < 4, JSON.stringify(st));
+    // склон 45°: шаг 20 м по карте и 20 м вниз — путь и скорость с перепадом высот в 1,41 раза больше
+    const slope = gpx.replace(/<trkpt lat="59\.47" lon="([\d.]+)"><ele>[\d.]+<\/ele>/g, (_, lon) => {
+      const i = Math.round((+lon - 24.83) / 0.000585);
+      return `<trkpt lat="59.47" lon="${(24.83 + i * 0.000351).toFixed(6)}"><ele>${2000 - i * 20}</ele>`;
+    });
+    const s3 = await run(`${ts}.statsOf(${JSON.stringify(slope)})`);
+    check("треки: расстояние и скорость — с перепадом высот (склон 45°)", Math.abs(s3.dist / 1692 - 1) < 0.01 && Math.abs(s3.maxSpeed / (28.2 * 3.6 / 10) - 1) < 0.02, JSON.stringify(s3));
     await run(openLayers("content/tracks"));
     await sleep(500);
     const items = await run(`[...document.querySelectorAll(".layers-sub .layers-item")].map((b) => b.firstChild.textContent)`);
