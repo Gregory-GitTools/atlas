@@ -20,6 +20,7 @@ const svg = (d, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="
 // линия трека между двумя точками
 const TRACK_D = "M6 3a3 3 0 0 0-1 5.83V12a4 4 0 0 0 4 4h6a2 2 0 0 1 2 2v.17A3 3 0 1 0 19 18a4 4 0 0 0-4-4H9a2 2 0 0 1-2-2V8.83A3 3 0 0 0 6 3zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm12 12a1 1 0 1 1 0 2 1 1 0 0 1 0-2z";
 const ICON = svg(TRACK_D);
+const ICON_SMALL = svg(TRACK_D, 18);
 const OPEN_ICON = svg("M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z");
 const BACK = svg("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z", 20);
 const SAVE = svg("M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z", 20);
@@ -52,7 +53,8 @@ function parseGpx(text) {
   // маршрут (rte) — тоже линия, обычно без времени
   for (const r of doc.getElementsByTagName("rte")) segs.push([...r.getElementsByTagName("rtept")].map(pt));
   const name = doc.querySelector("metadata > name, trk > name, rte > name")?.textContent.trim() || "";
-  return { name, segs, kind: kindFromFile(doc.querySelector("trk > type")?.textContent) };
+  const creator = doc.documentElement.getAttribute("creator") || "";
+  return { name, segs, kind: kindFromFile(doc.querySelector("trk > type")?.textContent) || (/ski/i.test(creator) ? "ski" : null) };
 }
 
 function parseKml(text) {
@@ -234,6 +236,7 @@ addEventListener("drop", (e) => {
 let shown = false, openId = null, hoverPt = null;
 let selPiece = null; // выбранный на графике кусок открытого трека — на карте ярче
 let spikePts = []; // выбросы GPS открытого трека — красные точки
+let liftPieces = null; // подъёмники открытого трека (горные лыжи) — серым пунктиром
 const fc = (features) => ({ type: "FeatureCollection", features });
 const line = (t, open) => ({ type: "Feature", geometry: { type: "MultiLineString", coordinates: t.segs.map((s) => s.map((p) => [p[0], p[1]])) },
   properties: { id: t.id, open: open ? 1 : 0 } });
@@ -248,17 +251,21 @@ function endsData() {
   return fc([f(all[0], "start"), f(all[all.length - 1], "end"), ...spikePts.map((p) => f(p, "spike")), ...(hoverPt ? [f(hoverPt, "here")] : [])]);
 }
 const selData = () => fc(selPiece ? [{ type: "Feature", geometry: { type: "MultiLineString", coordinates: selPiece.map((s) => s.map((p) => [p[0], p[1]])) }, properties: {} }] : []);
-const LAYERS = ["tracks-casing", "tracks-line", "tracks-sel", "tracks-ends"];
+const liftData = () => fc(liftPieces ? [{ type: "Feature", geometry: { type: "MultiLineString", coordinates: liftPieces.map((s) => s.map((p) => [p[0], p[1]])) }, properties: {} }] : []);
+const LAYERS = ["tracks-casing", "tracks-line", "tracks-lift", "tracks-sel", "tracks-ends"];
 function addLayers() {
   const map = ctx.map;
   if (!map.getSource("tracks")) map.addSource("tracks", { type: "geojson", data: lineData() });
   if (!map.getSource("tracks-ends")) map.addSource("tracks-ends", { type: "geojson", data: endsData() });
   if (!map.getSource("tracks-sel")) map.addSource("tracks-sel", { type: "geojson", data: selData() });
+  if (!map.getSource("tracks-lift")) map.addSource("tracks-lift", { type: "geojson", data: liftData() });
   if (!map.getLayer("tracks-casing")) map.addLayer({ id: "tracks-casing", type: "line", source: "tracks", filter: ["==", ["get", "open"], 1],
     layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#fff", "line-width": 7 } });
   if (!map.getLayer("tracks-line")) map.addLayer({ id: "tracks-line", type: "line", source: "tracks",
     layout: { "line-join": "round", "line-cap": "round" },
     paint: { "line-color": COLOR, "line-width": ["case", ["==", ["get", "open"], 1], 4, 2.5], "line-opacity": ["case", ["==", ["get", "open"], 1], 1, 0.55] } });
+  if (!map.getLayer("tracks-lift")) map.addLayer({ id: "tracks-lift", type: "line", source: "tracks-lift",
+    paint: { "line-color": "#fff", "line-width": 2.5, "line-dasharray": [2, 2] } });
   if (!map.getLayer("tracks-sel")) map.addLayer({ id: "tracks-sel", type: "line", source: "tracks-sel",
     layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": SEL_COLOR, "line-width": 5 } });
   // начало — зелёная точка, конец — красная, точка с графика — белая в цвет трека
@@ -273,6 +280,7 @@ function draw() {
   ctx.map.getSource("tracks")?.setData(lineData());
   ctx.map.getSource("tracks-ends")?.setData(endsData());
   ctx.map.getSource("tracks-sel")?.setData(selData());
+  ctx.map.getSource("tracks-lift")?.setData(liftData());
 }
 async function showOnMap(on) {
   if (!ctx) return;
@@ -286,7 +294,7 @@ async function showOnMap(on) {
   }
   shown = false;
   for (const id of [...LAYERS].reverse()) if (ctx.map.getLayer(id)) ctx.map.removeLayer(id);
-  for (const id of ["tracks", "tracks-ends", "tracks-sel"]) if (ctx.map.getSource(id)) ctx.map.removeSource(id);
+  for (const id of ["tracks", "tracks-ends", "tracks-sel", "tracks-lift"]) if (ctx.map.getSource(id)) ctx.map.removeSource(id);
 }
 function fit(t) {
   const all = t.segs.flat(), lng = all.map((p) => p[0]), lat = all.map((p) => p[1]);
@@ -311,6 +319,7 @@ function openButton() {
 function renderList(query = searchText) {
   stopDrawing();
   spikePts = [];
+  liftPieces = null;
   openId = null;
   hoverPt = null;
   selPiece = null;
@@ -325,9 +334,9 @@ function renderList(query = searchText) {
   for (const x of list) {
     const r = h("button", "tr-row");
     const icon = h("span", "tr-icon tk-icon");
-    icon.innerHTML = svg(TRACK_D, 18);
+    icon.innerHTML = kindOf(x.kind) ? mdi(kindOf(x.kind)[2]) : svg(TRACK_D, 18);
     const text = h("span", "tr-row-text");
-    text.append(h("span", "tr-row-title", x.name), h("span", "tr-row-sub", [kindOf(x.kind)?.slice(1).join(" "), day(x.date), km(x.dist)].filter(Boolean).join(" · ")));
+    text.append(h("span", "tr-row-title", x.name), h("span", "tr-row-sub", [kindOf(x.kind)?.[1], day(x.date), km(x.dist)].filter(Boolean).join(" · ")));
     r.append(icon, text);
     r.addEventListener("click", () => openTrack(x.id));
     nodes.push(r);
@@ -433,17 +442,70 @@ async function drawClick(e) {
   openTrack(t.id, true);
 }
 
-// вид занятия: из файла (если программа его пишет) или выбрать самому
-const KINDS = [["walk", "🚶", "Прогулка"], ["hike", "🥾", "Поход"], ["run", "🏃", "Бег"], ["bike", "🚴", "Велосипед"],
-  ["kite", "🪁", "Кайтсёрфинг"], ["surf", "🏄", "Виндсёрфинг, сёрфинг, SUP"], ["ski", "⛷️", "Лыжи"], ["boat", "⛵", "Лодка"],
-  ["car", "🚗", "Машина"], ["other", "📍", "Другое"]];
+// вид активности: из файла (если программа его пишет) или выбрать самому. Значки — чёрно-белые
+// (Грегори, 2026-11-02: «цветные — размазня»), Pictogrammers MDI (Apache 2.0)
+const mdi = (d, size = 18) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor"><path d="${d}"/></svg>`;
+const KINDS = [
+  ["walk", "Прогулка", "M14.12,10H19V8.2H15.38L13.38,4.87C13.08,4.37 12.54,4.03 11.92,4.03C11.74,4.03 11.58,4.06 11.42,4.11L6,5.8V11H7.8V7.33L9.91,6.67L6,22H7.8L10.67,13.89L13,17V22H14.8V15.59L12.31,11.05L13.04,8.18M14,3.8C15,3.8 15.8,3 15.8,2C15.8,1 15,0.2 14,0.2C13,0.2 12.2,1 12.2,2C12.2,3 13,3.8 14,3.8Z"],
+  ["hike", "Поход", "M17.47 8.67H19V23H17.47V12.6C16.67 12.44 15.92 12.14 15.21 11.71S13.9 10.78 13.39 10.2L12.77 13.27L15 15.47V23H13V17L10.76 14.8L8.89 23H6.73C6.73 23 9.86 7.22 9.89 7.09C10 6.61 10.22 6.24 10.59 6C10.96 5.73 11.33 5.6 11.71 5.6C12.1 5.6 12.46 5.69 12.79 5.87C13.13 6.04 13.39 6.29 13.58 6.61L14.64 8.24C14.93 8.78 15.32 9.25 15.81 9.63S16.86 10.3 17.47 10.5V8.67M8.55 5.89L7.4 5.65C6.83 5.5 6.31 5.62 5.84 5.94C5.38 6.26 5.1 6.7 5 7.28L4.19 11.26C4.16 11.55 4.22 11.81 4.38 12.05C4.54 12.29 4.75 12.42 5 12.46L7.21 12.89L8.55 5.89M13 1C11.9 1 11 1.9 11 3S11.9 5 13 5 15 4.11 15 3 14.11 1 13 1Z"],
+  ["run", "Бег", "M13.5,5.5C14.59,5.5 15.5,4.58 15.5,3.5C15.5,2.38 14.59,1.5 13.5,1.5C12.39,1.5 11.5,2.38 11.5,3.5C11.5,4.58 12.39,5.5 13.5,5.5M9.89,19.38L10.89,15L13,17V23H15V15.5L12.89,13.5L13.5,10.5C14.79,12 16.79,13 19,13V11C17.09,11 15.5,10 14.69,8.58L13.69,7C13.29,6.38 12.69,6 12,6C11.69,6 11.5,6.08 11.19,6.08L6,8.28V13H8V9.58L9.79,8.88L8.19,17L3.29,16L2.89,18L9.89,19.38Z"],
+  ["bike", "Велосипед", "M5,20.5A3.5,3.5 0 0,1 1.5,17A3.5,3.5 0 0,1 5,13.5A3.5,3.5 0 0,1 8.5,17A3.5,3.5 0 0,1 5,20.5M5,12A5,5 0 0,0 0,17A5,5 0 0,0 5,22A5,5 0 0,0 10,17A5,5 0 0,0 5,12M14.8,10H19V8.2H15.8L13.86,4.93C13.57,4.43 13,4.1 12.4,4.1C11.93,4.1 11.5,4.29 11.2,4.6L7.5,8.29C7.19,8.6 7,9 7,9.5C7,10.13 7.33,10.66 7.85,10.97L11.2,13V18H13V11.5L10.75,9.85L13.07,7.5M19,20.5A3.5,3.5 0 0,1 15.5,17A3.5,3.5 0 0,1 19,13.5A3.5,3.5 0 0,1 22.5,17A3.5,3.5 0 0,1 19,20.5M19,12A5,5 0 0,0 14,17A5,5 0 0,0 19,22A5,5 0 0,0 24,17A5,5 0 0,0 19,12M16,4.8C17,4.8 17.8,4 17.8,3C17.8,2 17,1.2 16,1.2C15,1.2 14.2,2 14.2,3C14.2,4 15,4.8 16,4.8Z"],
+  ["kite", "Кайтсёрфинг", "M16.5 4.5L15.5 3.43L17.92 1H20L16.5 4.5M20.96 23C19.9 23 18.9 22.75 17.96 22.25C16.12 23.25 13.81 23.25 11.97 22.25C10.13 23.25 7.82 23.25 6 22.25C4.77 22.94 3.36 23.05 2 23V21C3.41 21.05 4.77 20.9 6 20C7.74 21.25 10.21 21.25 11.97 20C13.74 21.25 16.2 21.25 17.96 20C19.17 20.9 20.54 21.05 21.94 21V23H20.96M20.35 12.26C18.3 11.5 16.14 12.61 14.08 13.36L12.39 11.5H9.58V8C11.89 8.19 14.29 7.67 15.9 5.96L14.5 4.56C13.6 5.46 12.3 6 11 6H8C6.89 6 5.95 6.92 6 8C6.07 9.35 5.67 12.73 6.45 13.87L8 16.82C7.43 17.23 6.93 17.62 6.5 18C8.09 19.5 10.65 19.17 11.97 17.5C12.91 18.59 14.45 19.3 15.9 18.83C17.45 17.77 22.74 14 20.35 12.26M11.43 14.65C11 14.89 10.16 15.37 9.82 15.61L8.97 13.59L11.46 13.5L12.16 14.25L11.43 14.65M8 1C6.9 1 6 1.9 6 3S6.9 5 8 5 10 4.11 10 3 9.11 1 8 1Z"],
+  ["surf", "Виндсёрфинг, сёрфинг, SUP", "M22 23V21C20.59 21.05 19.22 20.9 18 20C16.24 21.25 13.77 21.25 12 20C10.23 21.25 7.76 21.25 6 20C4.78 20.9 3.41 21.05 2 21V23C3.37 23.05 4.78 22.94 6 22.25C7.84 23.25 10.15 23.25 12 22.25C13.85 23.25 16.16 23.25 18 22.25C19.22 22.94 20.63 23.05 22 23M20.5 11.97V9.95C18.74 9.96 17 9 16.18 7.41L15.29 5.86C15 5.4 14.55 5.11 14.07 4.97L8.5 3.94L5 6.38L6.13 8L8.95 6.1L10.97 6.43L8.81 7.88C8.21 8.29 7.88 9 8 9.71L8.53 12.81C7.12 12.26 3.21 11 3 13.23C3.36 15.67 6.07 17.32 8.06 18.82C9.5 19.29 11.06 18.58 12 17.46C13.32 19.16 15.89 19.46 17.5 18C17.03 17.58 16.5 17.15 16 16.8V12.95L12.19 9.95L14.44 8.44C15.62 10.59 18 12 20.5 11.97M14 14V15.47C14 15.43 11.66 14.16 11.81 14.24L10.73 13.7L10.31 11.08L14 14M19 3.5C19 4.61 18.11 5.5 17 5.5S15 4.61 15 3.5 15.9 1.5 17 1.5 19 2.4 19 3.5Z"],
+  ["xc", "Лыжи беговые", "M19 14H17.6V22H19V14M6.44 22H5L7 14H8.44L6.44 22M8.76 9.54V13H7V8.32L11.61 6.31C12.04 6.14 12.5 6.13 12.96 6.27S13.79 6.69 14.06 7.1L15 8.58C15.37 9.25 15.9 9.95 16.62 10.37C17.33 10.79 18.13 11 19 11V12.83C18 12.83 17 12.62 16.13 12.2S14.5 11.06 13.88 10.37L13.31 13.16L15.28 15V22H13.4V16.5L11.5 14.55L9.77 22H7.8L10.43 8.89L8.76 9.54M16 4C16 5.11 15.11 6 14 6S12 5.11 12 4 12.9 2 14 2 16 2.9 16 4Z"],
+  ["ski", "Лыжи горные", "M17.92 13.32C17.67 13.28 16.71 13 16.46 12.89L14.39 19.37L11.3 18.24L13.5 12.47L10.45 9L13 7.54C13.45 8.67 14.17 9.62 15.12 10.4S17.16 11.67 18.38 11.86L19.5 8.43L18.06 7.96L17.54 9.56C16.88 9.28 16.3 8.86 15.8 8.32C15.3 7.77 14.94 7.13 14.72 6.41L14.39 5.33C14.27 4.93 14.04 4.61 13.71 4.37C13.38 4.14 13 4 12.63 3.97C12.24 3.94 11.86 4 11.5 4.21L8 6.23C7.63 6.44 7.36 6.74 7.19 7.12C7 7.5 6.96 7.88 7 8.29S7.26 9.06 7.54 9.37L11.11 13.08L9.42 17.54L2.47 15.05L2 16.46L16.04 21.58C16.82 21.86 17.65 22 18.53 22C19.15 22 19.76 21.92 20.36 21.77C20.95 21.61 21.5 21.39 22 21.11L20.87 20C20.12 20.33 19.34 20.5 18.53 20.5C17.87 20.5 17.21 20.39 16.55 20.17L15.8 19.89L17.92 13.32M19 3C19 4.11 18.11 5 17 5S15 4.11 15 3 15.9 1 17 1 19 1.9 19 3Z"],
+  ["boat", "Лодка", "M3 13.5L11 2.03V13.5H3M12.5 13.5C13.85 9.75 13.67 4.71 12.5 1C17.26 2.54 20.9 8.4 20.96 13.5H12.5M21.1 17.08C20.69 17.72 20.21 18.27 19.65 18.74C19 18.45 18.42 18 17.96 17.5C16.47 19.43 13.46 19.43 11.97 17.5C10.5 19.43 7.47 19.43 6 17.5C5.5 18 4.95 18.45 4.3 18.74C3.16 17.8 2.3 16.46 2 15H21.94C21.78 15.75 21.5 16.44 21.1 17.08M20.96 23C19.9 23 18.9 22.75 17.96 22.25C16.12 23.25 13.81 23.25 11.97 22.25C10.13 23.25 7.82 23.25 6 22.25C4.77 22.94 3.36 23.05 2 23V21C3.41 21.05 4.77 20.9 6 20C7.74 21.25 10.21 21.25 11.97 20C13.74 21.25 16.2 21.25 17.96 20C19.17 20.9 20.54 21.05 21.94 21V23H20.96Z"],
+  ["car", "Машина", "M5,11L6.5,6.5H17.5L19,11M17.5,16A1.5,1.5 0 0,1 16,14.5A1.5,1.5 0 0,1 17.5,13A1.5,1.5 0 0,1 19,14.5A1.5,1.5 0 0,1 17.5,16M6.5,16A1.5,1.5 0 0,1 5,14.5A1.5,1.5 0 0,1 6.5,13A1.5,1.5 0 0,1 8,14.5A1.5,1.5 0 0,1 6.5,16M18.92,6C18.72,5.42 18.16,5 17.5,5H6.5C5.84,5 5.28,5.42 5.08,6L3,12V20A1,1 0 0,0 4,21H5A1,1 0 0,0 6,20V19H18V20A1,1 0 0,0 19,21H20A1,1 0 0,0 21,20V12L18.92,6Z"],
+  ["other", "Другое", "M12,11.5A2.5,2.5 0 0,1 9.5,9A2.5,2.5 0 0,1 12,6.5A2.5,2.5 0 0,1 14.5,9A2.5,2.5 0 0,1 12,11.5M12,2A7,7 0 0,0 5,9C5,14.25 12,22 12,22C12,22 19,14.25 19,9A7,7 0 0,0 12,2Z"],
+];
 const kindOf = (id) => KINDS.find((k) => k[0] === id);
 function kindFromFile(type) {
   const s = (type || "").toLowerCase();
   return /kite/.test(s) ? "kite" : /surf|sup|paddle/.test(s) ? "surf" : /cycl|bik|ride/.test(s) ? "bike" : /run/.test(s) ? "run"
-    : /hik/.test(s) ? "hike" : /walk/.test(s) ? "walk" : /ski/.test(s) ? "ski" : /boat|sail|row|kayak|canoe/.test(s) ? "boat"
-    : /driv|car/.test(s) ? "car" : null;
+    : /hik/.test(s) ? "hike" : /walk/.test(s) ? "walk" : /cross|nordic|xc/.test(s) && /ski/.test(s) ? "xc" : /ski|snowboard/.test(s) ? "ski"
+    : /boat|sail|row|kayak|canoe/.test(s) ? "boat" : /driv|car/.test(s) ? "car" : null;
 }
+
+// горные лыжи (Грегори, 2026-11-02: «подсчёт спусков и подъёмов, скорость средняя и максимальная без
+// канатных дорог — специализированные трекеры так и считают»). Высота (сглаженная) поворачивает
+// вверх-вниз; поворот считается, когда высота ушла от крайней точки на SKI_TURN м; подъём от низа до
+// верха не меньше SKI_MIN — подъёмник, спуск — спуск. На лыжных днях Грегори (Ski Tracker): 10–33
+// спуска в день, средняя на спусках 15–23 км/ч, максимальная 46–60
+const SKI_TURN = 25, SKI_MIN = 40;
+function skiStats(s) {
+  const prof = s.profile, n = prof.length;
+  if (n < 3 || prof.some((p) => p[1] == null)) return null;
+  const e = prof.map((_, i) => { const k = Math.min(2, i, n - 1 - i); let sum = 0; for (let j = i - k; j <= i + k; j++) sum += prof[j][1]; return sum / (2 * k + 1); });
+  const turns = [0];
+  let dir = 0, ext = 0;
+  for (let i = 1; i < n; i++) {
+    if (dir === 0) { if (Math.abs(e[i] - e[0]) >= SKI_TURN) { dir = e[i] > e[0] ? 1 : -1; ext = i; } continue; }
+    if (dir === 1 ? e[i] > e[ext] : e[i] < e[ext]) ext = i;
+    else if (Math.abs(e[ext] - e[i]) >= SKI_TURN) { turns.push(ext); dir = -dir; ext = i; }
+  }
+  turns.push(n - 1);
+  const runs = [], lifts = [];
+  for (let k = 1; k < turns.length; k++) {
+    const a = turns[k - 1], b = turns[k], dh = e[b] - e[a];
+    if (dh >= SKI_MIN) lifts.push([a, b]);
+    else if (-dh >= SKI_MIN) runs.push([a, b]);
+  }
+  let dist = 0, time = 0, max = 0, vert = 0, liftUp = 0, liftTime = 0;
+  // перепад — по настоящим высотам куска (сглаженная срезает вершину и низ поворота)
+  const span = (a, b) => { let hi = -Infinity, lo = Infinity; for (let i = a; i <= b; i++) { hi = Math.max(hi, prof[i][1]); lo = Math.min(lo, prof[i][1]); } return hi - lo; };
+  for (const [a, b] of runs) {
+    vert += span(a, b);
+    for (let i = a + 1; i <= b; i++) {
+      const d = prof[i][0] - prof[i - 1][0], t0 = prof[i - 1][3][3], t1 = prof[i][3][3], dt = t0 && t1 ? t1 - t0 : 0;
+      dist += d;
+      if (dt > 0 && dt < PAUSE && d / (dt / 1000) > MOVING) time += dt;
+      if (prof[i][2] > max) max = prof[i][2];
+    }
+  }
+  for (const [a, b] of lifts) { liftUp += span(a, b); const t0 = prof[a][3][3], t1 = prof[b][3][3]; if (t0 && t1) liftTime += t1 - t0; }
+  return { runs, lifts, dist, time, max, vert, liftUp, liftTime };
+}
+const kmh = (m, ms) => `${dec(m / (ms / 3600000) / 1000, 1)} км/ч`;
 
 // отрезки по 1, 2, 5, 10 км: время, скорость, набор и сброс; from и to — номера точек начала и конца
 function splits(s, size) {
@@ -454,7 +516,9 @@ function splits(s, size) {
     if (prof[i][0] - prof[from][0] < size && !last) continue;
     const d = prof[i][0] - prof[from][0], t0 = prof[from][3][3], t1 = prof[i][3][3];
     const [up, down] = climb(prof.slice(from, i + 1).map((p) => p[1]));
-    if (d > 50 || !rows.length) rows.push({ from, to: i, dist: d, time: t0 && t1 ? t1 - t0 : 0, up, down });
+    const part = prof.slice(from, i + 1), es = part.map((p) => p[1]).filter((v) => v != null), vs = part.map((p) => p[2]).filter((v) => v != null);
+    if (d > 50 || !rows.length) rows.push({ from, to: i, dist: d, time: t0 && t1 ? t1 - t0 : 0, up, down,
+      maxV: vs.length ? Math.max(...vs) : null, minE: es.length ? Math.min(...es) : null, maxE: es.length ? Math.max(...es) : null });
     from = i;
   }
   return rows;
@@ -473,130 +537,245 @@ function chart(s, st, changed) {
   const hasEle = s.maxEle != null && s.maxEle !== s.minEle, hasSpeed = s.maxSpeed > 0;
   if (prof.length < 2 || (!hasEle && !hasSpeed)) return null;
   const box = h("div", "tk-chart");
-  const plot = h("div", "tk-plot");
-  const v0 = st.v0, v1 = st.v1, D0 = prof[v0][0], D1 = prof[v1][0];
-  const view = prof.slice(v0, v1 + 1);
-  const eles = view.map((p) => p[1]).filter((e) => e != null), speeds = view.map((p) => p[2]).filter((v) => v != null);
-  const minE = Math.min(...eles), maxE = Math.max(...eles), maxV = Math.max(0, ...speeds);
-  const x = (d) => pad + ((d - D0) / (D1 - D0 || 1)) * (W - 2 * pad);
-  const yE = (e) => H - pad - ((e - minE) / (maxE - minE || 1)) * (H - 2 * pad - 14);
-  const yS = (v) => H - pad - (v / (maxV || 1)) * (H - 2 * pad - 14);
-  // не больше ~400 точек на графике
-  const step = Math.max(1, Math.floor(view.length / 400));
-  const pts = view.filter((_, i) => i % step === 0 || i === view.length - 1);
-  let html = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
-  const e = pts.filter((p) => p[1] != null);
-  if (hasEle && e.length > 1) html += `<path class="tk-ele" d="M${x(e[0][0])},${H - pad} ${e.map((p) => `L${x(p[0]).toFixed(1)},${yE(p[1]).toFixed(1)}`).join(" ")} L${x(e[e.length - 1][0])},${H - pad} Z"/>`;
-  const v = pts.filter((p) => p[2] != null);
-  if (hasSpeed && v.length > 1) html += `<path class="tk-speed" d="${v.map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${yS(p[2]).toFixed(1)}`).join(" ")}"/>`;
-  html += `<rect class="tk-out tk-out-a" y="0" height="${H}"/><rect class="tk-out tk-out-b" y="0" height="${H}"/>`;
-  html += `<line class="tk-pin" x1="0" x2="0" y1="0" y2="${H}" visibility="hidden"/>`;
-  html += `<line class="tk-cursor" x1="0" x2="0" y1="0" y2="${H}" visibility="hidden"/></svg>`;
-  plot.innerHTML = html;
-  // ручки — поверх графика, их удобно взять и пальцем
-  const ha = h("div", "tk-handle"), hb = h("div", "tk-handle");
-  ha.title = hb.title = "Потяните, чтобы выбрать кусок трека";
-  // наибольшее и наименьшее на графике (как у Mapy.com): ▲ высшая точка, ▼ низшая, ● наибольшая скорость
-  const extreme = (val, better) => view.reduce((b, p) => (val(p) != null && (b == null || better(val(p), val(b))) ? p : b), null);
-  const marks = [];
-  if (hasEle && eles.length) {
-    marks.push([extreme((p) => p[1], (a, b) => a > b), (p) => yE(p[1]), (p) => `▲ ${Math.round(p[1])} м`, "tk-mark-ele tk-mark-up"]);
-    marks.push([extreme((p) => p[1], (a, b) => a < b), (p) => yE(p[1]), (p) => `▼ ${Math.round(p[1])} м`, "tk-mark-ele tk-mark-down"]);
-  }
-  if (hasSpeed && speeds.length) marks.push([extreme((p) => p[2], (a, b) => a > b), (p) => yS(p[2]), (p) => `${dec(p[2], 1)} км/ч`, "tk-mark-speed tk-mark-up"]);
-  for (const [p, y, text, cls] of marks) {
-    if (!p) continue;
-    const m = h("div", `tk-mark ${cls}`, text(p));
-    const left = (x(p[0]) / W) * 100;
-    m.style.left = `${left}%`;
-    const top = (y(p) / H) * 100;
-    m.style.top = `${top}%`;
-    // подпись — внутри графика: у нижнего края — над точкой, у верхнего — под ней
-    if (cls.includes("tk-mark-down") && top > 80) m.classList.replace("tk-mark-down", "tk-mark-up");
-    else if (cls.includes("tk-mark-up") && top < 18) m.classList.replace("tk-mark-up", "tk-mark-down");
-    // у краёв графика подпись не вылезает наружу
-    if (left < 12) m.classList.add("tk-mark-l"); else if (left > 88) m.classList.add("tk-mark-r");
-    m.title = [km(p[0]), clock(p[3][3])].filter(Boolean).join(" · ");
-    plot.append(m);
-  }
-  plot.append(ha, hb);
-  const legend = h("div", "tk-legend");
-  if (hasEle) legend.append(h("span", "tk-leg-ele", `высота ${Math.round(minE)}–${Math.round(maxE)} м`));
-  if (hasSpeed) legend.append(h("span", "tk-leg-speed", `скорость до ${dec(maxV, 1)} км/ч`));
-  if (v0 > 0 || v1 < prof.length - 1) legend.append(h("span", "tk-leg-zoom", `крупно: ${km(D0)} – ${km(D1)}`));
-  const read = h("div", "tk-read", "Наведите на график — точка покажется на треке");
-  box.append(plot, legend, read);
-  const svgEl = plot.querySelector("svg"), cursor = svgEl.querySelector(".tk-cursor");
-  const ra = svgEl.querySelector(".tk-out-a"), rb = svgEl.querySelector(".tk-out-b");
-  const place = () => {
-    const a = Math.max(st.a, v0), b = Math.min(st.b, v1);
-    ha.style.left = `${(x(prof[a][0]) / W) * 100}%`;
-    hb.style.left = `${(x(prof[b][0]) / W) * 100}%`;
-    ra.setAttribute("x", 0);
-    ra.setAttribute("width", st.a <= v0 ? 0 : x(prof[a][0]));
-    rb.setAttribute("x", x(prof[b][0]));
-    rb.setAttribute("width", st.b >= v1 ? 0 : W - x(prof[b][0]));
+  const last = prof.length - 1, total = prof[last][0];
+  // ползунок под графиком: какая часть трека видна; тянуть — двигать, колёсико и два пальца — крупнее/мельче
+  const scroll = h("div", "tk-scroll"), thumb = h("div", "tk-thumb");
+  scroll.title = "Потяните — сдвинуть график; колёсико мыши или два пальца — крупнее и мельче";
+  scroll.append(thumb);
+  const placeThumb = () => {
+    thumb.style.left = `${(prof[st.v0][0] / (total || 1)) * 100}%`;
+    thumb.style.width = `${Math.max(2, ((prof[st.v1][0] - prof[st.v0][0]) / (total || 1)) * 100)}%`;
+    scroll.classList.toggle("whole", st.v0 === 0 && st.v1 === last);
   };
-  place();
-  // ближайшая точка к месту на графике (в пределах того, что видно)
-  const at = (clientX) => {
-    const r = svgEl.getBoundingClientRect();
-    const d = D0 + Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * (D1 - D0);
-    let lo = v0, hi = v1;
-    while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (prof[mid][0] < d) lo = mid; else hi = mid; }
-    return d - prof[lo][0] < prof[hi][0] - d ? lo : hi;
+  // номер точки по расстоянию от начала
+  const idxAt = (d) => { let lo = 0, hi = last; while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (prof[mid][0] < d) lo = mid; else hi = mid; } return d - prof[lo][0] < prof[hi][0] - d ? lo : hi; };
+  let frame = 0;
+  const zoom = (d0, d1) => {
+    const w = Math.min(total, Math.max(Math.min(total, 60), d1 - d0)), a = Math.max(0, Math.min(total - w, d0));
+    const v0 = idxAt(a), v1 = Math.max(v0 + 4, idxAt(a + w));
+    if (v1 > last) return;
+    st.v0 = v0; st.v1 = v1;
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => { render(); changed(false); });
   };
-  const hover = (i) => {
-    const p = prof[i];
-    cursor.setAttribute("x1", x(p[0])); cursor.setAttribute("x2", x(p[0])); cursor.setAttribute("visibility", "visible");
-    read.textContent = [km(p[0]), p[1] != null && `${Math.round(p[1])} м`, p[2] != null && `${dec(p[2], 1)} км/ч`, clock(p[3][3])].filter(Boolean).join(" · ");
-    hoverPt = p[3];
-    draw();
+  const render = () => {
+    const plot = h("div", "tk-plot");
+    const v0 = st.v0, v1 = st.v1, D0 = prof[v0][0], D1 = prof[v1][0];
+    const view = prof.slice(v0, v1 + 1);
+    const eles = view.map((p) => p[1]).filter((e) => e != null), speeds = view.map((p) => p[2]).filter((v) => v != null);
+    const minE = Math.min(...eles), maxE = Math.max(...eles), maxV = Math.max(0, ...speeds);
+    const x = (d) => pad + ((d - D0) / (D1 - D0 || 1)) * (W - 2 * pad);
+    const yE = (e) => H - pad - ((e - minE) / (maxE - minE || 1)) * (H - 2 * pad - 14);
+    const yS = (v) => H - pad - (v / (maxV || 1)) * (H - 2 * pad - 14);
+    // не больше ~400 точек на графике
+    const step = Math.max(1, Math.floor(view.length / 400));
+    const pts = view.filter((_, i) => i % step === 0 || i === view.length - 1);
+    let html = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
+    // подъёмники (горные лыжи) — серой полосой под графиком
+    for (const [a, b] of s.lifts || []) if (b >= v0 && a <= v1) {
+      const xa = x(prof[Math.max(a, v0)][0]), xb = x(prof[Math.min(b, v1)][0]);
+      html += `<rect class="tk-lift" x="${xa.toFixed(1)}" y="0" width="${Math.max(0.5, xb - xa).toFixed(1)}" height="${H}"/>`;
+    }
+    const e = pts.filter((p) => p[1] != null);
+    if (hasEle && e.length > 1) html += `<path class="tk-ele" d="M${x(e[0][0])},${H - pad} ${e.map((p) => `L${x(p[0]).toFixed(1)},${yE(p[1]).toFixed(1)}`).join(" ")} L${x(e[e.length - 1][0])},${H - pad} Z"/>`;
+    const v = pts.filter((p) => p[2] != null);
+    if (hasSpeed && v.length > 1) html += `<path class="tk-speed" d="${v.map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${yS(p[2]).toFixed(1)}`).join(" ")}"/>`;
+    html += `<rect class="tk-out tk-out-a" y="0" height="${H}"/><rect class="tk-out tk-out-b" y="0" height="${H}"/>`;
+    html += `<line class="tk-pin" x1="0" x2="0" y1="0" y2="${H}" visibility="hidden"/>`;
+    html += `<line class="tk-cursor" x1="0" x2="0" y1="0" y2="${H}" visibility="hidden"/></svg>`;
+    plot.innerHTML = html;
+    // ручки — поверх графика, их удобно взять и пальцем
+    const ha = h("div", "tk-handle"), hb = h("div", "tk-handle");
+    ha.title = hb.title = "Потяните, чтобы выбрать кусок трека";
+    // наибольшее и наименьшее на графике (как у Mapy.com): ▲ высшая точка, ▼ низшая, ● наибольшая скорость
+    const extreme = (val, better) => view.reduce((b, p) => (val(p) != null && (b == null || better(val(p), val(b))) ? p : b), null);
+    const marks = [];
+    if (hasEle && eles.length) {
+      marks.push([extreme((p) => p[1], (a, b) => a > b), (p) => yE(p[1]), (p) => `▲ ${Math.round(p[1])} м`, "tk-mark-ele tk-mark-up"]);
+      marks.push([extreme((p) => p[1], (a, b) => a < b), (p) => yE(p[1]), (p) => `▼ ${Math.round(p[1])} м`, "tk-mark-ele tk-mark-down"]);
+    }
+    if (hasSpeed && speeds.length) marks.push([extreme((p) => p[2], (a, b) => a > b), (p) => yS(p[2]), (p) => `${dec(p[2], 1)} км/ч`, "tk-mark-speed tk-mark-up"]);
+    for (const [p, y, text, cls] of marks) {
+      if (!p) continue;
+      const m = h("div", `tk-mark ${cls}`, text(p));
+      const left = (x(p[0]) / W) * 100;
+      m.style.left = `${left}%`;
+      const top = (y(p) / H) * 100;
+      m.style.top = `${top}%`;
+      // подпись — внутри графика: у нижнего края — над точкой, у верхнего — под ней
+      if (cls.includes("tk-mark-down") && top > 80) m.classList.replace("tk-mark-down", "tk-mark-up");
+      else if (cls.includes("tk-mark-up") && top < 18) m.classList.replace("tk-mark-up", "tk-mark-down");
+      // у краёв графика подпись не вылезает наружу
+      if (left < 12) m.classList.add("tk-mark-l"); else if (left > 88) m.classList.add("tk-mark-r");
+      m.title = [km(p[0]), clock(p[3][3])].filter(Boolean).join(" · ");
+      plot.append(m);
+    }
+    plot.append(ha, hb);
+    const legend = h("div", "tk-legend");
+    if (hasEle) legend.append(h("span", "tk-leg-ele", `высота ${Math.round(minE)}–${Math.round(maxE)} м`));
+    if (hasSpeed) legend.append(h("span", "tk-leg-speed", `скорость до ${dec(maxV, 1)} км/ч`));
+    if (v0 > 0 || v1 < prof.length - 1) legend.append(h("span", "tk-leg-zoom", `крупно: ${km(D0)} – ${km(D1)}`));
+    const read = h("div", "tk-read", "Наведите на график — точка покажется на треке");
+    box.replaceChildren(plot, scroll, legend, read);
+    const svgEl = plot.querySelector("svg"), cursor = svgEl.querySelector(".tk-cursor");
+    const ra = svgEl.querySelector(".tk-out-a"), rb = svgEl.querySelector(".tk-out-b");
+    const place = () => {
+      const a = Math.max(st.a, v0), b = Math.min(st.b, v1);
+      ha.style.left = `${(x(prof[a][0]) / W) * 100}%`;
+      hb.style.left = `${(x(prof[b][0]) / W) * 100}%`;
+      ra.setAttribute("x", 0);
+      ra.setAttribute("width", st.a <= v0 ? 0 : x(prof[a][0]));
+      rb.setAttribute("x", x(prof[b][0]));
+      rb.setAttribute("width", st.b >= v1 ? 0 : W - x(prof[b][0]));
+    };
+    place();
+    // ближайшая точка к месту на графике (в пределах того, что видно)
+    const at = (clientX) => {
+      const r = svgEl.getBoundingClientRect();
+      const d = D0 + Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * (D1 - D0);
+      let lo = v0, hi = v1;
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (prof[mid][0] < d) lo = mid; else hi = mid; }
+      return d - prof[lo][0] < prof[hi][0] - d ? lo : hi;
+    };
+    const hover = (i) => {
+      const p = prof[i];
+      cursor.setAttribute("x1", x(p[0])); cursor.setAttribute("x2", x(p[0])); cursor.setAttribute("visibility", "visible");
+      read.textContent = [km(p[0]), p[1] != null && `${Math.round(p[1])} м`, p[2] != null && `${dec(p[2], 1)} км/ч`, clock(p[3][3])].filter(Boolean).join(" · ");
+      hoverPt = p[3];
+      draw();
+    };
+    svgEl.addEventListener("pointermove", (ev) => hover(at(ev.clientX)));
+    // нажатие — точка остаётся отмеченной (там можно разрезать трек)
+    const pinLine = svgEl.querySelector(".tk-pin");
+    const showPin = () => {
+      const on = st.pin != null && st.pin >= v0 && st.pin <= v1;
+      pinLine.setAttribute("visibility", on ? "visible" : "hidden");
+      if (on) { pinLine.setAttribute("x1", x(prof[st.pin][0])); pinLine.setAttribute("x2", x(prof[st.pin][0])); }
+    };
+    showPin();
+    svgEl.addEventListener("pointerdown", (ev) => { const i = at(ev.clientX); st.pin = i; showPin(); hover(i); changed(false); });
+    svgEl.addEventListener("pointerleave", () => { cursor.setAttribute("visibility", "hidden"); hoverPt = st.pin != null ? prof[st.pin][3] : null; draw(); });
+    for (const [el, end] of [[ha, "a"], [hb, "b"]]) {
+      el.addEventListener("pointerdown", (ev) => { ev.preventDefault(); el.setPointerCapture(ev.pointerId); el.dataset.drag = "1"; });
+      el.addEventListener("pointermove", (ev) => {
+        if (!el.dataset.drag) return;
+        const i = at(ev.clientX);
+        if (end === "a") st.a = Math.min(i, st.b - 1); else st.b = Math.max(i, st.a + 1);
+        place();
+        hover(end === "a" ? st.a : st.b);
+        changed(false);
+      });
+      const up = () => { if (!el.dataset.drag) return; delete el.dataset.drag; changed(true); };
+      el.addEventListener("pointerup", up);
+      el.addEventListener("pointercancel", up);
+    }
+    box.place = place;
+    placeThumb();
   };
-  svgEl.addEventListener("pointermove", (ev) => hover(at(ev.clientX)));
-  // нажатие — точка остаётся отмеченной (там можно разрезать трек)
-  const pinLine = svgEl.querySelector(".tk-pin");
-  const showPin = () => {
-    const on = st.pin != null && st.pin >= v0 && st.pin <= v1;
-    pinLine.setAttribute("visibility", on ? "visible" : "hidden");
-    if (on) { pinLine.setAttribute("x1", x(prof[st.pin][0])); pinLine.setAttribute("x2", x(prof[st.pin][0])); }
-  };
-  showPin();
-  svgEl.addEventListener("pointerdown", (ev) => { const i = at(ev.clientX); st.pin = i; showPin(); hover(i); changed(false); });
-  svgEl.addEventListener("pointerleave", () => { cursor.setAttribute("visibility", "hidden"); hoverPt = st.pin != null ? prof[st.pin][3] : null; draw(); });
-  for (const [el, end] of [[ha, "a"], [hb, "b"]]) {
-    el.addEventListener("pointerdown", (ev) => { ev.preventDefault(); el.setPointerCapture(ev.pointerId); el.dataset.drag = "1"; });
-    el.addEventListener("pointermove", (ev) => {
-      if (!el.dataset.drag) return;
-      const i = at(ev.clientX);
-      if (end === "a") st.a = Math.min(i, st.b - 1); else st.b = Math.max(i, st.a + 1);
-      place();
-      hover(end === "a" ? st.a : st.b);
-      changed(false);
-    });
-    const up = () => { if (!el.dataset.drag) return; delete el.dataset.drag; changed(true); };
-    el.addEventListener("pointerup", up);
-    el.addEventListener("pointercancel", up);
-  }
-  box.place = place;
+  // колёсико — крупнее и мельче вокруг места под мышью
+  box.addEventListener("wheel", (ev) => {
+    const svgEl = box.querySelector("svg"), r = svgEl.getBoundingClientRect();
+    if (ev.clientY > r.bottom) return;
+    ev.preventDefault();
+    const D0 = prof[st.v0][0], D1 = prof[st.v1][0], d = D0 + Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * (D1 - D0);
+    const f = Math.exp(ev.deltaY * 0.0015);
+    zoom(d - (d - D0) * f, d + (D1 - d) * f);
+  }, { passive: false });
+  // два пальца — как на карте
+  const touches = new Map();
+  let pinch = null;
+  box.addEventListener("pointerdown", (ev) => {
+    if (ev.pointerType !== "touch") return;
+    touches.set(ev.pointerId, ev.clientX);
+    if (touches.size === 2) {
+      const [x1, x2] = [...touches.values()], r = box.querySelector("svg").getBoundingClientRect();
+      const D0 = prof[st.v0][0], D1 = prof[st.v1][0];
+      pinch = { gap: Math.abs(x2 - x1) || 1, mid: D0 + (((x1 + x2) / 2 - r.left) / r.width) * (D1 - D0), D0, D1 };
+    }
+  }, true);
+  box.addEventListener("pointermove", (ev) => {
+    if (!touches.has(ev.pointerId)) return;
+    touches.set(ev.pointerId, ev.clientX);
+    if (!pinch || touches.size !== 2) return;
+    const [x1, x2] = [...touches.values()], f = pinch.gap / (Math.abs(x2 - x1) || 1);
+    zoom(pinch.mid - (pinch.mid - pinch.D0) * f, pinch.mid + (pinch.D1 - pinch.mid) * f);
+  }, true);
+  const lift = (ev) => { touches.delete(ev.pointerId); if (touches.size < 2) pinch = null; };
+  box.addEventListener("pointerup", lift, true);
+  box.addEventListener("pointercancel", lift, true);
+  // ползунок: тянуть — двигать видимую часть; щелчок мимо — перескочить туда
+  let pan = null;
+  scroll.addEventListener("pointerdown", (ev) => {
+    ev.preventDefault();
+    const r = scroll.getBoundingClientRect(), w = prof[st.v1][0] - prof[st.v0][0];
+    if (ev.target !== thumb) zoom(((ev.clientX - r.left) / r.width) * total - w / 2, ((ev.clientX - r.left) / r.width) * total + w / 2);
+    scroll.setPointerCapture(ev.pointerId);
+    pan = { x: ev.clientX, d0: ev.target === thumb ? prof[st.v0][0] : ((ev.clientX - r.left) / r.width) * total - w / 2, w, width: r.width };
+  });
+  scroll.addEventListener("pointermove", (ev) => {
+    if (!pan) return;
+    const d0 = pan.d0 + ((ev.clientX - pan.x) / pan.width) * total;
+    zoom(d0, d0 + pan.w);
+  });
+  scroll.addEventListener("pointerup", () => { pan = null; });
+  scroll.addEventListener("pointercancel", () => { pan = null; });
+  render();
   return box;
 }
 
-// цифры трека — плитки
-function factTiles(s) {
+// цифры трека — плитки; у горных лыж — спуски и подъёмы, скорость только на спусках
+function factTiles(s, ski) {
   const facts = h("div", "tk-facts");
   const fact = (label, value) => { if (!value) return; const f = h("div", "tk-fact"); f.append(h("b", "", value), h("span", "", label)); facts.append(f); };
   fact("расстояние", km(s.dist));
-  fact("в пути", s.moving ? hm(s.moving) : "");
-  // «всего» — только если были стоянки
-  fact("всего со стоянками", s.total - s.moving > 60000 ? hm(s.total) : "");
-  fact("средняя в пути", s.moving ? `${dec(s.dist / (s.moving / 3600000) / 1000, 1)} км/ч` : "");
-  fact("наибольшая скорость", s.maxSpeed ? `${dec(s.maxSpeed, 1)} км/ч` : "");
-  fact("набор высоты", s.maxEle != null ? `${Math.round(s.up)} м` : "");
-  fact("сброс высоты", s.maxEle != null ? `${Math.round(s.down)} м` : "");
-  fact("высшая точка", s.maxEle != null ? `${Math.round(s.maxEle)} м` : "");
-  fact("низшая точка", s.maxEle != null ? `${Math.round(s.minEle)} м` : "");
+  if (ski) {
+    fact("спусков", String(ski.runs.length));
+    fact("подъёмов", String(ski.lifts.length));
+    fact("на спусках", km(ski.dist));
+    fact("время на спусках", ski.time ? hm(ski.time) : "");
+    fact("средняя скорость на спусках", ski.time ? kmh(ski.dist, ski.time) : "");
+    fact("максимальная скорость на спусках", ski.max ? `${dec(ski.max, 1)} км/ч` : "");
+    fact("перепад на спусках", `${Math.round(ski.vert)} м`);
+    fact("на подъёмниках", ski.liftTime ? `${hm(ski.liftTime)} · ${Math.round(ski.liftUp)} м` : "");
+    fact("полное время", s.total ? hm(s.total) : "");
+  } else {
+    fact("в пути", s.moving ? hm(s.moving) : "");
+    // полное время — только если были стоянки, иначе оно равно времени в пути
+    fact("полное время", s.total - s.moving > 60000 ? hm(s.total) : "");
+    fact("средняя скорость", s.moving ? kmh(s.dist, s.moving) : "");
+    fact("максимальная скорость", s.maxSpeed ? `${dec(s.maxSpeed, 1)} км/ч` : "");
+    fact("набор высоты", s.maxEle != null ? `${Math.round(s.up)} м` : "");
+    fact("сброс высоты", s.maxEle != null ? `${Math.round(s.down)} м` : "");
+  }
+  fact("максимальная высота", s.maxEle != null ? `${Math.round(s.maxEle)} м` : "");
+  fact("минимальная высота", s.maxEle != null ? `${Math.round(s.minEle)} м` : "");
   return facts;
+}
+
+// выбор вида активности: список со значками (в обычном списке браузера значки не нарисовать)
+function kindPicker(t, done) {
+  const wrap = h("div", "tk-kind");
+  const b = h("button", "text-btn tk-kind-btn");
+  const k = kindOf(t.kind);
+  b.innerHTML = k ? mdi(k[2]) : ICON_SMALL;
+  b.append(h("span", "", k ? k[1] : "Вид активности — выбрать…"));
+  b.title = "Вид активности";
+  const list = h("div", "tk-kind-list");
+  list.hidden = true;
+  for (const [id, name, d] of KINDS) {
+    const o = h("button", "tk-kind-item" + (t.kind === id ? " on" : ""));
+    o.innerHTML = mdi(d);
+    o.append(name);
+    o.addEventListener("click", () => { t.kind = id; persist(t); done(); });
+    list.append(o);
+  }
+  b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    list.hidden = !list.hidden;
+    if (!list.hidden) document.addEventListener("click", () => { list.hidden = true; }, { once: true });
+  });
+  wrap.append(b, list);
+  return wrap;
 }
 
 let sel = null; // { a, b, v0, v1 } — выбранный кусок и видимая часть графика открытого трека
@@ -637,15 +816,14 @@ async function openTrack(id, keep = false) {
   bar.append(left, right);
   const all = t.segs.flat();
   const when = t.date ? `${day(t.date)}, ${clock(all[0][3])}–${clock(all[all.length - 1][3])}` : "";
-  // вид занятия
-  const kind = h("select", "tk-kind");
-  kind.title = "Вид занятия";
-  kind.append(Object.assign(h("option", "", "Вид занятия — выбрать…"), { value: "" }),
-    ...KINDS.map(([k, icon, name]) => Object.assign(h("option", "", `${icon} ${name}`), { value: k, selected: t.kind === k })));
-  kind.addEventListener("change", () => { t.kind = kind.value || null; persist(t); });
+  // вид активности; у горных лыж — спуски и подъёмы, подъёмники на графике и карте серые
+  const kind = kindPicker(t, () => openTrack(id, true));
+  const ski = t.kind === "ski" ? skiStats(s) : null;
+  s.lifts = ski?.lifts || [];
+  liftPieces = ski?.lifts.length ? pieces(t, (g) => ski.lifts.some(([a, b]) => g >= a && g <= b)) : null;
   const nodes = [bar];
   if (when) nodes.push(h("div", "tr-facts tk-when", when));
-  nodes.push(kind, factTiles(s));
+  nodes.push(kind, factTiles(s, ski));
 
   // выбранный кусок: его цифры и правка
   const whole = () => sel.a === 0 && sel.b === last;
@@ -751,13 +929,15 @@ async function openTrack(id, keep = false) {
       head.append(b);
     }
     const table = h("table", "tk-splits");
-    table.innerHTML = "<thead><tr><th>№</th><th>до, км</th><th>время</th><th>км/ч</th><th>набор</th><th>сброс</th></tr></thead>";
+    table.innerHTML = "<thead><tr><th>км</th><th>время</th><th>средняя, км/ч</th><th>макс., км/ч</th><th>набор, м</th><th>сброс, м</th><th>высота, м</th></tr></thead>";
     const body = h("tbody");
     const rows = splits(s, splitSize).map((r, i) => {
       const tr = h("tr");
-      const end = s.profile[r.to][0] / 1000;
-      for (const v of [i + 1, dec(end, Number.isInteger(Math.round(end * 100) / 100) ? 0 : 1), r.time ? mmss(r.time) : "",
-        r.time ? dec(r.dist / (r.time / 3600000) / 1000, 1) : "", `${Math.round(r.up)} м`, `${Math.round(r.down)} м`]) tr.append(h("td", "", String(v)));
+      // отрезок «от–до» в км: 0–1, 1–2… последний неполный — с десятыми
+      const kmv = (v) => { const r = Math.round(v * 10) / 10; return dec(r, Number.isInteger(r) ? 0 : 1); };
+      const range = `${kmv(s.profile[r.from][0] / 1000)}–${kmv(s.profile[r.to][0] / 1000)}`;
+      for (const v of [range, r.time ? mmss(r.time) : "", r.time ? dec(r.dist / (r.time / 3600000) / 1000, 1) : "", r.maxV != null ? dec(r.maxV, 1) : "",
+        Math.round(r.up), Math.round(r.down), r.minE != null ? `${Math.round(r.minE)}–${Math.round(r.maxE)}` : ""]) tr.append(h("td", "", String(v)));
       tr.title = "Выбрать этот отрезок";
       tr.addEventListener("click", () => {
         Object.assign(sel, { a: r.from, b: r.to });
@@ -809,6 +989,7 @@ async function openPanel() {
 panel.onClose(() => {
   stopDrawing();
   spikePts = [];
+  liftPieces = null;
   openId = null;
   hoverPt = null;
   selPiece = null;

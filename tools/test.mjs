@@ -634,6 +634,34 @@ try {
     check("треки: расстояние и скорость — с перепадом высот (склон 45°)", Math.abs(s3.dist / 1692 - 1) < 0.01 && Math.abs(s3.maxSpeed / (28.2 * 3.6 / 10) - 1) < 0.02, JSON.stringify(s3));
     await run(openLayers("content/tracks"));
     await sleep(500);
+    // горные лыжи (выдуманная гора): три раза подъёмник 200 м вверх медленно и спуск 200 м вниз быстро;
+    // файл от Ski Tracker — вид «Лыжи горные» сам; спусков 3, подъёмов 3, скорость — только спусков
+    {
+      const pts = [];
+      let lon = 12.2, t = Date.UTC(2026, 1, 14, 9, 0, 0), ele = 1000;
+      const add = () => pts.push(`<trkpt lat="47.46" lon="${lon.toFixed(6)}"><ele>${ele.toFixed(1)}</ele><time>${new Date(t).toISOString()}</time></trkpt>`);
+      add();
+      for (let c = 0; c < 3; c++) {
+        for (let j = 0; j < 30; j++) { lon += 0.0002; ele += 200 / 30; t += 10000; add(); }
+        for (let j = 0; j < 15; j++) { lon -= 0.0004; ele -= 200 / 15; t += 10000; add(); }
+      }
+      const skiGpx = `<?xml version="1.0"?><gpx xmlns="http://www.topografix.com/GPX/1/0" version="1.0" creator="SkiTracker"><trk><name>Горы</name><trkseg>${pts.join("")}</trkseg></trk></gpx>`;
+      await run(`${itemFor("Все треки (0)")}?.click(); true`);
+      await sleep(500);
+      await run(`${ts}.addText("ski.gpx", ${JSON.stringify(skiGpx)}).then(() => true)`);
+      await sleep(1500);
+      const sk = await run(`({ kind: document.querySelector(".tk-kind-btn").textContent, facts: Object.fromEntries([...document.querySelectorAll(".tk-fact")].map((f) => [f.lastChild.textContent, f.firstChild.textContent])),
+        lifts: document.querySelectorAll(".tk-chart .tk-lift").length, mapLift: atlas.map.getSource("tracks-lift").serialize().data.features.length })`);
+      check("треки: горные лыжи — 3 спуска и 3 подъёма, скорость только на спусках", sk.kind === "Лыжи горные" && sk.facts["спусков"] === "3" && sk.facts["подъёмов"] === "3"
+        && /км\/ч$/.test(sk.facts["максимальная скорость на спусках"]) && /^(59\d|60\d) м$/.test(sk.facts["перепад на спусках"]) && sk.lifts === 3 && sk.mapLift === 1, JSON.stringify(sk));
+      await shot("99c-ski");
+      await run(`window.confirm = () => true; document.querySelector('[data-panel="tracks"] .pb-bar .tr-bar-left:last-child .pb-btn:last-child').click(); true`);
+      await sleep(500);
+      await run(`document.querySelector(".search-mode")?.click(); true`);
+      await sleep(300);
+      await run(openLayers("content/tracks"));
+      await sleep(500);
+    }
     const items = await run(`[...document.querySelectorAll(".layers-sub .layers-item")].map((b) => b.firstChild.textContent)`);
     check("треки: в столбике — «Открыть файл…» и все треки", items[0] === "Открыть файл…" && /^Все треки/.test(items[1]), JSON.stringify(items));
     await run(`${itemFor("Все треки (0)")}?.click(); true`);
@@ -657,7 +685,22 @@ try {
     // правка: наибольшие скорость и высота, отрезки по км; выбрать вторую половину — оставить её; «Назад»
     const ed0 = await run(`({ labels: [...document.querySelectorAll(".tk-fact span")].map((x) => x.textContent), splits: document.querySelectorAll(".tk-splits tbody tr").length,
       kind: !!document.querySelector(".tk-kind"), trim: document.querySelector(".tk-edit .text-btn").disabled })`);
-    check("треки: наибольшая скорость и высота, вид занятия, отрезки по 1 км", ["наибольшая скорость", "высшая точка"].every((l) => ed0.labels.includes(l)) && ed0.splits === 2 && ed0.kind && ed0.trim, JSON.stringify(ed0));
+    check("треки: максимальная скорость и высота, вид активности, отрезки по 1 км", ["максимальная скорость", "максимальная высота", "минимальная высота", "средняя скорость"].every((l) => ed0.labels.includes(l)) && ed0.splits === 2 && ed0.kind && ed0.trim, JSON.stringify(ed0));
+    const row1 = await run(`[...document.querySelectorAll(".tk-splits tbody tr:first-child td")].map((td) => td.textContent)`);
+    check("треки: отрезок — «0–1» км, время, средняя и макс. скорость, набор, сброс, высота", row1[0] === "0–1" && /^\d+:\d\d$/.test(row1[1]) && row1[3] && /^\d+–\d+$/.test(row1[6]), JSON.stringify(row1));
+    // колёсико над графиком — крупнее, ползунок показывает видимую часть
+    const zm = await run(`(async () => { const svg = document.querySelector(".tk-chart svg"), r = svg.getBoundingClientRect();
+      svg.dispatchEvent(new WheelEvent("wheel", { deltaY: -400, clientX: r.left + r.width / 2, clientY: r.top + 30, bubbles: true, cancelable: true }));
+      await new Promise((ok) => setTimeout(ok, 300));
+      const th = document.querySelector(".tk-thumb").getBoundingClientRect(), sc = document.querySelector(".tk-scroll").getBoundingClientRect();
+      return { legend: document.querySelector(".tk-leg-zoom")?.textContent || "", part: Math.round((th.width / sc.width) * 100) }; })()`);
+    check("треки: колёсико увеличивает график, ползунок — видимая часть", /^крупно: /.test(zm.legend) && zm.part > 20 && zm.part < 80, JSON.stringify(zm));
+    // вид активности — список с чёрно-белыми значками
+    const kp = await run(`(async () => { document.querySelector(".tk-kind-btn").click(); await new Promise((ok) => setTimeout(ok, 100));
+      const items = [...document.querySelectorAll(".tk-kind-item")]; const names = items.map((i) => i.textContent);
+      items.find((i) => i.textContent === "Кайтсёрфинг").click(); await new Promise((ok) => setTimeout(ok, 400));
+      return { names, chosen: document.querySelector(".tk-kind-btn").textContent, svg: !!document.querySelector(".tk-kind-btn svg[fill=currentColor]") }; })()`);
+    check("треки: вид активности — список со значками, лыжи беговые и горные", kp.names.includes("Лыжи беговые") && kp.names.includes("Лыжи горные") && kp.names.includes("Кайтсёрфинг") && kp.chosen === "Кайтсёрфинг" && kp.svg, JSON.stringify(kp));
     await run(`${ts}.select(0.5, 1).then(() => true)`);
     await sleep(300);
     const ed1 = await run(`({ info: document.querySelector(".tk-sel-info").textContent, sel: atlas.map.getSource("tracks-sel").serialize().data.features.length })`);
