@@ -355,13 +355,15 @@ async function frameOf(blob) {
       v.onerror = () => reject(new Error("ролик не читается"));
       setTimeout(() => reject(new Error("ролик не загрузился")), 8000);
     });
+    if (!v.videoWidth) throw new Error("картинку ролика браузер не умеет"); // HEVC: звук есть, картинки нет
     await new Promise((resolve) => { v.onseeked = resolve; v.currentTime = Math.min(0.3, (v.duration || 1) / 10); setTimeout(resolve, 500); });
     return await createImageBitmap(v, { resizeWidth: 480, resizeHeight: Math.round((480 * v.videoHeight) / v.videoWidth), resizeQuality: "medium" });
   } finally { URL.revokeObjectURL(url); }
 }
 async function makeThumb(p) {
   // поворот из EXIF браузер учитывает сам (imageOrientation по умолчанию — from-image)
-  const bmp = p.video ? await frameOf(await fileOf(p)) : await createImageBitmap(await fileOf(p), { resizeWidth: 480, resizeQuality: "medium" });
+  const bmp = p.video ? await frameOf(await fileOf(p)).catch((err) => { p.noFrame = true; throw err; })
+    : await createImageBitmap(await fileOf(p), { resizeWidth: 480, resizeQuality: "medium" });
   const side = Math.min(bmp.width, bmp.height), sx = (bmp.width - side) / 2, sy = (bmp.height - side) / 2;
   const c = Object.assign(document.createElement("canvas"), { width: THUMB, height: THUMB });
   c.getContext("2d").drawImage(bmp, sx, sy, side, side, 0, 0, THUMB, THUMB);
@@ -528,9 +530,25 @@ const seen = new IntersectionObserver((entries) => {
     if (!e.isIntersecting) continue;
     seen.unobserve(e.target);
     const p = photos.get(e.target.dataset.photo);
-    if (p) thumbOf(p).then((src) => { if (src) e.target.src = src; });
+    if (p) thumbOf(p).then((src) => { if (src) e.target.src = src; else if (p.noFrame) noFrame(e.target, p); });
   }
 }, { rootMargin: "200px" });
+// ролик, который браузер не показывает (HEVC с iPhone, Грегори 2026-11-02: Азоры) — клетка со значком
+// плёнки и подписью почему, а не пустое место; у альбома — подсказка, что поможет
+const NO_CLIP = "Этот браузер не показывает видео с iPhone (формат HEVC)";
+const hevc = () => (hevc.ok ??= !!document.createElement("video").canPlayType('video/mp4; codecs="hvc1.1.6.L120.90"'));
+function noFrame(img, p) {
+  const cell = img.closest(".al-cell");
+  if (!cell) return;
+  cell.classList.add("no-frame");
+  cell.title = `${cell.title} — ${NO_CLIP[0].toLowerCase()}${NO_CLIP.slice(1)}`;
+  if (p.album === openAlbum && !panel.body.querySelector(".al-noclip")) panel.body.querySelector(".al-grid")?.before(noClipHint());
+}
+function noClipHint() {
+  const d = h("p", "pb-hint al-noclip", `${NO_CLIP}: живые фото остаются снимками, ролики — без картинки. `
+    + "Помогает свежий драйвер видеокарты (Chrome отключает видеокарту при старом драйвере) или Edge с «Расширениями для видео HEVC» из Microsoft Store.");
+  return d;
+}
 function lazyImg(p, cls) {
   const img = Object.assign(document.createElement("img"), { className: cls, alt: "" });
   if (!p) return img;
@@ -688,8 +706,10 @@ function renderAlbum() {
     const p = photos.get(id);
     const cell = h("button", "al-cell");
     cell.title = [photoDate(p), p.name].filter(Boolean).join(" · ");
-    cell.append(lazyImg(p, ""));
+    const img = lazyImg(p, "");
+    cell.append(img);
     if (p.video || p.live) cell.append(h("span", "al-badge", p.video ? "▶" : "LIVE"));
+    if (p.noFrame) requestAnimationFrame(() => noFrame(img, p));
     if (!p.rec?.lat) cell.classList.add("no-place");
     // щелчок — снимок на карте (если у него есть место), двойной — галерея с него
     cell.addEventListener("click", () => {
@@ -700,7 +720,9 @@ function renderAlbum() {
     cell.addEventListener("dblclick", () => gallery(a, id));
     grid.append(cell);
   }
-  panel.body.replaceChildren(bar, facts, grid);
+  // ролики iPhone (.mov) там, где браузер не умеет HEVC, — сразу подсказка (живые фото иначе молча остаются снимками)
+  const iphone = a.photos.some((id) => { const p = photos.get(id); return p.noFrame || (!hevc() && /\.mov$/i.test((p.live || p).name)); });
+  panel.body.replaceChildren(bar, facts, ...(iphone ? [noClipHint()] : []), grid);
   panel.body.scrollTop = 0;
 }
 

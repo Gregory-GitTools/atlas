@@ -229,7 +229,7 @@ function noClip(p) {
   photoEl.hidden = false;
   photoEl.classList.remove("loading");
   liveBtn.classList.remove("playing");
-  if (p.video) $(".meta").append(" · этот браузер ролик не показывает");
+  if (p.video && !$(".meta").textContent.includes("HEVC")) $(".meta").append(" · этот браузер не показывает видео с iPhone (формат HEVC)");
 }
 
 async function showVideo(p) {
