@@ -466,20 +466,24 @@ try {
     await run(closeLayers);
 
     // своя папка с поездкой (выдуманная, в памяти): поездка с днями-подпапками — одной строкой в стране,
-    // внутри — «Избранное» (-Albom) первым, дни по порядку папок, снимки самой папки поездки — последними, «[Originals]» пропущены; назад — в поездку
+    // внутри — «Избранное» (-Albom) первым, дни по порядку папок, снимки самой папки поездки — последними, «[Originals]» пропущены; назад — в поездку.
+    // В «Риге» — живое фото (r.jpg + r.mov) и ролик v.mp4 (tools/test-clip.mp4: 1 с, 64×48, внутри дата 1.01.2024; место из ролика проверено на настоящих роликах iPhone — здесь оно увело бы «Ригу» в другую страну)
     if (!PHONE) {
       const gear = `document.querySelector(".maplibregl-ctrl-bottom-left button[title=Настройки]")`;
       const setBtn = (text) => `[...document.querySelectorAll(".panel:not([hidden]) .text-btn")].find((b) => b.textContent === ${JSON.stringify(text)})`;
       await run(`(async () => {
         const jpg = await new Promise((r) => { const c = Object.assign(document.createElement("canvas"), { width: 8, height: 8 }); c.toBlob(r, "image/jpeg"); });
-        const file = (name) => ({ kind: "file", name, getFile: async () => new File([jpg], name, { type: "image/jpeg", lastModified: 1 }) });
+        const clip = await (await fetch("tools/test-clip.mp4")).blob();
+        const file = (name) => ({ kind: "file", name, getFile: async () => /\.(mov|mp4)$/.test(name)
+          ? new File([clip], name, { type: name.endsWith(".mov") ? "video/quicktime" : "video/mp4", lastModified: 1 })
+          : new File([jpg], name, { type: "image/jpeg", lastModified: 1 }) });
         const folder = (name, items) => ({ kind: "directory", name, async *entries() { for (const i of items) yield [i.name, i]; },
           queryPermission: async () => "granted", requestPermission: async () => "granted" });
         const trip = "20230625-0716 (Travel) Испания";
         window.showDirectoryPicker = async () => folder("Фото", [
           folder(trip, [file("0.jpg"), folder("20230626 Варшава", [file("3.jpg"), folder("[Originals]", [file("3.jpg")])]),
             folder("20230625 Таллин", [file("1.jpg"), file("2.jpg")]), folder(trip + "-Albom", [file("1.jpg")])]),
-          folder("20240101 Рига", [file("r.jpg")])]);
+          folder("20240101 Рига", [file("r.jpg"), file("r.mov"), file("v.mp4")])]);
         return true; })()`);
       await run(`${gear}.click(); true`);
       await sleep(600);
@@ -499,7 +503,7 @@ try {
       const titles = `[...document.querySelectorAll(".al-row .tr-row-title")].map((r) => r.textContent)`;
       const f0 = await run(`({ chev: document.querySelectorAll(".al-chev").length, fold: ${fold}?.title, rows: ${titles} })`);
       await run(`document.querySelector(".al-chev").click(); true`);
-      const f1 = await run(`({ fold: ${fold}?.title, rows: ${titles}, indent: getComputedStyle(document.querySelectorAll(".al-line")[1]).paddingLeft })`);
+      const f1 = await run(`({ fold: ${fold}?.title, rows: ${titles}, indent: getComputedStyle(document.querySelector(".al-folder + .al-line")).paddingLeft })`);
       await run(`${fold}.click(); true`);
       const f2 = await run(`({ fold: ${fold}?.title, rows: ${titles} })`);
       check("альбомы: стрелка папки раскрывает её альбомы, кнопка в шапке сворачивает все",
@@ -529,6 +533,46 @@ try {
       const back = await run(`${as}.open`);
       check("альбомы: день поездки — свой альбом, стрелка назад — в поездку", day.open === "Варшава" && day.cells === 1 && day.back === "К поездке: Испания" && back === "Испания",
         JSON.stringify({ day, back }));
+
+      // видео и живые фото: r.jpg + r.mov — одна клетка LIVE, v.mp4 — своя клетка ▶; в галерее ролик играет
+      // с кнопками плеера, живое фото — ролик поверх снимка без кнопок
+      await run(`document.querySelector('[data-panel="albums"] .pb-btn').click(); true`);
+      await sleep(300);
+      await run(`[...document.querySelectorAll(".al-row")].find((r) => r.textContent.startsWith("Рига")).click(); true`);
+      for (let i = 0; i < 20 && !(await run(`[...document.querySelectorAll(".al-cell img")].every((i) => i.src)`)); i++) await sleep(500);
+      const riga = await run(`({ facts: document.querySelector(".al-facts").textContent, cells: [...document.querySelectorAll(".al-cell")].map((c) => [c.title, c.querySelector(".al-badge")?.textContent || "", !!c.querySelector("img").src]) })`);
+      check("альбомы: живое фото — одна клетка LIVE, ролик — своя клетка ▶ с кадром", riga.cells.length === 2 && riga.cells[0][1] === "LIVE" && riga.cells[1][1] === "▶"
+        && riga.cells.every((c) => c[2]) && /^1 фото · 1 видео/.test(riga.facts), JSON.stringify(riga));
+      check("альбомы: дата ролика — из самого файла", /^01\.01\.2024 · v\.mp4$/.test(riga.cells[1]?.[0]), JSON.stringify(riga));
+      const cxy = await run(`(() => { const r = document.querySelectorAll(".al-cell")[1].getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+      for (const n of [1, 2]) for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: cxy[0], y: cxy[1], button: "left", clickCount: n });
+      let gt = null;
+      for (let i = 0; i < 20 && !gt; i++) { await sleep(300); gt = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) => /gallery\.html/.test(t.url)); }
+      if (!gt) check("галерея: окно открылось", false);
+      else {
+        const gws = new WebSocket(gt.webSocketDebuggerUrl);
+        await new Promise((r) => (gws.onopen = r));
+        let gid = 0;
+        const gpend = new Map();
+        gws.onmessage = (m) => { const d = JSON.parse(m.data); if (gpend.has(d.id)) { gpend.get(d.id)(d.result); gpend.delete(d.id); } };
+        const grun = (expr) => new Promise((r) => { const id = ++gid; gpend.set(id, r); gws.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression: expr, awaitPromise: true, returnByValue: true } })); })
+          .then((r) => r.result?.value);
+        const gst = `(() => { const v = document.querySelector(".clip"); return { meta: document.querySelector(".meta").textContent, photo: !document.querySelector(".photo").hidden,
+          clip: !v.hidden, controls: v.controls, t: v.currentTime, w: v.videoWidth, op: v.style.opacity, live: !document.querySelector(".live-btn").hidden,
+          badges: [...document.querySelectorAll(".thumb-badge")].map((b) => b.textContent) }; })()`;
+        await sleep(2000);
+        const gv = await grun(gst);
+        check("галерея: ролик играет с кнопками плеера", gv.clip && gv.controls && !gv.photo && gv.w > 0 && gv.t > 0 && !gv.live && JSON.stringify(gv.badges) === '["LIVE","▶"]', JSON.stringify(gv));
+        await grun(`document.querySelector(".thumb").click(); true`);
+        await sleep(400);
+        const gl = await grun(gst);
+        await sleep(2500);
+        const gl2 = await grun(gst);
+        check("галерея: живое фото — снимок, ролик поверх без кнопок, в конце снова снимок",
+          gl.live && gl.photo && gl.clip && !gl.controls && gl.op === "1" && gl2.op === "0" && gl2.photo, JSON.stringify({ gl, gl2 }));
+        await grun(`window.close(); true`);
+        gws.close();
+      }
       await run(`document.querySelector(".search-mode").click(); true`);
       await run(closeLayers);
       await run(`${gear}.click(); true`);

@@ -9,7 +9,9 @@
 // при первом открытии), прочитанное помнится на устройстве. Точка альбома — самый многолюдный «куст»
 // снимков, а не первый снимок (опыт travel-earth: первым часто снят аэропорт вылета), обложка —
 // случайный снимок из него. Страна — по границам стран без сети (country-borders.json travel-earth).
-// Видео и живые фото — позже (ROADMAP)
+// Видео и живые фото (как в travel-earth, Грегори 2026-11-02): ролик (.mov/.mp4) — своей клеткой со
+// значком ▶; живое фото iPhone — снимок и ролик с одним именем (IMG_1234.JPG + IMG_1234.MOV) — одна
+// клетка со значком LIVE, ролик оживает в галерее
 import { register, isMobile } from "../core/modules.js";
 import { createPanel, isOpen } from "../core/panel.js";
 import { repoFiles, repoUrl, repoSite } from "../core/repo.js";
@@ -27,7 +29,8 @@ const CAMERA_D = "M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM9 2 7.17 4H4
 const ICON = svg(STACK_D);
 const BACK = svg("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z", 20);
 const COLOR = "#7c4dff"; // --tone-my
-const IMAGE_RE = /\.(jpe?g|webp|png)$/i;
+const VIDEO_RE = /\.(mov|mp4|m4v)$/i;
+const MEDIA_RE = /\.(jpe?g|webp|png|mov|mp4|m4v)$/i;
 const PROBE = 25; // сколько снимков альбома пробовать в поисках координат на первом проходе
 const DOT_ZOOM = 10, THUMB_ZOOM = 14, VIEW_ZOOM = 12; // точки снимков, миниатюры, миниатюры для ленты
 const THUMB = 240, MAP_THUMB = 88; // миниатюра ленты и сетки; на карте — 44 px в белой рамке
@@ -56,15 +59,20 @@ const photoDate = (p) => (p.rec?.date ? new Date(p.rec.date).toLocaleDateString(
 // ---------- данные ----------
 const albums = new Map(); // путь папки → { id, name, title, local, parent, photos, point, country, cover, from, to, done }
 const groups = new Map(); // путь папки-поездки → { id, name, title, local, parent, group: true }
-const photos = new Map(); // "album/12" → { id, album, name, path, url | handle, key, rec, thumb, img }
+const photos = new Map(); // "album/12" → { id, album, name, path, url | handle, key, rec, thumb, img, video, live: файл ролика }
 let seq = 0, scan = 0, ctx = null, loading = null;
 let dir = null, needsAccess = false, busy = false, checked = 0;
 const canFolders = () => "showDirectoryPicker" in window && !isMobile();
 
 function addAlbum(path, name, local, files) {
   const a = { id: path, name, title: displayName(name), local, parent: null, photos: [], point: null, country: undefined, cover: null, from: 0, to: 0, done: false };
-  for (const f of files.sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }))) {
-    const p = { id: `album/${++seq}`, album: a, rec: null, thumb: "", img: "", ...f };
+  // ролик с тем же именем, что у снимка, — его живое фото, отдельной клеткой не показывается
+  const stem = (f) => f.name.replace(/\.[^.]+$/, "").toLowerCase();
+  const clips = new Map(files.filter((f) => VIDEO_RE.test(f.name)).map((f) => [stem(f), f]));
+  const live = new Map(files.filter((f) => !VIDEO_RE.test(f.name) && clips.has(stem(f))).map((f) => [f, clips.get(stem(f))]));
+  const paired = new Set(live.values());
+  for (const f of files.filter((f) => !paired.has(f)).sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }))) {
+    const p = { id: `album/${++seq}`, album: a, rec: null, thumb: "", img: "", video: VIDEO_RE.test(f.name), live: live.get(f) || null, ...f };
     photos.set(p.id, p);
     a.photos.push(p.id);
   }
@@ -73,7 +81,7 @@ function addAlbum(path, name, local, files) {
 
 async function listRepo() {
   const by = new Map();
-  for (const f of (await repoFiles("Альбомы")).filter((f) => IMAGE_RE.test(f.name) && !f.path.includes("/["))) {
+  for (const f of (await repoFiles("Альбомы")).filter((f) => MEDIA_RE.test(f.name) && !f.path.includes("/["))) {
     const d = f.path.slice(0, f.path.lastIndexOf("/"));
     if (!by.has(d)) by.set(d, []);
     by.get(d).push({ name: f.name, path: f.path, url: repoUrl(f), key: `exif/${f.sha}` });
@@ -88,7 +96,7 @@ async function walk(handle, path, token) {
   try {
     for await (const [name, h] of handle.entries()) {
       if (h.kind === "directory") { if (!/^[._[]/.test(name)) dirs.push([name, h]); }
-      else if (IMAGE_RE.test(name)) files.push({ name, path: `${path}/${name}`, handle: h });
+      else if (MEDIA_RE.test(name)) files.push({ name, path: `${path}/${name}`, handle: h });
     }
   } catch { return; }
   if (token !== scan) return;
@@ -144,6 +152,12 @@ async function exifOf(p) {
     if (p.handle) { file = await p.handle.getFile(); key = `exif/local/${p.path}|${file.size}|${file.lastModified}`; }
     const hit = await cacheGet(key).catch(() => null);
     if (hit) { checked++; return (p.rec = hit); }
+    if (p.video) {
+      const rec = file ? await movMeta(file).catch(() => ({})) : {};
+      cacheSet(key, rec).catch(() => {});
+      checked++;
+      return (p.rec = rec);
+    }
     // у снимка из репозитория EXIF — в начале файла: хватает первых 128 КБ
     const src = file || await fetch(p.url, { headers: { Range: "bytes=0-131071" } }).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.status))));
     const rec = {};
@@ -162,6 +176,37 @@ async function exifOf(p) {
     checked++;
     return (p.rec = {});
   }
+}
+
+// дата и место ролика — из его оглавления (атом moov, QuickTime/MP4), сам ролик не читается: дата —
+// com.apple.quicktime.creationdate (местное время, как у снимков), иначе mvhd (секунды с 1904 года);
+// место — строка ISO 6709 «+59.4370+024.7536+012.000/» (iPhone, Android)
+async function movMeta(file) {
+  const bytes = async (o, n) => new Uint8Array(await file.slice(o, o + n).arrayBuffer());
+  let o = 0, moov = null;
+  while (o + 8 <= file.size) {
+    const b = await bytes(o, 16), v = new DataView(b.buffer);
+    let size = v.getUint32(0);
+    const type = String.fromCharCode(...b.subarray(4, 8));
+    if (size === 1) size = Number(v.getBigUint64(8)); else if (size === 0) size = file.size - o;
+    if (size < 8) break;
+    if (type === "moov") { moov = await bytes(o, Math.min(size, 16 << 20)); break; }
+    o += size;
+  }
+  const rec = {};
+  if (!moov) return rec;
+  const text = new TextDecoder("latin1").decode(moov);
+  const local = text.match(/(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)[+-]\d{2}:?\d{2}/);
+  const i = text.indexOf("mvhd");
+  if (local) rec.date = new Date(local[1]).getTime();
+  else if (i > 0) {
+    const v = new DataView(moov.buffer);
+    const t = moov[i + 4] === 1 ? Number(v.getBigUint64(i + 8)) : v.getUint32(i + 8);
+    if (t > 0) rec.date = (t - 2082844800) * 1000;
+  }
+  const at = text.match(/([+-]\d{2}\.\d{3,})([+-]\d{3}\.\d{3,})/);
+  if (at && (+at[1] || +at[2])) Object.assign(rec, { lat: +at[1], lon: +at[2] });
+  return rec;
 }
 
 // ---------- страна: по границам стран, без сети после первой загрузки ----------
@@ -296,9 +341,25 @@ function pump() {
     makeThumb(p).catch(() => {}).finally(() => { working--; resolve(p.thumb); pump(); });
   }
 }
+// кадр ролика — своей миниатюры у него нет: грузим в <video> и рисуем кадр чуть от начала (первый
+// бывает чёрным); кодек, который браузер молча не умеет (HEVC без поддержки видеокарты), — не ждём
+// дольше 8 секунд (опыт travel-earth: иначе такой ролик забивал очередь миниатюр)
+async function frameOf(blob) {
+  const url = URL.createObjectURL(blob);
+  try {
+    const v = Object.assign(document.createElement("video"), { muted: true, preload: "auto", src: url });
+    await new Promise((resolve, reject) => {
+      v.onloadeddata = resolve;
+      v.onerror = () => reject(new Error("ролик не читается"));
+      setTimeout(() => reject(new Error("ролик не загрузился")), 8000);
+    });
+    await new Promise((resolve) => { v.onseeked = resolve; v.currentTime = Math.min(0.3, (v.duration || 1) / 10); setTimeout(resolve, 500); });
+    return await createImageBitmap(v, { resizeWidth: 480, resizeHeight: Math.round((480 * v.videoHeight) / v.videoWidth), resizeQuality: "medium" });
+  } finally { URL.revokeObjectURL(url); }
+}
 async function makeThumb(p) {
   // поворот из EXIF браузер учитывает сам (imageOrientation по умолчанию — from-image)
-  const bmp = await createImageBitmap(await fileOf(p), { resizeWidth: 480, resizeQuality: "medium" });
+  const bmp = p.video ? await frameOf(await fileOf(p)) : await createImageBitmap(await fileOf(p), { resizeWidth: 480, resizeQuality: "medium" });
   const side = Math.min(bmp.width, bmp.height), sx = (bmp.width - side) / 2, sy = (bmp.height - side) / 2;
   const c = Object.assign(document.createElement("canvas"), { width: THUMB, height: THUMB });
   c.getContext("2d").drawImage(bmp, sx, sy, side, side, 0, 0, THUMB, THUMB);
@@ -315,17 +376,22 @@ async function makeThumb(p) {
   refresh();
 }
 // крупный снимок своего файла — адрес держится для 8 последних
+// (у живого фото — и его ролик: kind "live")
 const fulls = [];
-async function fullOf(p) {
-  if (p.url) return p.url;
-  const hit = fulls.find((x) => x.id === p.id);
+async function fullOf(f, id) {
+  if (f.url) return f.url;
+  const hit = fulls.find((x) => x.id === id);
   if (hit) return hit.url;
-  const url = URL.createObjectURL(await p.handle.getFile());
-  fulls.push({ id: p.id, url });
+  const url = URL.createObjectURL(await f.handle.getFile());
+  fulls.push({ id, url });
   if (fulls.length > 8) URL.revokeObjectURL(fulls.shift().url);
   return url;
 }
-const media = (kind, id) => { const p = photos.get(id); return !p ? Promise.resolve("") : kind === "full" ? fullOf(p) : thumbOf(p); };
+const media = (kind, id) => {
+  const p = photos.get(id);
+  if (!p || (kind === "live" && !p.live)) return Promise.resolve("");
+  return kind === "full" ? fullOf(p, id) : kind === "live" ? fullOf(p.live, `${id}/live`) : thumbOf(p);
+};
 
 // снимки в кадре (вблизи) — миниатюры ближние к центру первыми
 function wantInView() {
@@ -419,9 +485,9 @@ function showPhoto(p) {
   img.style.cursor = "zoom-in";
   img.title = "Альбом в галерее с этого снимка";
   img.addEventListener("click", () => gallery(p.album, p.id));
-  fullOf(p).then((u) => { img.src = u; }).catch(() => {});
+  if (!p.video) fullOf(p, p.id).then((u) => { img.src = u; }).catch(() => {});
   box.append(img, h("div", "popup-row", p.album.title), h("div", "popup-sub", [photoDate(p), p.name].filter(Boolean).join(" · ")),
-    h("div", "popup-sub", "Щелчок по снимку — альбом в галерее"));
+    h("div", "popup-sub", p.video ? "Ролик — щелчок откроет его в галерее" : p.live ? "Живое фото — щелчок оживит его в галерее" : "Щелчок по снимку — альбом в галерее"));
   track(new ctx.maplibregl.Popup({ offset: p.img && ctx.map.getZoom() >= THUMB_ZOOM ? 26 : 8, maxWidth: "300px" }))
     .setLngLat(pt(p)).setDOMContent(box).addTo(ctx.map).on("close", () => selectStripItem(null, p.id));
   if (p.thumb) selectStripItem(p.id);
@@ -433,7 +499,8 @@ const photosOf = (x) => (x.group ? tally(x).list.filter((a) => a.title !== "Из
 function gallery(a, startId) {
   const ids = photosOf(a);
   openGalleryWith(ids.map((id) => photos.get(id)).map((p) => ({ id: p.id, thumb: p.thumb, full: p.url,
-    title: p.album.title, credit: [photoDate(p), p.name].filter(Boolean).join(" · "), coordinates: p.rec?.lat ? pt(p) : null })),
+    title: p.album.title, credit: [photoDate(p), p.name].filter(Boolean).join(" · "), coordinates: p.rec?.lat ? pt(p) : null,
+    video: p.video, live: !!p.live })),
   startId || ids[0], media);
 }
 
@@ -601,13 +668,15 @@ function renderAlbum() {
   const left = h("div", "tr-bar-left");
   left.append(backBtn(a), btn(PLAYER.play, "Смотреть альбом в галерее", () => gallery(a)));
   bar.append(left);
-  const facts = h("div", "tr-facts al-facts", [`${a.photos.length} фото`, dates(a), a.country?.name, a.local ? "на этом компьютере" : ""].filter(Boolean).join(" · "));
+  const clips = a.photos.filter((id) => photos.get(id).video).length;
+  const facts = h("div", "tr-facts al-facts", [`${a.photos.length - clips} фото`, clips ? `${clips} видео` : "", dates(a), a.country?.name, a.local ? "на этом компьютере" : ""].filter(Boolean).join(" · "));
   const grid = h("div", "al-grid");
   for (const id of a.photos) {
     const p = photos.get(id);
     const cell = h("button", "al-cell");
     cell.title = [photoDate(p), p.name].filter(Boolean).join(" · ");
     cell.append(lazyImg(p, ""));
+    if (p.video || p.live) cell.append(h("span", "al-badge", p.video ? "▶" : "LIVE"));
     if (!p.rec?.lat) cell.classList.add("no-place");
     // щелчок — снимок на карте (если у него есть место), двойной — галерея с него
     cell.addEventListener("click", () => {

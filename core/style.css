@@ -1679,6 +1679,7 @@ body.has-photo-strip .status {
 }
 
 .al-cell {
+  position: relative;
   aspect-ratio: 1;
   padding: 0;
   border: none;
@@ -1697,6 +1698,21 @@ body.has-photo-strip .status {
 
 .al-cell:hover img {
   filter: brightness(1.08);
+}
+
+/* ролик — ▶, живое фото — LIVE */
+.al-badge {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  pointer-events: none;
 }
 
 /* снимок без места — только в галерее */

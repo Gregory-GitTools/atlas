@@ -78,12 +78,13 @@ function update() {
 // ---------- галерея в отдельном окне ----------
 // Список галерея берёт сама у окна карты (window.opener.atlasGallery()) — наружу ничего не уходит.
 // Снимок без готовой картинки (свои файлы: читать заранее весь альбом нельзя — на 1000 снимков
-// браузер виснет, опыт travel-earth) галерея просит по одному: atlasGalleryMedia("thumb"|"full", id)
+// браузер виснет, опыт travel-earth) галерея просит по одному: atlasGalleryMedia("thumb"|"full"|"live", id)
 let gallery = { photos: [], start: 0 }, media = null;
 window.atlasGallery = () => gallery;
 window.atlasGalleryMedia = (kind, id) => media?.(kind, id) ?? Promise.resolve("");
 
-const pick = ({ id, thumb, full, title, credit, link, coordinates }) => ({ id, thumb, full, title, credit, link, coordinates });
+// video — ролик, live — живое фото (его ролик галерея просит отдельно: atlasGalleryMedia("live", id))
+const pick = ({ id, thumb, full, title, credit, link, coordinates, video, live }) => ({ id, thumb, full, title, credit, link, coordinates, video, live });
 
 export function openGallery(id) {
   const from = list.some((p) => p.id === id) ? list : [byId(id), ...list].filter(Boolean);
