@@ -538,9 +538,13 @@ function chart(s, st, changed) {
   if (prof.length < 2 || (!hasEle && !hasSpeed)) return null;
   const box = h("div", "tk-chart");
   const last = prof.length - 1, total = prof[last][0];
-  // ползунок под графиком: какая часть трека видна; тянуть — двигать, колёсико и два пальца — крупнее/мельче
+  // ползунок под графиком: какая часть трека видна (Грегори, 2026-11-02: «ползунок не активен» — во весь
+  // трек он занимал всю полосу и тянуть было нечего): за края — крупнее/мельче, за середину — двигать;
+  // ещё колёсико мыши и два пальца над графиком
   const scroll = h("div", "tk-scroll"), thumb = h("div", "tk-thumb");
-  scroll.title = "Потяните — сдвинуть график; колёсико мыши или два пальца — крупнее и мельче";
+  const gripA = h("div", "tk-grip tk-grip-a"), gripB = h("div", "tk-grip tk-grip-b");
+  thumb.append(gripA, gripB);
+  thumb.title = "Потяните за край — график крупнее, за середину — сдвинуть";
   scroll.append(thumb);
   const placeThumb = () => {
     thumb.style.left = `${(prof[st.v0][0] / (total || 1)) * 100}%`;
@@ -703,19 +707,23 @@ function chart(s, st, changed) {
   const lift = (ev) => { touches.delete(ev.pointerId); if (touches.size < 2) pinch = null; };
   box.addEventListener("pointerup", lift, true);
   box.addEventListener("pointercancel", lift, true);
-  // ползунок: тянуть — двигать видимую часть; щелчок мимо — перескочить туда
+  // ползунок: за край — сдвинуть этот край (крупнее/мельче), за середину — двигать, мимо — перескочить туда
   let pan = null;
   scroll.addEventListener("pointerdown", (ev) => {
     ev.preventDefault();
-    const r = scroll.getBoundingClientRect(), w = prof[st.v1][0] - prof[st.v0][0];
-    if (ev.target !== thumb) zoom(((ev.clientX - r.left) / r.width) * total - w / 2, ((ev.clientX - r.left) / r.width) * total + w / 2);
-    scroll.setPointerCapture(ev.pointerId);
-    pan = { x: ev.clientX, d0: ev.target === thumb ? prof[st.v0][0] : ((ev.clientX - r.left) / r.width) * total - w / 2, w, width: r.width };
+    const r = scroll.getBoundingClientRect(), D0 = prof[st.v0][0], D1 = prof[st.v1][0], w = D1 - D0;
+    const mode = ev.target === gripA ? "a" : ev.target === gripB ? "b" : thumb.contains(ev.target) ? "move" : "jump";
+    let d0 = D0;
+    if (mode === "jump") { d0 = ((ev.clientX - r.left) / r.width) * total - w / 2; zoom(d0, d0 + w); }
+    try { scroll.setPointerCapture(ev.pointerId); } catch {}
+    pan = { mode, x: ev.clientX, D0: d0, D1: d0 + w, width: r.width };
   });
   scroll.addEventListener("pointermove", (ev) => {
     if (!pan) return;
-    const d0 = pan.d0 + ((ev.clientX - pan.x) / pan.width) * total;
-    zoom(d0, d0 + pan.w);
+    const dd = ((ev.clientX - pan.x) / pan.width) * total;
+    if (pan.mode === "a") zoom(Math.min(pan.D0 + dd, pan.D1 - 60), pan.D1);
+    else if (pan.mode === "b") zoom(pan.D0, Math.max(pan.D1 + dd, pan.D0 + 60));
+    else zoom(pan.D0 + dd, pan.D1 + dd);
   });
   scroll.addEventListener("pointerup", () => { pan = null; });
   scroll.addEventListener("pointercancel", () => { pan = null; });

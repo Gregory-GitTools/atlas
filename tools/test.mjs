@@ -695,6 +695,19 @@ try {
       const th = document.querySelector(".tk-thumb").getBoundingClientRect(), sc = document.querySelector(".tk-scroll").getBoundingClientRect();
       return { legend: document.querySelector(".tk-leg-zoom")?.textContent || "", part: Math.round((th.width / sc.width) * 100) }; })()`);
     check("треки: колёсико увеличивает график, ползунок — видимая часть", /^крупно: /.test(zm.legend) && zm.part > 20 && zm.part < 80, JSON.stringify(zm));
+    // ползунок: правый край влево — крупнее; середину вправо — сдвиг
+    const gp = await run(`(async () => { document.querySelector(".tk-thumb ~ *") ; const wait = () => new Promise((ok) => setTimeout(ok, 200));
+      const legend = () => document.querySelector(".tk-leg-zoom")?.textContent || "";
+      // сначала весь трек
+      [...document.querySelectorAll(".tk-edit .text-btn")].find((b) => b.textContent === "Весь трек")?.click(); await wait();
+      const sc = document.querySelector(".tk-scroll"), g = sc.querySelector(".tk-grip-b"), r = g.getBoundingClientRect();
+      const ev = (el, type, x) => el.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: r.top + r.height / 2, pointerId: 7, bubbles: true }));
+      ev(g, "pointerdown", r.left + 7); ev(sc, "pointermove", r.left - sc.getBoundingClientRect().width / 2); ev(sc, "pointerup", 0); await wait();
+      const zoomed = legend();
+      const th = sc.querySelector(".tk-thumb").getBoundingClientRect();
+      ev(sc.querySelector(".tk-thumb"), "pointerdown", th.left + th.width / 2); ev(sc, "pointermove", th.left + th.width / 2 + 60); ev(sc, "pointerup", 0); await wait();
+      return { whole: !!document.querySelector(".tk-grip-a") , zoomed, moved: legend() }; })()`);
+    check("треки: ползунок — край тянется (крупнее), середина двигает", /^крупно: 0 м – /.test(gp.zoomed) && /^крупно: /.test(gp.moved) && gp.moved !== gp.zoomed, JSON.stringify(gp));
     // вид активности — список с чёрно-белыми значками
     const kp = await run(`(async () => { document.querySelector(".tk-kind-btn").click(); await new Promise((ok) => setTimeout(ok, 100));
       const items = [...document.querySelectorAll(".tk-kind-item")]; const names = items.map((i) => i.textContent);
