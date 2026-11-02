@@ -479,17 +479,56 @@ function albumRow(a) {
   return r;
 }
 
-function groupRow(g) {
-  const t = tally(g);
+// папка отличается от альбома (Грегори 2026-11-02): стрелка слева раскрывает её альбомы прямо в
+// списке, обложка — стопкой; щелчок по строке — папка целиком (на карте, ▶ — все снимки)
+const expanded = new Set(); // раскрытые папки
+const CHEVRON = svg("M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z", 20);
+function groupRow(g, depth) {
+  const t = tally(g), open = expanded.has(g.id);
+  const line = h("div", "al-line al-folder");
+  line.style.paddingLeft = `${depth * 24}px`;
+  const chev = btn(CHEVRON, open ? "Свернуть папку" : "Раскрыть папку", () => { if (open) expanded.delete(g.id); else expanded.add(g.id); rerender(); });
+  chev.classList.add("al-chev");
+  chev.classList.toggle("open", open);
   const r = h("button", "tr-row al-row");
   const text = h("span", "tr-row-text");
   text.append(h("span", "tr-row-title", g.title), h("span", "tr-row-sub",
     [`${kidsOf(g).length} альб.`, `${t.photos} фото`, dates(t)].filter(Boolean).join(" · ")));
-  r.append(lazyImg(photos.get(t.cover), "al-cover"), text);
+  r.append(lazyImg(photos.get(t.cover), "al-cover al-stack"), text);
   r.addEventListener("click", () => openGroupById(g.id));
-  return r;
+  line.append(chev, r);
+  return line;
 }
-const row = (x) => (x.group ? groupRow(x) : albumRow(x));
+// альбом рядом с папками сдвинут на ширину стрелки, чтобы обложки стояли столбиком
+function rows(items, depth = 0) {
+  const slot = items.some((x) => x.group);
+  return items.flatMap((x) => {
+    if (x.group) return [groupRow(x, depth), ...(expanded.has(x.id) ? rows(kidsOf(x), depth + 1) : [])];
+    const line = h("div", "al-line");
+    line.style.paddingLeft = `${depth * 24 + (slot ? 32 : 0)}px`;
+    line.append(albumRow(x));
+    return [line];
+  });
+}
+const rerender = () => (openAlbum ? renderAlbum() : openGroup ? renderGroup(true) : renderList(currentCountry, searchText));
+
+// в шапке — раскрыть или свернуть все папки списка разом; кнопка видна, только когда папки есть
+const UNFOLD = svg("M12 5.83 15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zm0 12.34L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17z", 18);
+const FOLD = svg("M7.41 18.59 8.83 20 12 16.83 15.17 20l1.41-1.41L12 14l-4.59 4.59zm9.18-13.18L15.17 4 12 7.17 8.83 4 7.41 5.41 12 10l4.59-4.59z", 18);
+let foldItems = [];
+const allFolders = (items) => items.filter((x) => x.group).flatMap((g) => [g, ...allFolders(kidsOf(g))]);
+const foldBtn = panel.addButton(UNFOLD, "Раскрыть все папки", () => {
+  const all = allFolders(foldItems), open = all.length && all.every((g) => expanded.has(g.id));
+  for (const g of all) if (open) expanded.delete(g.id); else expanded.add(g.id);
+  rerender();
+});
+function setFold(items) {
+  foldItems = items;
+  const all = allFolders(items), open = all.length > 0 && all.every((g) => expanded.has(g.id));
+  foldBtn.hidden = !all.length;
+  foldBtn.innerHTML = open ? FOLD : UNFOLD;
+  foldBtn.title = open ? "Свернуть все папки" : "Раскрыть все папки";
+}
 
 // стрелка назад — в поездку, где лежит альбом, иначе к списку страны
 function backBtn(x) {
@@ -521,7 +560,8 @@ function renderList(country, query = "") {
   if (needsAccess && dir) nodes.push(accessRow());
   if (busy) nodes.push(h("p", "pb-hint", `Читаю снимки… проверено ${checked}`));
   if (q && !list.length) nodes.push(h("p", "pb-hint", "Ничего не нашлось"));
-  nodes.push(...list.map(row));
+  setFold(list);
+  nodes.push(...rows(list));
   const keep = panel.body.scrollTop;
   panel.body.replaceChildren(...nodes);
   panel.body.scrollTop = keep;
@@ -538,7 +578,9 @@ function renderGroup(keepScroll) {
   const lands = [...new Set(t.list.map((a) => a.country?.name).filter(Boolean))];
   const facts = h("div", "tr-facts al-facts", [`${t.photos} фото`, dates(t), lands.join(", "), g.local ? "на этом компьютере" : ""].filter(Boolean).join(" · "));
   const keep = panel.body.scrollTop;
-  panel.body.replaceChildren(bar, facts, ...kidsOf(g).map(row));
+  const kids = kidsOf(g);
+  setFold(kids);
+  panel.body.replaceChildren(bar, facts, ...rows(kids));
   panel.body.scrollTop = keepScroll ? keep : 0;
 }
 
@@ -554,6 +596,7 @@ function openGroupById(id) {
 function renderAlbum() {
   const a = openAlbum;
   panel.setTitle(a.title);
+  setFold([]);
   const bar = h("div", "pb-bar");
   const left = h("div", "tr-bar-left");
   left.append(backBtn(a), btn(PLAYER.play, "Смотреть альбом в галерее", () => gallery(a)));

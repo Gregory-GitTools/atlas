@@ -1965,3 +1965,31 @@ body.has-photo-strip .status {
 .tk-splits tbody tr.on {
   background: color-mix(in srgb, #ff6d00 14%, #fff);
 }
+
+/* папка в списке альбомов: стрелка раскрывает её альбомы, обложка — стопкой (тонкий кант, не тень) */
+.al-line {
+  display: flex;
+  align-items: center;
+}
+
+.al-chev {
+  transition: transform 0.15s;
+}
+
+.al-chev.open {
+  transform: rotate(90deg);
+}
+
+.al-stack {
+  box-shadow: 3px -3px 0 -1px var(--panel), 3px -3px 0 0 var(--tone-my);
+  margin: 3px 3px 0 0;
+}
+
+.al-line .tr-row {
+  flex: 1;
+  min-width: 0;
+}
+
+.panel-btn[hidden] {
+  display: none;
+}

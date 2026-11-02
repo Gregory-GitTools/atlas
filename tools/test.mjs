@@ -494,6 +494,27 @@ try {
       await run(`${itemFor("Без страны (2)")}.click(); true`);
       await sleep(600);
       const rows = await run(`[...document.querySelectorAll(".al-row")].map((r) => r.textContent)`);
+      // папка отличается от альбома: стрелка раскрывает её альбомы в списке, кнопка в шапке — все папки разом
+      const fold = `document.querySelector('[data-panel="albums"] .panel-head .panel-btn:not([hidden])[title$="все папки"]')`;
+      const titles = `[...document.querySelectorAll(".al-row .tr-row-title")].map((r) => r.textContent)`;
+      const f0 = await run(`({ chev: document.querySelectorAll(".al-chev").length, fold: ${fold}?.title, rows: ${titles} })`);
+      await run(`document.querySelector(".al-chev").click(); true`);
+      const f1 = await run(`({ fold: ${fold}?.title, rows: ${titles}, indent: getComputedStyle(document.querySelectorAll(".al-line")[1]).paddingLeft })`);
+      await run(`${fold}.click(); true`);
+      const f2 = await run(`({ fold: ${fold}?.title, rows: ${titles} })`);
+      check("альбомы: стрелка папки раскрывает её альбомы, кнопка в шапке сворачивает все",
+        f0.chev === 1 && f0.fold === "Раскрыть все папки" && f1.rows.length === f0.rows.length + 4 && f1.indent === "24px" && f1.fold === "Свернуть все папки"
+        && f2.rows.length === f0.rows.length && f2.fold === "Раскрыть все папки", JSON.stringify({ f0, f1, f2 }));
+      // ползунок внизу окна: потянуть мышью вверх — окно ниже; двойное нажатие — снова по содержимому
+      const box = `document.querySelector('[data-panel="albums"]')`;
+      const g = await run(`(() => { const r = ${box}.querySelector(".panel-grip").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2, ${box}.getBoundingClientRect().height]; })()`);
+      await send("Input.dispatchMouseEvent", { type: "mousePressed", x: g[0], y: g[1], button: "left", buttons: 1, clickCount: 1 });
+      for (let i = 1; i <= 5; i++) await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: g[0], y: g[1] - 8 * i, button: "left", buttons: 1 });
+      await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: g[0], y: g[1] - 40, button: "left", buttons: 0, clickCount: 1 });
+      const dragged = await run(`${box}.getBoundingClientRect().height`);
+      await run(`${box}.querySelector(".panel-grip").dispatchEvent(new MouseEvent("dblclick")); true`);
+      check("окно: ползунок внизу меняет высоту, двойное нажатие возвращает", Math.abs(g[2] - 40 - dragged) < 2 && !(await run(`${box}.style.maxHeight`)),
+        JSON.stringify({ before: g[2], dragged }));
       await run(`[...document.querySelectorAll(".al-row")].find((r) => r.textContent.startsWith("Испания")).click(); true`);
       await sleep(400);
       const inTrip = await run(`({ title: document.querySelector('[data-panel="albums"] .panel-title')?.textContent,

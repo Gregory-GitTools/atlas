@@ -5,7 +5,7 @@
 // side: "right" (настройки — справа вверху) или "left" (Языки, Экскурсии, Альбомы — слева под строкой
 // поиска; колесо справа при ней остаётся открытым).
 // Внизу — ползунок (Грегори, 2026-10-30): потянуть — окно выше или ниже, высота помнится; двойное
-// нажатие — снова по содержимому
+// нажатие — снова по содержимому. Своя кнопка раздела в шапке (перед «свернуть») — addButton
 import { emit } from "./events.js";
 import * as settings from "./settings.js";
 
@@ -68,6 +68,7 @@ export function createPanel({ id, title, icon = "", side = "right" }) {
 
   const panel = { id, side, el, body, setMin, closers, open: () => open(id), close: () => close(id), toggle: () => (openId === id ? close(id) : open(id)),
     setTitle: (text) => { name.querySelector("span").textContent = text; },
+    addButton: (icon, title, fn) => { const b = iconButton(icon, title); b.addEventListener("click", fn); head.insertBefore(b, minBtn); return b; },
     onClose: (fn) => closers.push(fn) };
   panels.set(id, panel);
   return panel;
