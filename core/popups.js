@@ -2,10 +2,14 @@
 // закрывается, как только карта начала двигаться; первый щелчок по карте при открытом окне только
 // закрывает его. Модуль, открывший окно, отдаёт его в track() — дальше всё само
 const open = new Set();
+// дополнения ко всем окнам (кнопка «Сюда» из route.js) — когда окно открылось
+const decorators = new Set();
+export const decoratePopups = (fn) => decorators.add(fn);
 
 export function track(popup) {
   open.add(popup);
   popup.on("close", () => open.delete(popup));
+  popup.on("open", () => decorators.forEach((fn) => fn(popup)));
   return popup;
 }
 

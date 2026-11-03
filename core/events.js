@@ -15,6 +15,7 @@
 //   language-open — открыть разговорник { key }
 //   search-mode — режим строки поиска { icon, title, tone } (раздел) или null (поиск мест)
 //   search-exit — выйти из режима раздела (закрыли поиск кнопкой справа вверху)
+//   me         — где я по навигации { lngLat } или null (выключена) — для «Куда идти»
 
 const handlers = new Map();
 const last = new Map();

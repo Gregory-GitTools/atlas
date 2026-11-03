@@ -112,9 +112,10 @@ try {
   const far = await run(`(async () => { const m = atlas.map, at = async (zoom) => { m.jumpTo({ zoom, pitch: 70 }); await new Promise((r) => setTimeout(r, 50)); return Math.round(m.getPitch()); };
     const r = { near: await at(13), mid: await at(7.5), far: await at(5) }; await new Promise((r) => setTimeout(r, 100)); r.label = document.querySelector(".compass-mode").textContent; m.jumpTo({ pitch: 0 }); return r; })()`);
   check("наклон: вблизи 70°, при отдалении меньше, на 100 км — 2D", far.near === 70 && far.mid > 0 && far.mid < 70 && far.far === 0 && far.label === "2D", JSON.stringify(far));
-  // навигация (подставные координаты): включаю в 2D у Таллина — масштаб и наклон не меняются, я в нижней части
-  // экрана, карта не крутится; 3D — карта по ходу движения (на восток, потом на север), метка — стрелка;
-  // С — я в центре, север вверху; сдвинул карту — через 10 секунд снова ко мне
+  // навигация (подставные координаты): включаю в 2D у Таллина — масштаб и наклон не меняются, я в центре,
+  // карта не крутится; 3D — я внизу, карта по ходу движения (на восток, потом на север), метка — стрелка;
+  // сдвинул карту — через 10 секунд снова ко мне; выровнял рукой — через 10 секунд в центр 2D;
+  // С — я в центре, север вверху; «Куда идти» — точка из окна, расстояние, сторона, путь пешком
   await send("Browser.grantPermissions", { permissions: ["geolocation"], origin: url.replace(/\/$/, "") });
   const goTo = (lat, lon) => send("Emulation.setGeolocationOverride", { latitude: lat, longitude: lon, accuracy: 5 });
   const me = `(() => { const r = document.querySelector(".geo-dot").getBoundingClientRect(); return { x: Math.round((r.left + r.right) / 2 - innerWidth / 2), y: Math.round((r.top + r.bottom) / 2 - innerHeight / 2) }; })()`;
@@ -125,8 +126,8 @@ try {
   await run(`document.querySelector(".geo-btn").click(); true`);
   await sleep(2500);
   const n2 = await nav();
-  check("навигация: 2D — я внизу экрана, масштаб, наклон и поворот не тронуты, кнопка «Навигация»",
-    n2.follow && n2.mode === "2d" && n2.zoom === 14.3 && n2.pitch === 0 && n2.bearing === 20 && Math.abs(n2.me.x) <= 3 && Math.abs(n2.me.y - 200) <= 6 && /^Навигация/.test(n2.title), JSON.stringify(n2));
+  check("навигация: 2D — я в центре, масштаб, наклон и поворот не тронуты, кнопка «Навигация»",
+    n2.follow && n2.mode === "2d" && n2.zoom === 14.3 && n2.pitch === 0 && n2.bearing === 20 && Math.abs(n2.me.x) <= 3 && Math.abs(n2.me.y) <= 3 && /^Навигация/.test(n2.title), JSON.stringify(n2));
   await run(`document.querySelector(".compass-btn").click(); true`);
   await sleep(2500);
   await goTo(59.437, 24.7455);
@@ -136,18 +137,42 @@ try {
   await sleep(2500);
   const navN = await nav();
   const near = (a, b) => Math.abs(((a - b + 540) % 360) - 180) <= 5;
-  check("навигация: 3D — карта по ходу движения, метка — стрелка, масштаб прежний", navE.mode === "3d" && navE.pitch >= 55 && near(navE.heading, 90) && near(navE.bearing, 90)
-    && navE.chevron && navE.zoom === 14.3 && near(navN.heading, 0) && near(navN.bearing, 0) && navN.zoom === 14.3, JSON.stringify([navE, navN]));
+  check("навигация: 3D — я внизу, карта по ходу движения, метка — стрелка, масштаб прежний", navE.mode === "3d" && navE.pitch >= 55 && near(navE.heading, 90) && near(navE.bearing, 90)
+    && navE.chevron && navE.zoom === 14.3 && Math.abs(navE.me.y - 200) <= 8 && near(navN.heading, 0) && near(navN.bearing, 0) && navN.zoom === 14.3, JSON.stringify([navE, navN]));
   // сдвинул карту рукой — через 10 секунд она сама возвращается ко мне
   await run(`atlas.map.fire("dragstart", { originalEvent: new MouseEvent("mousedown") }); atlas.map.panBy([200, 0], { duration: 0 }); true`);
   const away = await run(`atlas.geo.state().follow`);
   await sleep(11500);
   const backHome = await nav();
   check("навигация: сдвинул карту — через 10 секунд снова ко мне", away === false && backHome.follow && Math.abs(backHome.me.x) <= 3, JSON.stringify({ away, backHome }));
-  await run(`document.querySelector(".compass-btn").click(); true`);
+  // выровнял карту рукой — 2D, через 10 секунд я в центре
+  await run(`atlas.map.fire("pitchstart", { originalEvent: new MouseEvent("mousedown") }); atlas.map.jumpTo({ pitch: 0 }); true`);
+  const flat = await run(`({ ...atlas.geo.state() })`);
+  await sleep(11500);
+  const flatBack = await nav();
+  check("навигация: выровнял рукой — 2D, через 10 секунд я в центре", flat.mode === "2d" && !flat.follow && flatBack.follow && flatBack.mode === "2d"
+    && Math.abs(flatBack.me.x) <= 3 && Math.abs(flatBack.me.y) <= 3 && flatBack.chevron, JSON.stringify({ flat, flatBack }));
+  await run(`document.querySelector(".compass-btn").click(); true`); // 3D
+  await sleep(2000);
+  await run(`document.querySelector(".compass-btn").click(); true`); // С
   await sleep(3000);
   const nN = await nav();
   check("навигация: С — я в центре, север вверху, точка вместо стрелки", nN.mode === "north" && nN.bearing === 0 && nN.pitch === 0 && Math.abs(nN.me.x) <= 3 && Math.abs(nN.me.y) <= 3 && !nN.chevron && nN.zoom === 14.3, JSON.stringify(nN));
+  // «Куда идти»: в окне на карте — «Сюда»; плашка — расстояние и сторона; путь пешком (сервер маршрутов)
+  const here = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
+    const p = track(new atlas.ctx.maplibregl.Popup()).setLngLat([24.76, 59.43]).setHTML('<div class="popup-title">Проба</div>').addTo(atlas.map);
+    const b = p.getElement().querySelector(".go-here"); const had = !!b; b?.click();
+    return { had, open: p.isOpen(), ...atlas.route.state(), card: !document.querySelector(".go-card").hidden,
+      line: atlas.map.getSource("go-line")?._data?.features?.length ?? atlas.map.querySourceFeatures("go-line").length }; })()`);
+  check("куда идти: «Сюда» в окне — плашка с расстоянием и стороной, пунктир", here.had && !here.open && here.card && here.target?.title === "Проба"
+    && /^\d[\d,]* (м|км) на юго-восток \| Проба$/.test(here.text), JSON.stringify(here));
+  await run(`document.querySelector(".go-way").click(); true`);
+  await sleep(6000);
+  const walk = await run(`atlas.route.state()`);
+  check("куда идти: путь пешком — линия, длина и время", walk.route?.way === "foot" && walk.route.points > 10 && /Пешком: .* · \d+ мин/.test(walk.text), JSON.stringify(walk));
+  await shot("00-route");
+  await run(`document.querySelector(".go-close").click(); true`);
+  check("куда идти: крестик убирает точку", (await run(`({ hidden: document.querySelector(".go-card").hidden, t: atlas.route.state().target })`)).hidden);
   await run(`document.querySelector(".compass-btn").click(); true`); // снова 2D
   await run(`document.querySelector(".geo-btn").click(); true`); // слежение → выключить
   await send("Emulation.clearGeolocationOverride");

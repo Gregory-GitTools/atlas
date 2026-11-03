@@ -9,6 +9,7 @@ import { addScale, addGeolocate, addCompass, addStars, MAX_PITCH } from "./contr
 import { initPopups } from "./popups.js";
 import { initPlaceInfo } from "./place-info.js";
 import { initPhotoStrip, stripState } from "./photo-strip.js";
+import { initRoute } from "./route.js";
 
 const status = (text) => { document.getElementById("status").textContent = text || ""; };
 
@@ -54,4 +55,5 @@ initLayersPanel(ctx);
 initSettingsPanel(ctx);
 addCompass(map);
 window.atlas.geo = addGeolocate(map, maplibregl, status);
+window.atlas.route = initRoute(ctx);
 await loadAll();

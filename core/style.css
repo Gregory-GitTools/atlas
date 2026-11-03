@@ -2372,3 +2372,98 @@ body.has-photo-strip .status {
 .home-row.selected {
   background: var(--active);
 }
+
+/* ---------- «Куда идти» (core/route.js) ---------- */
+/* плашка вверху по центру, под строкой поиска: стрелка к точке, расстояние, сторона света, путь */
+.go-card {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--top-inset) + var(--button) + 2 * var(--gap));
+  z-index: 4;
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - var(--side-l) - var(--side-r));
+  padding: 4px 4px 4px 10px;
+  background: var(--panel);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.go-card[hidden] {
+  display: none;
+}
+
+.go-arrow {
+  flex: none;
+  display: flex;
+  color: #e53935;
+}
+
+.go-arrow[hidden] {
+  display: none;
+}
+
+.go-text {
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.go-main {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.go-sub {
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.go-ways {
+  flex: none;
+  display: flex;
+  gap: 2px;
+}
+
+.go-way,
+.go-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.go-way:hover:not(:disabled),
+.go-close:hover {
+  background: var(--panel-hover);
+}
+
+.go-way.on {
+  background: var(--active);
+}
+
+.go-way:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.go-here {
+  display: block;
+  margin-top: 8px;
+}
