@@ -62,7 +62,7 @@ ws.onmessage = (m) => {
   if (d.method === "Runtime.exceptionThrown") errors.push("исключение: " + (d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text).split("\n")[0]);
   if (d.method === "Runtime.consoleAPICalled" && d.params.type === "error") {
     // у объекта ошибки — и место, где она возникла (первые строки стека), иначе в отчёте одно «Error»
-    const text = d.params.args.map((a) => a.value ?? a.description).join(" ").split("\n").slice(0, 4).map((l) => l.trim()).join(" ← ");
+    const text = (d.params.args.map((a) => a.value ?? a.description).join(" ") + " @ " + (d.params.stackTrace?.callFrames || []).slice(0, 3).map((f) => `${f.functionName}:${f.url.split("/").pop()}:${f.lineNumber}`).join(" < ")).split("\n").slice(0, 4).map((l) => l.trim()).join(" ← ");
     // сбои чужих серверов (плитка не пришла или пришла пустой) — не ошибка программы, только счёт
     if (/Failed to fetch|AJAXError|could not be decoded/.test(text)) netFails++;
     else errors.push("console.error: " + text.slice(0, 400));
@@ -95,8 +95,8 @@ try {
     geo: !!document.querySelector(".geo-btn"), order: [...document.querySelectorAll(".maplibregl-ctrl-bottom-left .map-btn button")].map((b) => b.className.split(" ").pop()),
     zoom: !!document.querySelector(".maplibregl-ctrl-zoom-in, .maplibregl-ctrl-compass"),
     glass: [...document.querySelectorAll(".map-btn button, .wheel-toggle, .search-toggle")].every((b) => b.classList.contains("glass")) })`);
-  check("звёзды, шкала, «Где я»", extras.stars && /км|м$/.test(extras.scale || "") && extras.geo, JSON.stringify(extras));
-  check("слева внизу: «Где я», компас, настройки — полупрозрачные, без «+ −»",
+  check("звёзды, шкала, навигация", extras.stars && /км|м$/.test(extras.scale || "") && extras.geo, JSON.stringify(extras));
+  check("слева внизу: навигация, компас, настройки — полупрозрачные, без «+ −»",
     JSON.stringify(extras.order) === '["geo-btn","compass-btn","glass"]' && !extras.zoom && extras.glass, JSON.stringify(extras));
   const tilt = async () => { await run(`document.querySelector(".compass-btn").click(); true`); await sleep(1300);
     return run(`({ pitch: Math.round(atlas.map.getPitch()), bearing: Math.round(atlas.map.getBearing()), label: document.querySelector(".compass-mode").textContent })`); };
@@ -112,30 +112,43 @@ try {
   const far = await run(`(async () => { const m = atlas.map, at = async (zoom) => { m.jumpTo({ zoom, pitch: 70 }); await new Promise((r) => setTimeout(r, 50)); return Math.round(m.getPitch()); };
     const r = { near: await at(13), mid: await at(7.5), far: await at(5) }; await new Promise((r) => setTimeout(r, 100)); r.label = document.querySelector(".compass-mode").textContent; m.jumpTo({ pitch: 0 }); return r; })()`);
   check("наклон: вблизи 70°, при отдалении меньше, на 100 км — 2D", far.near === 70 && far.mid > 0 && far.mid < 70 && far.far === 0 && far.label === "2D", JSON.stringify(far));
-  // навигация: «Где я» + 3D — карта по ходу движения (подставные координаты: иду на восток, потом на север)
+  // навигация (подставные координаты): включаю в 2D у Таллина — масштаб и наклон не меняются, я в нижней части
+  // экрана, карта не крутится; 3D — карта по ходу движения (на восток, потом на север), метка — стрелка;
+  // С — я в центре, север вверху; сдвинул карту — через 10 секунд снова ко мне
   await send("Browser.grantPermissions", { permissions: ["geolocation"], origin: url.replace(/\/$/, "") });
   const goTo = (lat, lon) => send("Emulation.setGeolocationOverride", { latitude: lat, longitude: lon, accuracy: 5 });
+  const me = `(() => { const r = document.querySelector(".geo-dot").getBoundingClientRect(); return { x: Math.round((r.left + r.right) / 2 - innerWidth / 2), y: Math.round((r.top + r.bottom) / 2 - innerHeight / 2) }; })()`;
+  const nav = (extra = "") => run(`({ ...atlas.geo.state(), bearing: Math.round(atlas.map.getBearing()), pitch: Math.round(atlas.map.getPitch()), zoom: Math.round(atlas.map.getZoom() * 10) / 10,
+    me: ${me}, chevron: document.querySelector(".geo-dot").classList.contains("chevron"), title: document.querySelector(".geo-btn").title ${extra} })`);
+  await run(`atlas.map.jumpTo({ center: [24.74, 59.43], zoom: 14.3, pitch: 0, bearing: 20 }); true`);
   await goTo(59.437, 24.745);
   await run(`document.querySelector(".geo-btn").click(); true`);
-  await sleep(3500);
+  await sleep(2500);
+  const n2 = await nav();
+  check("навигация: 2D — я внизу экрана, масштаб, наклон и поворот не тронуты, кнопка «Навигация»",
+    n2.follow && n2.mode === "2d" && n2.zoom === 14.3 && n2.pitch === 0 && n2.bearing === 20 && Math.abs(n2.me.x) <= 3 && Math.abs(n2.me.y - 200) <= 6 && /^Навигация/.test(n2.title), JSON.stringify(n2));
   await run(`document.querySelector(".compass-btn").click(); true`);
-  await sleep(1500);
+  await sleep(2500);
   await goTo(59.437, 24.7455);
-  await sleep(1800);
-  const navE = await run(`({ ...atlas.geo.state(), bearing: Math.round(atlas.map.getBearing()), pitch: Math.round(atlas.map.getPitch()),
-    arrow: document.querySelector(".geo-dot.moving .geo-arrow") !== null, btn: document.querySelector(".geo-btn").classList.contains("nav") })`);
+  await sleep(2500);
+  const navE = await nav();
   await goTo(59.4375, 24.7455);
-  await sleep(1800);
-  const navN = await run(`({ ...atlas.geo.state(), bearing: Math.round(atlas.map.getBearing()) })`);
+  await sleep(2500);
+  const navN = await nav();
   const near = (a, b) => Math.abs(((a - b + 540) % 360) - 180) <= 5;
-  check("навигация: «Где я» в 3D — карта по ходу движения, стрелка у точки", navE.nav && navE.pitch >= 55 && near(navE.heading, 90) && near(navE.bearing, 90)
-    && navE.arrow && navE.btn && near(navN.heading, 0) && near(navN.bearing, 0), JSON.stringify([navE, navN]));
-  // сдвинул карту рукой в навигации — через 10 секунд она сама возвращается ко мне
+  check("навигация: 3D — карта по ходу движения, метка — стрелка, масштаб прежний", navE.mode === "3d" && navE.pitch >= 55 && near(navE.heading, 90) && near(navE.bearing, 90)
+    && navE.chevron && navE.zoom === 14.3 && near(navN.heading, 0) && near(navN.bearing, 0) && navN.zoom === 14.3, JSON.stringify([navE, navN]));
+  // сдвинул карту рукой — через 10 секунд она сама возвращается ко мне
   await run(`atlas.map.fire("dragstart", { originalEvent: new MouseEvent("mousedown") }); atlas.map.panBy([200, 0], { duration: 0 }); true`);
   const away = await run(`atlas.geo.state().follow`);
   await sleep(11500);
-  const backHome = await run(`({ follow: atlas.geo.state().follow, bearing: Math.round(atlas.map.getBearing()) })`);
-  check("навигация: сдвинул карту — через 10 секунд снова ко мне", away === false && backHome.follow && near(backHome.bearing, 0), JSON.stringify({ away, backHome }));
+  const backHome = await nav();
+  check("навигация: сдвинул карту — через 10 секунд снова ко мне", away === false && backHome.follow && Math.abs(backHome.me.x) <= 3, JSON.stringify({ away, backHome }));
+  await run(`document.querySelector(".compass-btn").click(); true`);
+  await sleep(3000);
+  const nN = await nav();
+  check("навигация: С — я в центре, север вверху, точка вместо стрелки", nN.mode === "north" && nN.bearing === 0 && nN.pitch === 0 && Math.abs(nN.me.x) <= 3 && Math.abs(nN.me.y) <= 3 && !nN.chevron && nN.zoom === 14.3, JSON.stringify(nN));
+  await run(`document.querySelector(".compass-btn").click(); true`); // снова 2D
   await run(`document.querySelector(".geo-btn").click(); true`); // слежение → выключить
   await send("Emulation.clearGeolocationOverride");
   check("навигация: выключено", !(await run(`atlas.geo.state().on`)));
@@ -1027,7 +1040,7 @@ try {
     L.click(); await wait(); L.click(); await wait(); const s4 = st();
     const lr = L.getBoundingClientRect();
     A.click(); await wait();
-    return { s0, s1, s2, s3, s4, keys, corner: innerWidth - lr.right < 16 && lr.top < 20 }; })()`);
+    return { s0, s1, s2, s3, s4, keys, corner: innerWidth - lr.right >= 18 && innerWidth - lr.right <= 24 && lr.top < 20 }; })()`);
   check("лупа: щелчок — поиск и разделы, на её месте логотип; треугольник — слои; второй щелчок прячет",
     !lens.s0.search && !lens.s0.content && lens.s0.lenses === 1 && lens.s1.content && lens.s1.search && lens.s1.logo && lens.s1.lenses === 1
     && lens.s2.layers && !lens.s2.content && lens.s2.search && !lens.s3.layers && !lens.s4.search && !lens.s4.content && !lens.s4.logo
@@ -1087,7 +1100,7 @@ try {
       corner: [Math.round(innerWidth - t.right), Math.round(innerHeight - t.bottom)], size: Math.round(t.width),
       logo: (() => { const i = document.querySelector(".search-toggle.open img"), b = i?.parentElement.getBoundingClientRect(); return !!i?.naturalWidth && i.getBoundingClientRect().width >= b.width; })(), wheelTop: Math.round(w.top), searchTop: Math.round(sb.top), phone: innerWidth <= 600 }; })()`);
   check("раскладка: ⓘ и шкала в линию с шестерёнкой", Math.abs(lay.info - lay.gear) <= 2 && Math.abs(lay.scale - lay.gear) <= 2, JSON.stringify(lay));
-  check("раскладка: треугольник в правом нижнем углу, размером с кнопки", lay.corner.every((v) => v >= 6 && v <= 14) && lay.size === 40, JSON.stringify(lay));
+  check("раскладка: треугольник в правом нижнем углу, отодвинут от края, размером с кнопки", lay.corner[0] >= 18 && lay.corner[0] <= 24 && lay.corner[1] >= 6 && lay.corner[1] <= 14 && lay.size === 40, JSON.stringify(lay));
   check("раскладка: открыт поиск — на месте лупы логотип во весь кружок", lay.logo);
   if (!lay.phone) check("раскладка: верх колеса — под лупой", Math.abs(lay.wheelTop - (lay.searchTop + 50)) <= 2, JSON.stringify(lay));
 } catch (err) {

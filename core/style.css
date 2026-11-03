@@ -43,6 +43,10 @@
   --radius: 10px;
   --button: 40px;
   --gap: 10px;
+  /* от боковых краёв экрана до кнопок — дальше, чем между кнопками (Грегори, 2026-11-03: в машине
+     у края держатель и рамка — кнопки не нажать); на телефоне с вырезом — не меньше выреза */
+  --side-l: max(20px, env(safe-area-inset-left, 0px));
+  --side-r: max(20px, env(safe-area-inset-right, 0px));
   --shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   --top-inset: env(titlebar-area-height, 0px);
 }
@@ -107,7 +111,7 @@ html, body {
 .top-right {
   position: fixed;
   top: calc(var(--top-inset) + var(--gap));
-  right: var(--gap);
+  right: var(--side-r);
   z-index: 20;
 }
 
@@ -237,9 +241,15 @@ html, body {
   background: rgba(0, 0, 0, 0.25);
 }
 
+/* значки — почти во весь кружок, размер кнопки прежний (Грегори, 2026-11-03) */
+.btn.glass > svg {
+  width: calc(var(--button) - 8px);
+  height: calc(var(--button) - 8px);
+}
+
 /* столбик слева внизу: кнопки одна над другой */
 .maplibregl-ctrl-bottom-left > .map-btn {
-  margin: 0 0 var(--gap) var(--gap);
+  margin: 0 0 var(--gap) var(--side-l);
 }
 
 /* компас: стрелка ложится при наклоне карты, под ней — 2D или 3D */
@@ -250,13 +260,19 @@ html, body {
   perspective: 60px;
 }
 
+.btn.glass > .compass-needle {
+  width: 26px;
+  height: 26px;
+}
+
 .compass-needle {
   display: block;
   transition: transform 0.1s linear;
 }
 
 .compass-mode {
-  font-size: 10px;
+  margin-top: -2px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
 }
@@ -456,12 +472,12 @@ html, body {
 .search {
   position: fixed;
   top: calc(var(--top-inset) + var(--gap));
-  left: var(--gap);
+  left: var(--side-l);
   z-index: 20;
   /* шире (Грегори, 2026-10-29); справа вверху больше ничего нет — на телефоне во всю ширину */
   width: 480px;
   /* справа в той же строке — лупа (на телефоне строка поиска короче на неё) */
-  max-width: calc(100vw - 3 * var(--gap) - var(--button));
+  max-width: calc(100vw - var(--side-l) - var(--side-r) - var(--gap) - var(--button));
 }
 
 /* строка поиска — белая (тёмную, как у Google, Грегори вернул обратно 2026-10-29); логотип — на кнопке справа вверху */
@@ -724,9 +740,31 @@ html, body {
   display: block;
 }
 
-/* «Где я» в навигации — кнопка подсвечена */
-.geo-btn.nav {
-  background: rgba(26, 115, 232, 0.35);
+/* во 2D и 3D метка — стрелка навигации (в 3D лежит на карте), вместо точки */
+.geo-chevron {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40px;
+  height: 40px;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
+}
+
+.geo-dot.chevron {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+.geo-dot.chevron::after,
+.geo-dot.chevron .geo-arrow {
+  display: none;
+}
+
+.geo-dot.chevron .geo-chevron {
+  display: block;
 }
 
 @keyframes geo-pulse {
@@ -995,7 +1033,7 @@ body.has-photo-strip .status {
 /* верх барабана — под лупой справа вверху */
 .wheel {
   position: fixed;
-  right: 0;
+  right: calc(var(--side-r) - var(--gap) * 1.5);
   top: calc(var(--top-inset) + 2 * var(--gap) + var(--button));
   bottom: 76px;
   z-index: 20;
@@ -1058,15 +1096,11 @@ body.has-photo-strip .status {
    кнопки, полупрозрачный (glass); ◀ — показать кнопки, ▶ — спрятать */
 .wheel-toggle {
   position: fixed;
-  right: var(--gap);
+  right: var(--side-r);
   bottom: var(--gap);
   z-index: 26;
 }
 
-.wheel-toggle svg {
-  width: 24px;
-  height: 24px;
-}
 
 .wheel-toggle.open svg {
   transform: rotate(180deg);
@@ -1077,7 +1111,7 @@ body.has-photo-strip .status {
    кружке его цвета */
 .search-toggle {
   position: fixed;
-  right: var(--gap);
+  right: var(--side-r);
   top: calc(var(--top-inset) + var(--gap));
   z-index: 26;
 }
@@ -1104,8 +1138,8 @@ body.has-photo-strip .status {
 }
 
 .search-toggle.mode svg {
-  width: 22px;
-  height: 22px;
+  width: calc(var(--button) - 12px);
+  height: calc(var(--button) - 12px);
 }
 
 /* кнопки барабана — цвет группы (Грегори, 2026-10-29: «наоборот»): выключено — яркая заливка, значок белый;
@@ -1192,14 +1226,14 @@ body.has-photo-strip .status {
 }
 
 .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-attrib {
-  left: calc(var(--button) + var(--gap));
+  left: calc(var(--button) + var(--side-l));
   margin: 0 0 0 var(--gap);
   /* у кнопки ⓘ внутри свой отступ — на 2 px выше середины */
   transform: translateY(calc(50% + 2px));
 }
 
 .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-scale {
-  left: calc(var(--button) + 2 * var(--gap) + 34px);
+  left: calc(var(--button) + var(--side-l) + var(--gap) + 34px);
   margin: 0 0 0 var(--gap);
 }
 
@@ -1214,13 +1248,24 @@ body.has-photo-strip .status {
   background: var(--panel);
 }
 
+/* ⓘ — как остальные кнопки поверх карты: полупрозрачный кружок, значок белый, без белого канта
+   (Грегори, 2026-11-03) */
 .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button {
   width: 28px;
   height: 28px;
-  background-color: var(--panel);
-  border: 1px solid rgba(0, 0, 0, 0.3);
+  background-color: rgba(0, 0, 0, 0.12);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fff'%3E%3Cpath d='M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z'/%3E%3C/svg%3E");
+  background-size: 26px;
+  background-position: center;
+  border: none;
   border-radius: 50%;
   box-shadow: none;
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
+}
+
+.maplibregl-ctrl-attrib.maplibregl-compact-show .maplibregl-ctrl-attrib-button {
+  background-color: rgba(0, 0, 0, 0.25);
+  filter: none;
 }
 
 /* ---------- левая панель (Языки, Экскурсии, Альбомы) — под строкой поиска ---------- */

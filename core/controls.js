@@ -1,5 +1,5 @@
-// Кнопки и приборы карты (как в travel-earth): шкала масштаба по-русски, «Где я», компас 2D/3D, звёздное небо.
-// Столбик слева внизу, снизу вверх: настройки, компас, «Где я» —
+// Кнопки и приборы карты (как в travel-earth): шкала масштаба по-русски, навигация, компас, звёздное небо.
+// Столбик слева внизу, снизу вверх: настройки, компас, навигация —
 // MapLibre ставит каждый следующий элемент угла выше предыдущих, поэтому порядок addControl важен.
 // Кнопок «+ −» нет (Грегори, 2026-11-02): приближают колёсиком, пальцами, двойным щелчком
 import * as settings from "./settings.js";
@@ -24,20 +24,25 @@ export function addScale(map, maplibregl) {
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
 }
 
-// ---------- где я ----------
-// как в Google Maps и Mapy.com: первый щелчок — слежение, карта встаёт на меня (центр значка
-// синий); сдвинул карту рукой — она больше не бегает за мной (центр серый), щелчок — снова ко мне;
-// щелчок по синему — выключить. Включённое слежение помнится — при запуске карта сразу на мне.
-// Навигация (Грегори, 2026-11-02: «3D с включённой навигацией, направление движения»): слежение и карта
-// наклонена — карта поворачивается по ходу движения (куда иду — вверху экрана, мир крутится навстречу),
-// я — в нижней части экрана, впереди видно больше; у точки — стрелка направления. В 2D — север вверху.
-// Направление — из GPS (heading) на ходу, иначе по последним точкам (сдвиг больше 8 м); стою — не крутится.
+// ---------- навигация («Где я») ----------
+// как в Google Maps и Mapy.com: первый щелчок — слежение, карта встаёт на меня (центр значка синий);
+// сдвинул карту рукой — она не бегает за мной (центр серый), через 10 секунд сама возвращается
+// («пешком и в машине всегда к себе»); щелчок по серому — сразу ко мне, по синему — выключить.
+// Включённое слежение помнится. Грегори, 2026-11-03 — где я на экране, по режиму компаса:
+//   С (север вверху) — я в центре, карта не крутится;
+//   2D — я в нижней части экрана, стороны света — как повернули (карта не крутится);
+//   3D — я в нижней части, карта по ходу движения.
+// Масштаб и наклон навигация не трогает никогда («нельзя постоянно бороться»); только при включении
+// издалека (весь шар) — один перелёт ко мне. Метка и карта движутся плавно, от точки к точке за время
+// между замерами GPS (а не прыжками). Направление — курс GPS на ходу, иначе по сдвигу больше 8 м;
+// стою — по компасу телефона (если он есть). Во 2D и 3D метка — стрелка, на севере — точка.
 // Координаты не уходят никуда: геолокация браузера работает на устройстве
 const GEO_ZOOM = 16;
-const NAV_ZOOM = 17;
+const FAR_ZOOM = 10; // дальше — при включении перелёт ко мне
 const NAV_MIN_STEP = 8; // м — сдвиг, по которому видно направление
 const NAV_TURN = 4; // ° — поворот меньше не трогает карту (GPS дрожит)
-const NAV_BACK = 10000; // мс — сдвинул карту в навигации: через столько она вернётся ко мне
+const NAV_BACK = 10000; // мс — сдвинул карту рукой: через столько она вернётся ко мне
+const NAV_LOW = 0.25; // я — на четверть экрана ниже середины
 
 const metersBetween = (a, b) => {
   const k = Math.PI / 180, x = (b[0] - a[0]) * k * Math.cos(((a[1] + b[1]) / 2) * k), y = (b[1] - a[1]) * k;
@@ -47,107 +52,141 @@ const bearingBetween = (a, b) => {
   const k = Math.PI / 180, la1 = a[1] * k, la2 = b[1] * k, dl = (b[0] - a[0]) * k;
   return (Math.atan2(Math.sin(dl) * Math.cos(la2), Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dl)) / k + 360) % 360;
 };
+const turnOf = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
+const NAV_ICON = `<svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
+  <path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle class="geo-center" cx="12" cy="12" r="3.5"/></svg>`;
+const CHEVRON = `<svg class="geo-chevron" viewBox="0 0 40 40" width="40" height="40"><path d="M20 3l13 32-13-7-13 7z" fill="#1a73e8" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg>`;
 
 export function addGeolocate(map, maplibregl, status) {
-  let watch = null, follow = false, position = null, marker = null, btn;
-  let heading = null, anchor = null; // направление движения и точка, от которой оно считается
+  let watch = null, follow = false, position = null, shownPos = null, marker = null, btn;
+  let heading = null, moveHeading = null, anchor = null, lastFix = 0, lastSpeed = 0, first = true, anim = 0, back = null;
 
-  const navigating = () => follow && map.getPitch() > 5;
+  const courseUp = () => compassMode === "3d";
+  const low = () => compassMode !== "north";
   const update = () => {
     btn.classList.toggle("on", watch !== null);
     btn.classList.toggle("follow", watch !== null && follow);
-    btn.classList.toggle("nav", watch !== null && navigating());
-    btn.title = watch === null ? "Где я" : !follow ? "Снова ко мне" : navigating() ? "Навигация: карта по ходу движения — щелчок выключит" : "Выключить «Где я»";
-    marker?.getElement().classList.toggle("moving", heading !== null);
-    if (heading !== null) marker?.setRotation(heading);
+    btn.title = watch === null ? "Навигация" : !follow ? "Навигация: снова ко мне" : "Навигация — щелчок выключит";
+    if (!marker) return;
+    const el = marker.getElement();
+    el.classList.toggle("moving", heading !== null);
+    el.classList.toggle("chevron", heading !== null && low());
+    if (heading !== null) marker.setRotation(heading);
   };
-  const center = (fly) => {
+  // карта ко мне: только центр (и поворот по ходу в 3D) — масштаб и наклон не трогаем
+  const center = (duration = 800) => {
     if (!position) return;
-    // навигация: по ходу движения, я — в нижней трети экрана
-    if (navigating()) {
-      map.easeTo({ center: position, bearing: heading ?? map.getBearing(), zoom: Math.max(map.getZoom(), NAV_ZOOM - 1),
-        offset: [0, innerHeight * 0.25], duration: 1000, essential: true });
-      return;
-    }
-    // издалека — перелёт с приближением, вблизи — просто сдвиг
-    if (fly || map.getZoom() < 12) map.flyTo({ center: position, zoom: Math.max(map.getZoom(), GEO_ZOOM), duration: 3000 });
-    else map.easeTo({ center: position, duration: 800 });
+    const offset = [0, low() ? Math.round(innerHeight * NAV_LOW) : 0];
+    const bearing = compassMode === "north" ? { bearing: 0 } : courseUp() && moveHeading !== null ? { bearing: moveHeading } : {};
+    if (first && map.getZoom() < FAR_ZOOM) map.flyTo({ center: position, zoom: GEO_ZOOM, offset, ...bearing, duration: 3000 });
+    else map.easeTo({ center: position, offset, ...bearing, duration, easing: (t) => t });
+    first = false;
   };
-  const turn = (pos, p) => {
+  // метка — плавно от прежней точки к новой
+  const glide = (to, duration) => {
+    cancelAnimationFrame(anim);
+    const from = shownPos || to, t0 = performance.now();
+    const step = (now) => {
+      const k = Math.min(1, (now - t0) / duration);
+      shownPos = [from[0] + (to[0] - from[0]) * k, from[1] + (to[1] - from[1]) * k];
+      marker?.setLngLat(shownPos);
+      if (k < 1) anim = requestAnimationFrame(step);
+    };
+    anim = requestAnimationFrame(step);
+  };
+  // направление движения: курс GPS на ходу, иначе по сдвигу; поворот меньше NAV_TURN — не считается
+  const course = (pos, p) => {
     const gps = pos.coords.heading, speed = pos.coords.speed;
     let h = null;
     if (Number.isFinite(gps) && speed > 0.7) { h = gps; anchor = p; }
     else if (!anchor) anchor = p;
     else if (metersBetween(anchor, p) > NAV_MIN_STEP) { h = bearingBetween(anchor, p); anchor = p; }
-    if (h === null) return false;
-    const diff = heading === null ? 180 : Math.abs(((h - heading + 540) % 360) - 180);
-    heading = h;
-    return diff >= NAV_TURN;
+    if (h === null) return;
+    if (moveHeading === null || turnOf(h, moveHeading) >= NAV_TURN) moveHeading = h;
+    heading = moveHeading;
   };
+  // компас телефона — стрелка, пока стою (карту по нему не крутим)
+  const onCompass = (e) => {
+    const h = e.webkitCompassHeading ?? (e.absolute && e.alpha != null ? (360 - e.alpha) % 360 : null);
+    if (h == null || watch === null || lastSpeed > 0.7) return;
+    if (heading !== null && turnOf(h, heading) < NAV_TURN) return;
+    heading = h;
+    update();
+  };
+  const listenCompass = async () => {
+    try { if (typeof DeviceOrientationEvent?.requestPermission === "function") await DeviceOrientationEvent.requestPermission(); } catch { return; }
+    addEventListener("deviceorientationabsolute", onCompass);
+    addEventListener("deviceorientation", onCompass);
+  };
+
   const start = () => {
     if (!navigator.geolocation) { status("Этот браузер не умеет определять местоположение"); return; }
     follow = true;
+    first = true;
+    listenCompass();
     watch = navigator.geolocation.watchPosition((pos) => {
-      const first = !position;
+      const now = Date.now(), gap = lastFix ? Math.min(1500, Math.max(300, now - lastFix)) : 0;
+      lastFix = now;
+      lastSpeed = pos.coords.speed || 0;
       position = [pos.coords.longitude, pos.coords.latitude];
-      turn(pos, position);
+      course(pos, position);
       if (!marker) {
-        const el = Object.assign(document.createElement("div"), { className: "geo-dot" });
+        const el = Object.assign(document.createElement("div"), { className: "geo-dot", innerHTML: CHEVRON });
         el.append(Object.assign(document.createElement("div"), { className: "geo-arrow" }));
         marker = new maplibregl.Marker({ element: el, rotationAlignment: "map", pitchAlignment: "map" }).setLngLat(position).addTo(map);
+        shownPos = position;
       }
-      marker.setLngLat(position);
+      if (gap) glide(position, gap); else marker.setLngLat((shownPos = position));
       update();
-      if (follow) center(first);
+      if (follow) center(gap || 800);
     }, (err) => {
       // запрет — выключить совсем, иначе спрашивали бы при каждом запуске
       if (err.code === err.PERMISSION_DENIED) { stop(); status("Нет доступа к местоположению — разрешите его браузеру"); }
       else status("Не удаётся определить местоположение");
-    }, { enableHighAccuracy: true, maximumAge: 10000 });
+    }, { enableHighAccuracy: true, maximumAge: 1000 });
     settings.set("geolocate", true);
     update();
   };
   const stop = () => {
     if (watch !== null) navigator.geolocation.clearWatch(watch);
-    watch = null; follow = false; position = null; heading = null; anchor = null;
+    watch = null; follow = false; position = shownPos = null; heading = moveHeading = null; anchor = null; lastFix = 0;
+    cancelAnimationFrame(anim);
     clearTimeout(back); back = null;
+    removeEventListener("deviceorientationabsolute", onCompass);
+    removeEventListener("deviceorientation", onCompass);
     marker?.remove(); marker = null;
     settings.set("geolocate", null);
     update();
   };
 
-  btn = addMapButton(map, { title: "Где я", className: "geo-btn",
-    html: `<svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
-      <path d="M12 1v4M12 19v4M1 12h4M19 12h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle class="geo-center" cx="12" cy="12" r="3.5"/></svg>` });
+  btn = addMapButton(map, { title: "Навигация", className: "geo-btn", html: NAV_ICON });
   btn.addEventListener("click", () => {
     if (watch === null) start();
-    else if (!follow) { clearTimeout(back); back = null; follow = true; update(); center(false); }
+    else if (!follow) { clearTimeout(back); back = null; follow = true; update(); center(); }
     else stop();
   });
 
-  // сдвинул или повернул карту рукой — она больше не бегает за мной; в навигации (пешком, в машине) —
-  // через 10 секунд без касаний карта сама возвращается ко мне (Грегори: «всегда к себе»)
-  let back = null;
-  const arm = () => {
+  // сдвинул, повернул или приблизил карту рукой — она не бегает за мной, через 10 секунд — снова ко мне
+  const comeBack = () => {
     clearTimeout(back);
-    back = setTimeout(() => { back = null; if (watch !== null && !follow) { follow = true; update(); center(false); } }, NAV_BACK);
+    back = setTimeout(() => { back = null; if (watch !== null && !follow) { follow = true; update(); center(); } }, NAV_BACK);
   };
   const userMove = (e) => {
     if (!e.originalEvent || watch === null) return;
-    if ((follow && navigating()) || back) arm();
+    if (follow || back) comeBack();
     if (follow) { follow = false; update(); }
   };
-  map.on("zoomstart", (e) => { if (e.originalEvent && back) userMove(e); });
   map.on("dragstart", userMove);
   map.on("rotatestart", userMove);
-  // наклонили (компас) при слежении — сразу навигация, выпрямили — обычное слежение
-  let wasNav = false;
-  map.on("pitchend", () => {
-    if (navigating() !== wasNav) { wasNav = navigating(); update(); if (follow && position) center(false); }
+  map.on("zoomstart", (e) => { if (e.originalEvent && back) comeBack(); });
+  // сменили режим компаса — я в центре или внизу; ждём, пока компас докрутит карту
+  modeWatchers.add(() => {
+    update();
+    if (follow && position) map.once("moveend", () => follow && center());
   });
   if (settings.get("geolocate")) start();
   // для проверки
-  return { state: () => ({ on: watch !== null, follow, nav: navigating(), heading, position }) };
+  return { state: () => ({ on: watch !== null, follow, mode: compassMode, heading, position }) };
 }
 
 // ---------- наклон: тонкая полоска космоса, на 100 км — 2D ----------
@@ -181,14 +220,17 @@ function keepTilt(map) {
 
 // ---------- компас: 3D · Север · 2D ----------
 // Грегори, 2026-11-02: три режима по кругу, щелчок — следующий:
-//   3D — карта наклонена (с «Где я» — навигация по ходу движения);
+//   3D — карта наклонена (с навигацией — карта по ходу движения);
 //   Север — 2D по сторонам света: север вверху, повернуть карту нельзя;
 //   2D — свободно: поворачивайте как удобно (правая кнопка мыши, два пальца).
 // Стрелка поворачивается вместе с картой и ложится при наклоне; под ней — режим. Наклонили или выпрямили
 // карту рукой — режим следует за ней. Издалека (шкала 100 км и дальше) 3D нет — режим пропускается
 const TILT = 60;
 const LABEL = { "3d": "3D", north: "С", "2d": "2D" };
-const TITLE = { "3d": "3D — наклон; с «Где я» карта по ходу движения", north: "Север вверху, карта не поворачивается", "2d": "2D — карту можно поворачивать" };
+// режим компаса — и для навигации (где на экране я и крутится ли карта)
+let compassMode = "2d";
+const modeWatchers = new Set();
+const TITLE = { "3d": "3D — наклон; с навигацией карта по ходу движения", north: "Север вверху, карта не поворачивается", "2d": "2D — карту можно поворачивать" };
 
 export function addCompass(map) {
   const btn = addMapButton(map, { className: "compass-btn",
@@ -201,6 +243,7 @@ export function addCompass(map) {
   };
   const next = () => (mode === "3d" ? "north" : mode === "north" ? "2d" : map.getMaxPitch() < 5 ? "north" : "3d");
   const update = () => {
+    if (compassMode !== mode) { compassMode = mode; for (const f of modeWatchers) f(mode); }
     needle.style.transform = `rotateX(${map.getPitch()}deg) rotate(${-map.getBearing()}deg)`;
     label.textContent = LABEL[mode];
     btn.title = `${TITLE[mode]}. Щелчок — ${TITLE[next()].split(" — ")[0].split(",")[0].toLowerCase()}`;
