@@ -360,7 +360,8 @@ function renderTour() {
   const lg = languageFor(t);
   if (lg) {
     const a = h("button", "tr-link", `Разговорник: ${lg.name.toLowerCase()}`);
-    a.addEventListener("click", () => emit("language-open", { key: lg.key }));
+    // стрелка назад в разговорнике — снова к этой экскурсии
+    a.addEventListener("click", () => emit("language-open", { key: lg.key, back: { title: `К экскурсии: ${t.title}`, go: () => { panel.open(); openTourById(t.id); } } }));
     about.body.append(a);
   }
   nodes.push(about.box);

@@ -9,7 +9,7 @@
 // Шаг 3: убрать выбросы GPS, разрезать в точке графика, склеить с другим треком, дорисовать по карте.
 // Дальше (ROADMAP): оформить — название, цвет, заметка, альбом, снимки на треке по времени
 import { register } from "../core/modules.js";
-import { createPanel, isOpen } from "../core/panel.js";
+import { createPanel, isOpen, homeList } from "../core/panel.js";
 import { emit } from "../core/events.js";
 import { setSearchMode, searchMode } from "../core/search.js";
 import { cacheGet, cacheSet, cacheDelete } from "../core/storage.js";
@@ -312,12 +312,9 @@ const h = (tag, cls, text) => Object.assign(document.createElement(tag), { class
 const btn = (icon, title, fn) => { const b = h("button", "pb-btn"); b.innerHTML = icon; b.title = title; b.addEventListener("click", fn); return b; };
 let searchText = "";
 
-function openButton() {
-  const b = h("button", "text-btn tk-open", "Открыть файл трека…");
-  b.title = "GPX или KML — выгрузка из Sports Tracker, Strava, часов. Можно просто перетащить файл на карту";
-  b.addEventListener("click", () => input.click());
-  return b;
-}
+// первой строкой — «+ Открыть трек…», такой же строкой, как «+ Добавить папку» у альбомов
+const openButton = () => homeList([{ id: "open", title: "Открыть трек…", icon: OPEN_ICON,
+  hint: "GPX или KML — выгрузка из Sports Tracker, Strava, часов. Можно просто перетащить файл на карту" }], () => input.click());
 
 function renderList(query = searchText) {
   stopDrawing();
@@ -1071,11 +1068,11 @@ register({
   hint: "Свои треки из Sports Tracker и других программ: на карте, расстояние, время, высота",
   icon: ICON,
   column: {
-    // список треков — сама панель раздела, «Открыть файл трека…» в ней первой строкой
+    // список треков — сама панель раздела, «+ Открыть трек…» в ней первой строкой
     home: (c) => { ctx = c; wire(); return load().then(openPanel); },
     load: (c) => { ctx = c; wire(); return load(); },
     // первой строкой — «Открыть файл…», потом треки, новые сверху
-    items: () => [{ id: "", title: "Открыть файл…", icon: OPEN_ICON, hint: "GPX или KML" },
+    items: () => [{ id: "", title: "Открыть трек…", icon: OPEN_ICON, hint: "GPX или KML" },
       { id: "*", title: `Все треки (${index.length})`, icon: ICON, selected: isOpen("tracks") }],
     choose: (id, c) => {
       ctx = c;

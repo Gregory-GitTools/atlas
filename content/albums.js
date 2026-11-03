@@ -63,7 +63,8 @@ const albums = new Map(); // путь папки → { id, name, title, local, p
 const groups = new Map(); // путь папки-поездки → { id, name, title, local, parent, group: true }
 const photos = new Map(); // "album/12" → { id, album, name, path, url | handle, key, rec, thumb, img, video, live: файл ролика }
 let seq = 0, scan = 0, ctx = null, loading = null;
-let dir = null, needsAccess = false, busy = false, checked = 0;
+// свои папки со снимками (Грегори 2026-11-03: «+ Добавить папку») — доступ к каждой в IndexedDB albums/dirs
+let dirs = [], needsAccess = false, busy = false, checked = 0;
 const canFolders = () => "showDirectoryPicker" in window && !isMobile();
 
 function addAlbum(path, name, local, files) {
@@ -93,17 +94,21 @@ async function listRepo() {
 
 // своя папка: альбом — каждая папка, где есть снимки (подпапки — свои альбомы); «[Originals]» —
 // исходники поправленных снимков, повторы — пропускаются
-async function walk(handle, path, token) {
-  const files = [], dirs = [];
+async function walk(handle, path, token, root) {
+  const files = [], dirs = [], proxies = new Map();
   try {
     for await (const [name, h] of handle.entries()) {
       if (h.kind === "directory") { if (!/^[._[]/.test(name)) dirs.push([name, h]); }
-      else if (MEDIA_RE.test(name)) files.push({ name, path: `${path}/${name}`, handle: h });
+      else if (MEDIA_RE.test(name)) files.push({ name, path: `${path}/${name}`, handle: h, root });
+      else if (/^GL\d{6}\.LRV$/i.test(name)) proxies.set(name.slice(2, 8), h);
     }
   } catch { return; }
   if (token !== scan) return;
+  // GoPro: рядом с роликом GX011479.MP4 (4K, сотни МБ) — его уменьшенная копия GL011479.LRV (640×480);
+  // кадр для клетки берётся из неё — быстро; играет в галерее сам ролик
+  for (const f of files) { const m = /^G[HX](\d{6})\.MP4$/i.exec(f.name); if (m && proxies.has(m[1])) f.proxy = proxies.get(m[1]); }
   if (files.length) addAlbum(path, handle.name, true, files);
-  for (const [name, h] of dirs.sort((x, y) => x[0].localeCompare(y[0], undefined, { numeric: true }))) await walk(h, `${path}/${name}`, token);
+  for (const [name, h] of dirs.sort((x, y) => x[0].localeCompare(y[0], undefined, { numeric: true }))) await walk(h, `${path}/${name}`, token, root);
 }
 
 // поездки — структура папок как на диске (Грегори 2026-11-02: «подпапки воспринимать как отдельные
@@ -277,9 +282,9 @@ async function rescan() {
   try { await exifr(); } catch { busy = false; ctx?.status("Не загрузилась программа чтения снимков — проверьте интернет"); return; }
   await listRepo().catch(() => {});
   nest("Альбомы");
-  if (dir && !needsAccess) await walk(dir, dir.name, token);
+  if (!needsAccess) for (const d of dirs) { await walk(d, d.name, token, d); if (token !== scan) return; }
   if (token !== scan) return;
-  if (dir) nest(dir.name);
+  for (const d of dirs) nest(d.name);
   for (const a of albums.values()) {
     for (const id of a.photos.slice(0, PROBE)) {
       const r = await exifOf(photos.get(id));
@@ -309,8 +314,8 @@ async function load(c) {
   if (c) ctx = c;
   loading ??= (async () => {
     if (canFolders()) {
-      dir = await cacheGet("albums/dir").catch(() => null) || null;
-      needsAccess = !!dir && await dir.queryPermission({ mode: "read" }).catch(() => "denied") !== "granted";
+      dirs = await savedDirs();
+      needsAccess = await noAccess();
     }
     await rescan();
   })();
@@ -362,7 +367,7 @@ async function frameOf(blob) {
 }
 async function makeThumb(p) {
   // поворот из EXIF браузер учитывает сам (imageOrientation по умолчанию — from-image)
-  const bmp = p.video ? await frameOf(await fileOf(p)).catch((err) => { p.noFrame = true; throw err; })
+  const bmp = p.video ? await frameOf(p.proxy ? await p.proxy.getFile() : await fileOf(p)).catch((err) => { p.noFrame = true; throw err; })
     : await createImageBitmap(await fileOf(p), { resizeWidth: 480, resizeQuality: "medium" });
   const side = Math.min(bmp.width, bmp.height), sx = (bmp.width - side) / 2, sy = (bmp.height - side) / 2;
   const c = Object.assign(document.createElement("canvas"), { width: THUMB, height: THUMB });
@@ -391,7 +396,30 @@ async function fullOf(f, id) {
   if (fulls.length > 8) URL.revokeObjectURL(fulls.shift().url);
   return url;
 }
+// музыка слайд-шоу — папка «Music» в корне своей папки снимков (как в Albom); нет — показ без звука
+const MUSIC_EXT = /\.(mp3|m4a|aac|ogg|wav|flac)$/i;
+let musicList = null, musicUrl = "";
+async function musicFiles() {
+  if (musicList) return musicList;
+  const list = [];
+  if (!needsAccess) for (const d of dirs) {
+    try {
+      const m = await d.getDirectoryHandle("Music");
+      for await (const e of m.values()) if (e.kind === "file" && MUSIC_EXT.test(e.name)) list.push(e);
+    } catch { /* папки «Music» нет */ }
+  }
+  list.sort((a, b) => a.name.localeCompare(b.name));
+  return (musicList = list);
+}
+async function musicTrack(i) {
+  const list = await musicFiles();
+  if (!list.length) return "";
+  if (musicUrl) URL.revokeObjectURL(musicUrl);
+  return (musicUrl = URL.createObjectURL(await list[i % list.length].getFile()));
+}
 const media = (kind, id) => {
+  if (kind === "music-count") return musicFiles().then((l) => l.length);
+  if (kind === "music") return musicTrack(Number(id) || 0);
   const p = photos.get(id);
   if (!p || (kind === "live" && !p.live)) return Promise.resolve("");
   return kind === "full" ? fullOf(p, id) : kind === "live" ? fullOf(p.live, `${id}/live`) : thumbOf(p);
@@ -500,12 +528,32 @@ function showPhoto(p) {
 // у поездки — снимки всех её альбомов подряд, без «Избранного» (там копии)
 const photosOf = (x) => (x.group ? tally(x).list.filter((a) => a.title !== "Избранное").flatMap((a) => a.photos) : x.photos);
 
-function gallery(a, startId) {
+// снимок своей папки можно править в галерее (tools/editor.js): папка — по номеру в списке своих папок
+// (окно галереи берёт её доступ из IndexedDB albums/dirs, со своим нажатием просит право записи),
+// путь — внутри неё. Ролики, снимки с GitHub и телефон — без правки (кнопка неактивна)
+const EDITABLE = /\.(jpe?g|png|webp)$/i;
+const editInfo = (p) => (p.root && !p.video && EDITABLE.test(p.name) && !isMobile()
+  ? { root: dirs.indexOf(p.root), path: p.path.slice(p.root.name.length + 1) } : null);
+// окно галереи сохранило правку — миниатюра и крупный снимок заново, из нового файла
+window.atlasGallerySaved = (id) => {
+  const p = photos.get(id);
+  if (!p) return;
+  const i = fulls.findIndex((x) => x.id === id);
+  if (i >= 0) URL.revokeObjectURL(fulls.splice(i, 1)[0].url);
+  if (p.thumb) URL.revokeObjectURL(p.thumb);
+  p.thumb = ""; p.thumbing = null; p.noFrame = false;
+  thumbOf(p).then(() => { refresh(); if (openAlbum === p.album) renderAlbum(); });
+};
+// для проверки (снимки выдуманной папки в тесте не уходят в IndexedDB) — доступ к своим папкам
+window.atlasGalleryRoots = () => dirs;
+
+// «Смотреть» — сразу слайд-шоу (play); щелчок по снимку — просто галерея с него
+function gallery(a, startId, play = false) {
   const ids = photosOf(a);
   openGalleryWith(ids.map((id) => photos.get(id)).map((p) => ({ id: p.id, thumb: p.thumb, full: p.url,
     title: p.album.title, credit: [photoDate(p), p.name].filter(Boolean).join(" · "), coordinates: p.rec?.lat ? pt(p) : null,
-    video: p.video, live: !!p.live })),
-  startId || ids[0], media);
+    video: p.video, live: !!p.live, edit: editInfo(p) })),
+  startId || ids[0], media, { play });
 }
 
 function fitAlbum(a) {
@@ -566,8 +614,8 @@ function albumRow(a) {
   return r;
 }
 
-// папка отличается от альбома (Грегори 2026-11-02): стрелка слева раскрывает её альбомы прямо в
-// списке, обложка — стопкой; щелчок по строке — папка целиком (на карте, ▶ — все снимки)
+// папка отличается от альбома (Грегори 2026-11-02): стрелка раскрывает её альбомы прямо в
+// списке (справа — Грегори 2026-11-03), обложка — стопкой; щелчок по строке — папка целиком (на карте, ▶ — все снимки)
 const expanded = new Set(); // раскрытые папки
 const CHEVRON = svg("M8.59 16.59 13.17 12 8.59 7.41 10 6l6 6-6 6z", 20);
 function groupRow(g, depth) {
@@ -583,16 +631,15 @@ function groupRow(g, depth) {
     [`${kidsOf(g).length} альб.`, `${t.photos} фото`, dates(t)].filter(Boolean).join(" · ")));
   r.append(lazyImg(photos.get(t.cover), "al-cover al-stack"), text);
   r.addEventListener("click", () => openGroupById(g.id));
-  line.append(chev, r);
+  line.append(r, chev);
   return line;
 }
-// альбом рядом с папками сдвинут на ширину стрелки, чтобы обложки стояли столбиком
+// альбомы папки — с отступом под обложкой папки
 function rows(items, depth = 0) {
-  const slot = items.some((x) => x.group);
   return items.flatMap((x) => {
     if (x.group) return [groupRow(x, depth), ...(expanded.has(x.id) ? rows(kidsOf(x), depth + 1) : [])];
     const line = h("div", "al-line");
-    line.style.paddingLeft = `${depth * 24 + (slot ? 32 : 0)}px`;
+    line.style.paddingLeft = `${depth * 24}px`;
     line.append(albumRow(x));
     return [line];
   });
@@ -627,7 +674,7 @@ function backBtn(x) {
 }
 
 function accessRow() {
-  const b = h("button", "text-btn al-access", `Открыть мою папку «${dir.name}»`);
+  const b = h("button", "text-btn al-access", accessTitle());
   b.addEventListener("click", askAccess);
   return b;
 }
@@ -655,7 +702,7 @@ function renderList(country, query = "") {
     bar.append(btn(BACK, "Все страны", () => { currentCountry = null; renderList(null); panel.body.scrollTop = 0; }));
     nodes.push(bar);
   }
-  if (needsAccess && dir) nodes.push(accessRow());
+  if (needsAccess && dirs.length) nodes.push(accessRow());
   if (busy) nodes.push(h("p", "pb-hint", `Читаю снимки… проверено ${checked}`));
   if (q && !list.length) nodes.push(h("p", "pb-hint", "Ничего не нашлось"));
   setFold(list);
@@ -671,7 +718,7 @@ function renderGroup(keepScroll) {
   panel.setTitle(g.title);
   const bar = h("div", "pb-bar");
   const left = h("div", "tr-bar-left");
-  left.append(backBtn(g), btn(PLAYER.play, "Смотреть всю поездку в галерее", () => gallery(g)));
+  left.append(backBtn(g), btn(PLAYER.play, "Слайд-шоу всей поездки", () => gallery(g, null, true)));
   bar.append(left);
   const lands = [...new Set(t.list.map((a) => a.country?.name).filter(Boolean))];
   const facts = h("div", "tr-facts al-facts", [`${t.photos} фото`, dates(t), lands.join(", "), g.local ? "на этом компьютере" : ""].filter(Boolean).join(" · "));
@@ -697,7 +744,7 @@ function renderAlbum() {
   setFold([]);
   const bar = h("div", "pb-bar");
   const left = h("div", "tr-bar-left");
-  left.append(backBtn(a), btn(PLAYER.play, "Смотреть альбом в галерее", () => gallery(a)));
+  left.append(backBtn(a), btn(PLAYER.play, "Слайд-шоу альбома", () => gallery(a, null, true)));
   bar.append(left);
   const clips = a.photos.filter((id) => photos.get(id).video).length;
   const facts = h("div", "tr-facts al-facts", [`${a.photos.length - clips} фото`, clips ? `${clips} видео` : "", dates(a), a.country?.name, a.local ? "на этом компьютере" : ""].filter(Boolean).join(" · "));
@@ -736,28 +783,45 @@ function openAlbumById(id) {
   if (!a.done) finish(a).then(() => { refresh(); if (openAlbum === a) renderAlbum(); });
 }
 
-// ---------- своя папка (настройки) ----------
+// ---------- свои папки (настройки) ----------
+// раньше папка была одна (albums/dir) — она становится первой в списке
+async function savedDirs() {
+  const list = await cacheGet("albums/dirs").catch(() => null);
+  if (Array.isArray(list)) return list;
+  const old = await cacheGet("albums/dir").catch(() => null);
+  return old ? [old] : [];
+}
+const noAccess = async () => {
+  for (const d of dirs) if (await d.queryPermission({ mode: "read" }).catch(() => "denied") !== "granted") return true;
+  return false;
+};
+const saveDirs = () => Promise.all([cacheSet("albums/dirs", dirs), cacheDelete("albums/dir")]).catch(() => {});
+const accessTitle = () => (dirs.length === 1 ? `Открыть мою папку «${dirs[0].name}»` : "Открыть мои папки");
 async function pickFolder(render) {
   let handle;
   try { handle = await window.showDirectoryPicker({ id: "atlas-albums", mode: "read" }); } catch { return; }
-  await cacheSet("albums/dir", handle).catch(() => {});
-  dir = handle;
-  needsAccess = false;
+  for (const d of dirs) if (await d.isSameEntry?.(handle).catch(() => false)) { render?.(); return; } // уже есть
+  dirs = [...dirs, handle];
+  await saveDirs();
+  needsAccess = await noAccess();
+  musicList = null;
   loading = Promise.resolve();
   await rescan();
   render?.();
 }
-async function forgetFolder(render) {
-  await cacheDelete("albums/dir").catch(() => {});
-  dir = null;
-  needsAccess = false;
+async function forgetFolder(d, render) {
+  dirs = dirs.filter((x) => x !== d);
+  await saveDirs();
+  needsAccess = await noAccess();
+  musicList = null;
   await rescan();
   render?.();
 }
-// после перезапуска браузер даёт доступ к папке только по нажатию
+// после перезапуска браузер даёт доступ к папкам только по нажатию
 async function askAccess() {
-  if (!dir || await dir.requestPermission({ mode: "read" }).catch(() => "denied") !== "granted") return;
+  for (const d of dirs) if (await d.requestPermission({ mode: "read" }).catch(() => "denied") !== "granted") return;
   needsAccess = false;
+  musicList = null;
   await rescan();
 }
 
@@ -765,19 +829,19 @@ function settingsSection(c, render) {
   if (!canFolders()) return null;
   ctx ??= c;
   const box = h("div", "");
-  box.append(h("p", "set-hint", "Снимки с этого компьютера: альбом — каждая папка со снимками. Снимки никуда не отправляются, программа помнит только, какую папку вы выбрали."));
-  const row = h("div", "set-row");
-  row.append(h("span", "al-folder", dir ? `Папка: ${dir.name}` : "Папка не выбрана"));
-  const pick = h("button", "text-btn", dir ? "Выбрать другую…" : "Выбрать папку…");
-  pick.addEventListener("click", () => pickFolder(render));
-  row.append(pick);
-  if (dir) {
+  box.append(h("p", "set-hint", "Снимки с этого компьютера: альбом — каждая папка со снимками. Снимки никуда не отправляются, программа помнит только, какие папки вы выбрали."));
+  for (const d of dirs) {
+    const row = h("div", "set-row");
+    row.append(h("span", "al-folder", `Папка: ${d.name}`));
     const forget = h("button", "text-btn", "Убрать");
-    forget.addEventListener("click", () => forgetFolder(render));
+    forget.addEventListener("click", () => forgetFolder(d, render));
     row.append(forget);
+    box.append(row);
   }
-  box.append(row);
-  if (dir && needsAccess) {
+  const pick = h("button", "text-btn", "+ Добавить папку…");
+  pick.addEventListener("click", () => pickFolder(render));
+  box.append(pick);
+  if (dirs.length && needsAccess) {
     const open = h("button", "text-btn", "Открыть доступ к папке");
     open.addEventListener("click", async () => { await askAccess(); render?.(); });
     box.append(open);
@@ -786,7 +850,7 @@ function settingsSection(c, render) {
   return box;
 }
 // выбранная папка видна в настройках сразу, ещё до первого открытия раздела
-if (canFolders()) cacheGet("albums/dir").then((d) => { if (d && !dir) dir = d; }).catch(() => {});
+if (canFolders()) savedDirs().then((l) => { if (!dirs.length) dirs = l; });
 
 // ---------- режим в строке поиска ----------
 const MODE = { icon: svg(STACK_D, 20), title: "Мои альбомы", placeholder: "Найти альбом", tone: "my",
@@ -797,14 +861,14 @@ const MODE = { icon: svg(STACK_D, 20), title: "Мои альбомы", placehold
 // (Грегори, 2026-11-02: «в треках файлы выбираются на месте, для фото надо лазать по меню»)
 function countryItems() {
   const folder = !canFolders() ? [] : [{ id: "#folder", icon: OPEN_ICON, hint: "Снимки с этого компьютера никуда не отправляются",
-    title: !dir ? "Открыть папку со снимками…" : needsAccess ? `Открыть мою папку «${dir.name}»` : "Открыть другую папку…" }];
+    title: needsAccess && dirs.length ? accessTitle() : "Добавить папку…" }];
   const list = countries().map(([name, n]) => ({ id: name, title: `${name} (${n})`, thumb: flagUrl(isoOf(name)) || "",
     icon: isoOf(name) ? "" : ICON, selected: currentCountry === name && isOpen("albums") }));
   return [...folder, ...(list.length || !loading ? list : [{ id: "", title: busy ? "Читаю альбомы…" : "Альбомов пока нет", icon: ICON }])];
 }
 // окно выбора папки — прямо по нажатию (иначе браузер его не откроет); после выбора — снова список стран
 function chooseItem(country) {
-  if (country === "#folder") { (dir && needsAccess ? askAccess() : pickFolder()).then(() => isOpen("albums") && !currentCountry && renderList(null)); return; }
+  if (country === "#folder") { (dirs.length && needsAccess ? askAccess() : pickFolder()).then(() => isOpen("albums") && !currentCountry && renderList(null)); return; }
   if (country) openCountry(country);
 }
 

@@ -121,6 +121,129 @@
     font-weight: 600;
     line-height: 16px;
   }
+  /* слайд-шоу (как в Albom): прежний кадр — снимком на холсте поверх нового и тает (наплыв, не в чёрное) */
+  .fade { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; opacity: 0; transition: opacity 0.7s ease; }
+  /* плеер — справа внизу, выше полосы кнопок ролика; «плей» — самый правый (решение Грегори в travel-earth) */
+  .player { position: absolute; right: 16px; bottom: 64px; z-index: 2; display: flex; gap: 6px; transition: opacity 0.3s; }
+  .player-btn {
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(38, 38, 44, 0.7);
+    color: #e8e8ec;
+    cursor: pointer;
+  }
+  .player-btn:hover { background: #26262c; }
+  .player-btn.on { background: #e91e63; color: #fff; }
+  .player-btn:disabled { opacity: 0.35; cursor: default; }
+  /* крупный снимок или ролик ещё грузится — кружок посередине (ролик 4K с GoPro — сотни мегабайт) */
+  .spin {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 2;
+    width: 44px;
+    height: 44px;
+    margin: -22px 0 0 -22px;
+    border: 4px solid rgba(232, 232, 236, 0.25);
+    border-top-color: #e8e8ec;
+    border-radius: 50%;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+    animation: spin 0.9s linear infinite;
+  }
+  body.busy .spin { opacity: 1; transition-delay: 0.3s; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.5s; } }
+  .player-btn[hidden] { display: none; }
+  /* во весь экран — только снимок: лента прячется, кнопки и подпись — пока не двигается мышь */
+  :root:fullscreen body { grid-template-rows: 1fr; }
+  :root:fullscreen .thumbs { display: none; }
+  .bar, .nav { transition: opacity 0.3s; }
+  body.idle .player, body.idle .nav, body.idle .bar, body.idle .live-btn { opacity: 0; pointer-events: none; }
+  body.idle { cursor: none; }
+  /* правка снимка (tools/editor.js): карандаш вверху справа, полоса инструментов внизу */
+  .bar-btn {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    margin: -6px 0;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(38, 38, 44, 0.7);
+    color: #e8e8ec;
+    cursor: pointer;
+  }
+  .bar-btn:hover:not(:disabled) { background: #26262c; }
+  .bar-btn:disabled { opacity: 0.35; cursor: default; }
+  .bar-btn.on { background: #4da3ff; color: #1b1b1f; }
+  .edit-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; touch-action: none; }
+  .edit-canvas[hidden] { display: none; }
+  .edit-bar {
+    position: absolute;
+    left: 50%;
+    bottom: 12px;
+    z-index: 3;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    max-width: calc(100% - 24px);
+    padding: 6px 8px;
+    border-radius: 30px;
+    background: rgba(38, 38, 44, 0.85);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  }
+  .edit-bar[hidden] { display: none; }
+  .edit-tools, .edit-group, .edit-end { display: flex; align-items: center; gap: 4px; }
+  .edit-end { padding-left: 10px; border-left: 1px solid rgba(232, 232, 236, 0.2); }
+  .edit-tool { width: 40px; height: 40px; background: none; }
+  .edit-tool:hover:not(:disabled) { background: rgba(232, 232, 236, 0.12); }
+  .edit-tool.on { background: rgba(77, 163, 255, 0.25); color: #4da3ff; }
+  .edit-save:not(:disabled) { background: #4da3ff; color: #1b1b1f; }
+  .edit-save:hover:not(:disabled) { background: #7bbcff; }
+  .edit-angle { display: flex; align-items: center; gap: 6px; padding: 0 6px; }
+  .edit-angle input { width: 180px; accent-color: #4da3ff; }
+  .edit-angle-value {
+    min-width: 52px;
+    padding: 4px 6px;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: #e8e8ec;
+    font: inherit;
+    font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+  }
+  .edit-angle-value:hover { background: rgba(232, 232, 236, 0.12); }
+  .edit-note {
+    position: absolute;
+    left: 50%;
+    bottom: 74px;
+    z-index: 3;
+    transform: translateX(-50%);
+    padding: 5px 12px;
+    border-radius: 8px;
+    background: rgba(38, 38, 44, 0.85);
+    font-size: 0.85rem;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .edit-note.show { opacity: 1; }
+  /* в правке листание и показ неактивны (видны, но не нажимаются — правило «не прятать») */
+  body.editing .photo, body.editing .clip, body.editing .live-btn { visibility: hidden; }
+  body.editing .nav, body.editing .player, body.editing .thumbs { opacity: 0.35; pointer-events: none; }
+  @media (max-width: 760px) { .edit-angle input { width: 110px; } .edit-bar { gap: 6px; } }
   /* установленное приложение без системного заголовка — полоска, за которую окно перетаскивается */
   .titlebar-drag { display: none; }
   @media (display-mode: window-controls-overlay) {
@@ -144,9 +267,20 @@
   <img class="photo" alt="">
   <video class="clip" playsinline hidden></video>
   <button class="live-btn" title="Живое фото — ещё раз (пробел)" hidden>LIVE</button>
-  <div class="bar"><div class="caption"><div class="title"></div><div class="meta"></div></div><div class="count"></div></div>
+  <div class="bar"><div class="caption"><div class="title"></div><div class="meta"></div></div><div class="count"></div>
+    <button class="bar-btn edit-btn" title="Править снимок" disabled><svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/></svg></button></div>
   <button class="nav prev" title="Назад (←)">‹</button>
   <button class="nav next" title="Дальше (→)">›</button>
+  <canvas class="fade"></canvas>
+  <div class="spin"></div>
+  <div class="player">
+    <button class="player-btn full-btn" title="Во весь экран (F)"></button>
+    <button class="player-btn back-btn" title="Назад (←)"></button>
+    <button class="player-btn fwd-btn" title="Дальше (→)"></button>
+    <button class="player-btn stop-btn" title="Стоп"></button>
+    <button class="player-btn play-btn" title="Слайд-шоу (пробел)"></button>
+  </div>
+  <audio class="music"></audio>
 </div>
 <div class="thumbs"></div>
 <script>
@@ -156,9 +290,16 @@
 // Ролик (p.video) — с кнопками плеера, играет сразу; живое фото (p.live) — сначала снимок, потом
 // его ролик один раз поверх, без кнопок, и обратно к снимку; LIVE или пробел — ещё раз (как в
 // travel-earth). Ролик живого фото виден, только пока играет: на паузе у видео мелькал круг
-// кнопки плеера (опыт travel-earth)
+// кнопки плеера (опыт travel-earth).
+// Плеер справа внизу — как в travel-earth (Грегори 2026-11-03, по снимку): во весь экран, назад, дальше,
+// стоп, плей (розовая, пока идёт показ). Пока крупный снимок или ролик грузится — кружок посередине.
+// Слайд-шоу — как в Albom (Грегори 2026-11-03: «настраиваем плеер как в Albom»): снимок 4 с, смена —
+// наплывом 0,7 с; ролик — до конца, живое фото — снимок и его ролик; по кругу; ручное листание
+// переставляет отсчёт; пауза ролика рукой — пауза показа. «Смотреть» в альбоме запускает показ сразу
+// (?play=1). Кнопка слайд-шоу — ещё и во весь экран (как в Albom; Esc выходит и останавливает показ).
+// Музыка — папка «Music» в своей папке снимков (как в Albom): случайный трек, дальше по кругу
 const $ = (s) => document.querySelector(s);
-const { photos = [], start = 0 } = (() => { try { return window.opener?.atlasGallery?.() || {}; } catch { return {}; } })();
+const { photos = [], start: startAt = 0 } = (() => { try { return window.opener?.atlasGallery?.() || {}; } catch { return {}; } })();
 const tellMap = (msg) => { try { window.opener?.postMessage({ gallery: msg.gallery, id: msg.id }, location.origin); } catch { /* окно карты закрыто */ } };
 const photoEl = $(".photo"), clipEl = $(".clip"), liveBtn = $(".live-btn");
 let index = -1;
@@ -196,8 +337,9 @@ function show(i) {
   if (p.link && p.credit) meta.append(" · ");
   if (p.link) meta.append(Object.assign(document.createElement("a"), { href: p.link.href, target: "_blank", rel: "noopener", textContent: p.link.text }));
   $(".count").textContent = `${index + 1} / ${photos.length}`;
-  $(".prev").disabled = index === 0;
-  $(".next").disabled = index === photos.length - 1;
+  // во время показа листается по кругу — стрелки не гаснут
+  $(".prev").disabled = !playing && index === 0;
+  $(".next").disabled = !playing && index === photos.length - 1;
   thumbs.forEach((b, k) => b.classList.toggle("active", k === index));
   thumbs[index].scrollIntoView({ block: "nearest", inline: "center" });
   // сначала миниатюра (размытая), потом крупный снимок или ролик
@@ -206,9 +348,21 @@ function show(i) {
   photoEl.hidden = false;
   if (p.thumb) photoEl.src = p.thumb; else photoEl.removeAttribute("src");
   photoEl.classList.add("loading");
+  document.body.classList.add("busy");
   tellMap({ gallery: "photo", id: p.id });
   if (p.video) showVideo(p); else loadFull(p);
+  if (playing) schedule();
+  // править — только свои снимки с компьютера (tools/editor.js)
+  const eb = $(".edit-btn");
+  eb.disabled = !p.edit;
+  if (!document.body.classList.contains("editing")) eb.title = p.edit ? "Править снимок"
+    : p.video ? "Ролики не правятся" : "Править можно свои снимки из папки на компьютере";
+  for (const f of onShow) f(p);
 }
+const onShow = new Set();
+// для правки (tools/editor.js)
+window.gallery = { current: () => photos[index], stop: () => playing && stop(), onShow: (f) => onShow.add(f),
+  refresh: (p) => { const i = photos.indexOf(p); if (i < 0) return; const img = thumbs[i].querySelector("img"); if (p.thumb) img.src = p.thumb; if (i === index) show(i); } };
 
 // ---------- ролики и живые фото ----------
 function stopClip() {
@@ -228,7 +382,10 @@ function noClip(p) {
   Object.assign(clipEl, { hidden: true, controls: false });
   photoEl.hidden = false;
   photoEl.classList.remove("loading");
+  document.body.classList.remove("busy");
   liveBtn.classList.remove("playing");
+  // идёт показ — не ждать конца ролика, которого не видно
+  if (playing && photos[index] === p) { waitClip = false; clearTimeout(timer); timer = setTimeout(next, SLIDE); }
   if (p.video && !$(".meta").textContent.includes("HEVC")) $(".meta").append(" · этот браузер не показывает видео с iPhone (формат HEVC)");
 }
 
@@ -243,6 +400,7 @@ async function showVideo(p) {
     if (!clipEl.videoWidth) { noClip(p); return; }
     clipEl.hidden = false;
     photoEl.hidden = true;
+    document.body.classList.remove("busy");
     play();
   };
   clipEl.onerror = () => { if (photos[index] === p) noClip(p); };
@@ -276,19 +434,157 @@ async function loadFull(p) {
   if (photos[index] !== p) return;
   if (full && full !== p.thumb) {
     const big = new Image();
-    big.onload = () => { if (photos[index] === p) { photoEl.src = full; photoEl.classList.remove("loading"); if (p.live) playLive(p); } };
+    big.onload = () => { if (photos[index] === p) { photoEl.src = full; photoEl.classList.remove("loading"); document.body.classList.remove("busy"); if (p.live) playLive(p); if (playing) schedule(); } };
     big.src = full;
-  } else { photoEl.classList.remove("loading"); if (p.live) playLive(p); }
+  } else { photoEl.classList.remove("loading"); document.body.classList.remove("busy"); if (p.live) playLive(p); if (playing) schedule(); }
 }
 
-$(".prev").addEventListener("click", () => show(index - 1));
-$(".next").addEventListener("click", () => show(index + 1));
-addEventListener("keydown", (e) => {
-  const to = { ArrowLeft: index - 1, ArrowRight: index + 1, Home: 0, End: photos.length - 1 }[e.key];
-  if (to !== undefined) { e.preventDefault(); show(to); }
-  if (e.key === "Escape") close();
-  // пробел: живое фото — ещё раз, ролик — пауза и дальше (у самого плеера пробел свой)
+// ---------- слайд-шоу ----------
+const SLIDE = 4000; // мс на снимок, как в Albom
+const ICON = {
+  play: '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>',
+  pause: '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M7 5h4v14H7zM13 5h4v14h-4z" fill="currentColor"/></svg>',
+  full: '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  back: '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6h2v12H6zM9.5 12 18 18V6z" fill="currentColor"/></svg>',
+  fwd: '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z" fill="currentColor"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M6 6h12v12H6z" fill="currentColor"/></svg>',
+  exit: '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
+const playBtn = $(".play-btn"), fullBtn = $(".full-btn"), stopBtn = $(".stop-btn"), fadeEl = $(".fade"), music = $(".music");
+let playing = false, timer = null, waitClip = false, track = -1, tracks = 0;
+
+function syncPlayer() {
+  playBtn.innerHTML = playing ? ICON.pause : ICON.play;
+  playBtn.classList.toggle("on", playing);
+  playBtn.title = playing ? "Пауза (пробел)" : "Слайд-шоу (пробел)";
+  playBtn.hidden = photos.length < 2;
+  for (const b of [$(".back-btn"), $(".fwd-btn"), stopBtn]) b.hidden = photos.length < 2;
+  stopBtn.disabled = !playing && !document.fullscreenElement;
+  $(".prev").disabled = !playing && index <= 0;
+  $(".next").disabled = !playing && index === photos.length - 1;
+  const fs = !!document.fullscreenElement;
+  fullBtn.innerHTML = fs ? ICON.exit : ICON.full;
+  fullBtn.title = fs ? "Выйти из полного экрана (Esc)" : "Во весь экран (F)";
+}
+// дальше — через 4 с после того, как снимок показан; ролик и живое фото — когда доиграют
+function schedule() {
+  clearTimeout(timer);
   const p = photos[index];
+  waitClip = !!(p.video || p.live);
+  if (waitClip || photoEl.classList.contains("loading")) return;
+  timer = setTimeout(next, SLIDE);
+}
+// прежний кадр — на холст поверх, под ним уже рисуется следующий; холст тает
+function snapshot() {
+  const src = !clipEl.hidden && clipEl.videoWidth ? clipEl : photoEl;
+  const w = src.videoWidth || src.naturalWidth, h = src.videoHeight || src.naturalHeight;
+  const r = fadeEl.getBoundingClientRect();
+  fadeEl.width = Math.round(r.width * devicePixelRatio);
+  fadeEl.height = Math.round(r.height * devicePixelRatio);
+  if (!w || !h || !fadeEl.width) return false;
+  const c = fadeEl.getContext("2d"), k = Math.min(fadeEl.width / w, fadeEl.height / h);
+  try { c.drawImage(src, (fadeEl.width - w * k) / 2, (fadeEl.height - h * k) / 2, w * k, h * k); } catch { return false; }
+  fadeEl.style.transition = "none";
+  fadeEl.style.opacity = "1";
+  void fadeEl.offsetHeight;
+  fadeEl.style.transition = "";
+  return true;
+}
+// следующий: крупный снимок грузится заранее, чтобы под наплывом не было размытой миниатюры
+async function next() {
+  if (!playing) return;
+  const i = (index + 1) % photos.length, p = photos[i];
+  if (!p.video) {
+    const full = p.full || await ask("full", p).catch(() => "");
+    if (full) await new Promise((r) => { const im = new Image(); im.onload = im.onerror = r; im.src = full; });
+    if (!playing) return;
+  }
+  const faded = snapshot();
+  show(i);
+  if (faded) requestAnimationFrame(() => { fadeEl.style.opacity = "0"; });
+}
+// ролик или живое фото доиграли — дальше; ролик не показался (HEVC) — как снимок
+clipEl.addEventListener("ended", () => { if (playing && waitClip) { waitClip = false; timer = setTimeout(next, clipEl.classList.contains("live") ? 1500 : 300); } });
+// пауза ролика рукой — пауза показа (перемотка полосой — на миг пауза, её не считаем)
+clipEl.addEventListener("pause", () => {
+  if (!playing || clipEl.ended || clipEl.hidden || clipEl.classList.contains("live")) return;
+  setTimeout(() => { if (playing && clipEl.paused && !clipEl.ended && !clipEl.hidden) stop(); }, 300);
+});
+
+async function startMusic() {
+  tracks = Number(await ask("music-count", {}).catch(() => 0)) || 0;
+  if (!tracks || !playing) return;
+  if (track < 0) track = Math.floor(Math.random() * tracks);
+  const url = await ask("music", { id: track }).catch(() => "");
+  if (!url || !playing) return;
+  music.src = url;
+  music.play().catch(() => {});
+}
+music.addEventListener("ended", () => { track = (track + 1) % tracks; startMusic(); });
+
+function start({ full = false } = {}) {
+  if (playing || photos.length < 2) return;
+  playing = true;
+  if (full && !document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+  syncPlayer();
+  if (music.getAttribute("src")) music.play().catch(() => {}); else startMusic();
+  // ролик стоит на паузе — пусть доиграет
+  if (!clipEl.hidden && clipEl.paused && !clipEl.ended && !clipEl.classList.contains("live")) play();
+  // ролик уже доиграл — дальше через 4 с; ещё грузится или играет — ждём его конца
+  if (clipEl.ended) { waitClip = false; timer = setTimeout(next, SLIDE); } else schedule();
+}
+function stop() {
+  playing = false;
+  waitClip = false;
+  clearTimeout(timer);
+  fadeEl.style.opacity = "0";
+  music.pause();
+  syncPlayer();
+}
+
+playBtn.addEventListener("click", () => (playing ? stop() : start({ full: true })));
+// стоп (как в travel-earth): показ остановлен, полный экран закрыт, музыка с начала нового трека
+stopBtn.addEventListener("click", () => {
+  stop();
+  music.removeAttribute("src");
+  track = -1;
+  if (document.fullscreenElement) document.exitFullscreen();
+});
+fullBtn.addEventListener("click", () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.().catch(() => {})));
+// Esc выходит из полного экрана — показ останавливается (как в Albom)
+let wasFull = false;
+document.addEventListener("fullscreenchange", () => {
+  if (wasFull && !document.fullscreenElement && playing) stop();
+  wasFull = !!document.fullscreenElement;
+  syncPlayer();
+  wake();
+});
+// во весь экран кнопки прячутся, пока мышь не двигается
+let idleTimer = null;
+function wake() {
+  document.body.classList.remove("idle");
+  clearTimeout(idleTimer);
+  if (document.fullscreenElement) idleTimer = setTimeout(() => document.body.classList.add("idle"), 2500);
+}
+addEventListener("mousemove", wake);
+
+// во время показа листается по кругу
+const step = (d) => show(playing ? (index + d + photos.length) % photos.length : index + d);
+$(".prev").addEventListener("click", () => step(-1));
+$(".next").addEventListener("click", () => step(1));
+$(".back-btn").addEventListener("click", () => step(-1));
+$(".fwd-btn").addEventListener("click", () => step(1));
+addEventListener("keydown", (e) => {
+  if (document.body.classList.contains("editing")) return; // в правке свои клавиши
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); step(e.key === "ArrowLeft" ? -1 : 1); }
+  const to = { Home: 0, End: photos.length - 1 }[e.key];
+  if (to !== undefined) { e.preventDefault(); show(to); }
+  if (e.key === "Escape" && !document.fullscreenElement) { if (playing) stop(); else close(); }
+  if ((e.key === "f" || e.key === "а") && !e.ctrlKey && !e.altKey) fullBtn.click();
+  // пробел: идёт показ или обычный снимок — показ; живое фото — ещё раз, ролик — пауза и дальше
+  // (у самого плеера пробел свой)
+  const p = photos[index];
+  if (e.key === " " && e.target !== clipEl && (playing || !(p?.live || p?.video))) { e.preventDefault(); playing ? stop() : start(); return; }
   if (e.key === " " && e.target !== clipEl && (p?.live || p?.video)) {
     e.preventDefault();
     if (p.live) playLive(p); else if (!clipEl.hidden) { if (clipEl.paused) play(); else clipEl.pause(); }
@@ -297,12 +593,19 @@ addEventListener("keydown", (e) => {
 let touchX = null;
 $(".stage").addEventListener("touchstart", (e) => { touchX = e.touches[0].clientX; }, { passive: true });
 $(".stage").addEventListener("touchend", (e) => {
+  if (document.body.classList.contains("editing")) return; // в правке пальцем не листается
   const dx = e.changedTouches[0].clientX - touchX;
   if (touchX !== null && Math.abs(dx) > 50) show(index + (dx < 0 ? 1 : -1));
   touchX = null;
 });
 addEventListener("pagehide", () => tellMap({ gallery: "closed" }));
-show(start);
+show(startAt);
+$(".back-btn").innerHTML = ICON.back;
+$(".fwd-btn").innerHTML = ICON.fwd;
+stopBtn.innerHTML = ICON.stop;
+syncPlayer();
+if (new URLSearchParams(location.search).has("play")) start();
 </script>
+<script type="module" src="tools/editor.js"></script>
 </body>
 </html>

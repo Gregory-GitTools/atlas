@@ -84,7 +84,7 @@ window.atlasGallery = () => gallery;
 window.atlasGalleryMedia = (kind, id) => media?.(kind, id) ?? Promise.resolve("");
 
 // video — ролик, live — живое фото (его ролик галерея просит отдельно: atlasGalleryMedia("live", id))
-const pick = ({ id, thumb, full, title, credit, link, coordinates, video, live }) => ({ id, thumb, full, title, credit, link, coordinates, video, live });
+const pick = ({ id, thumb, full, title, credit, link, coordinates, video, live, edit }) => ({ id, thumb, full, title, credit, link, coordinates, video, live, edit });
 
 export function openGallery(id) {
   const from = list.some((p) => p.id === id) ? list : [byId(id), ...list].filter(Boolean);
@@ -92,13 +92,14 @@ export function openGallery(id) {
 }
 
 // галерея со своим списком (альбом целиком, и снимки без координат); resolve(kind, id) → адрес картинки
-export function openGalleryWith(photos, startId, resolve = null) {
+// (и музыка слайд-шоу: "music-count", "music"); play — сразу слайд-шоу
+export function openGalleryWith(photos, startId, resolve = null, { play = false } = {}) {
   gallery = { photos: photos.map(pick), start: Math.max(0, photos.findIndex((p) => p.id === startId)) };
   media = resolve;
   const mobile = matchMedia("(pointer: coarse)").matches;
   const w = Math.round(screen.availWidth * (mobile ? 0.98 : 0.8)), h = Math.round(screen.availHeight * (mobile ? 0.98 : 0.85));
   // то же окно — перезагружается с новым списком
-  const win = window.open(`gallery.html?t=${Date.now()}`, "atlas-gallery",
+  const win = window.open(`gallery.html?t=${Date.now()}${play ? "&play=1" : ""}`, "atlas-gallery",
     `popup,width=${w},height=${h},left=${Math.round((screen.availWidth - w) / 2)},top=${Math.round((screen.availHeight - h) / 2)}`);
   win?.focus();
 }

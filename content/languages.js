@@ -19,6 +19,7 @@ import { emit, on } from "../core/events.js";
 import { PLAYER } from "../core/player.js";
 import { setSearchMode, searchMode } from "../core/search.js";
 
+const BACK = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>';
 const ICON = '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="m12.87 15.07-2.54-2.51.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v2h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7 1.62-4.33L19.12 17h-3.24z"/></svg>';
 const KINDS = [[/разговорник/i, "Разговорник"], [/словарь/i, "Словарь"], [/фразы/i, "Общие фразы"]];
 const kindOf = (pb) => KINDS.find(([re]) => re.test(pb.title))?.[1] || "Фразы";
@@ -204,8 +205,13 @@ function render() {
     for (const x of secs) x.classList.toggle("shut", open);
     updateFoldAll();
   });
+  // стрелка назад (Грегори 2026-11-03: «в разговорнике нет стрелки назад») — к списку языков
+  // или к экскурсии, из которой открыли
   const bar = h("div", "pb-bar");
-  bar.append(playerBar, foldAllBtn);
+  const back = backTo;
+  const left = h("div", "tr-bar-left"); // как у экскурсии: стрелка и плеер слева, «свернуть все» справа
+  left.append(btn(BACK, back?.title || "Все языки", () => { backTo = null; if (back) { stopPlay(); back.go(); } else openList(); }), playerBar);
+  bar.append(left, foldAllBtn);
   nodes.push(bar);
 
   const about = section("О языке", false);
@@ -298,7 +304,9 @@ function openList() {
   setSearchMode(LIST_MODE);
 }
 
-function openLanguage(key) {
+let backTo = null; // { title, go } — откуда открыли разговорник, если не из списка языков
+function openLanguage(key, back = null) {
+  backTo = back;
   current = languages.get(key);
   if (!current) return;
   kind = null;
@@ -312,7 +320,7 @@ function openLanguage(key) {
 const list4others = () => [...languages.values()].map((lg) => ({ key: lg.key, name: lg.name,
   countries: [...new Set(lg.books.flatMap((b) => b.countries))] }));
 on("languages-wanted", () => load().then(() => emit("languages", list4others())), { replay: false });
-on("language-open", ({ key }) => load().then(() => openLanguage(key)), { replay: false });
+on("language-open", ({ key, back }) => load().then(() => openLanguage(key, back)), { replay: false });
 
 panel.onClose(() => {
   stopPlay();

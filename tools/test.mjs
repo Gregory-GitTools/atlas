@@ -64,7 +64,8 @@ ws.onmessage = (m) => {
     // у объекта ошибки — и место, где она возникла (первые строки стека), иначе в отчёте одно «Error»
     const text = (d.params.args.map((a) => a.value ?? a.description).join(" ") + " @ " + (d.params.stackTrace?.callFrames || []).slice(0, 3).map((f) => `${f.functionName}:${f.url.split("/").pop()}:${f.lineNumber}`).join(" < ")).split("\n").slice(0, 4).map((l) => l.trim()).join(" ← ");
     // сбои чужих серверов (плитка не пришла или пришла пустой) — не ошибка программы, только счёт
-    if (/Failed to fetch|AJAXError|could not be decoded/.test(text)) netFails++;
+    // и горизонтали (maplibre-contour), когда сервер высот не ответил вовремя
+    if (/Failed to fetch|AJAXError|could not be decoded/.test(text) || /timed out/.test(text) && /maplibre-contour/.test(text)) netFails++;
     else errors.push("console.error: " + text.slice(0, 400));
   }
 };
@@ -79,6 +80,24 @@ const run = async (expr) => {
 const shot = async (name) => fs.writeFileSync(path.join(OUT, `${name}.png`), Buffer.from((await send("Page.captureScreenshot", { format: "png" })).data, "base64"));
 const idle = () => run(`new Promise((r) => { const t = Date.now(); const c = () => atlas.map.loaded() && atlas.map.areTilesLoaded() || Date.now() - t > 15000 ? r(true) : setTimeout(c, 300); c(); })`);
 
+// EXIF при сохранении правки (tools/jpeg.js): блок исходника переносится целиком, поворот — 1,
+// размер кадра — новый; место съёмки (GPS) остаётся
+{
+  const { keepExif, exifFacts } = await import("./jpeg.js");
+  const tiff = new Uint8Array(84), v = new DataView(tiff.buffer);
+  tiff.set([0x49, 0x49, 0x2a, 0], 0); v.setUint32(4, 8, true);
+  v.setUint16(8, 3, true); // IFD0: Orientation = 6, ExifIFD → 50, GPS → 0
+  [[0x0112, 3, 1, 6], [0x8769, 4, 1, 50], [0x8825, 4, 1, 0]].forEach(([tag, type, n, val], i) => { const e = 10 + i * 12; v.setUint16(e, tag, true); v.setUint16(e + 2, type, true); v.setUint32(e + 4, n, true); v.setUint32(e + 8, val, true); });
+  v.setUint16(50, 2, true);
+  [[0xa002, 4, 1, 4000], [0xa003, 4, 1, 3000]].forEach(([tag, type, n, val], i) => { const e = 52 + i * 12; v.setUint16(e, tag, true); v.setUint16(e + 2, type, true); v.setUint32(e + 4, n, true); v.setUint32(e + 8, val, true); });
+  const app1 = new Uint8Array(4 + 6 + tiff.length);
+  app1.set([0xff, 0xe1, ((app1.length - 2) >> 8) & 255, (app1.length - 2) & 255, 0x45, 0x78, 0x69, 0x66, 0, 0]);
+  app1.set(tiff, 10);
+  const original = new Blob([new Uint8Array([0xff, 0xd8]), app1, new Uint8Array([0xff, 0xda, 0, 2, 0xff, 0xd9])]);
+  const fresh = new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0, 0xff, 0xda, 0, 2, 0xff, 0xd9])]);
+  const out = await keepExif(fresh, original, 1234, 567);
+  var exifCheck = { before: await exifFacts(original), after: await exifFacts(out) };
+}
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT);
 await send("Runtime.enable");
@@ -91,6 +110,8 @@ try {
   await run(`new Promise((r) => { const c = () => window.atlas?.map?.loaded() ? r(true) : setTimeout(c, 200); c(); })`);
   await idle();
   check("карта загрузилась", true, await run(`atlas.map.getProjection()?.type`));
+  check("правка: EXIF исходника переносится — поворот 1, новый размер кадра, место съёмки остаётся",
+    exifCheck.before.orientation === 6 && exifCheck.after.orientation === 1 && exifCheck.after.width === 1234 && exifCheck.after.height === 567 && exifCheck.after.gps, JSON.stringify(exifCheck));
   const extras = await run(`({ stars: document.querySelector("canvas.stars")?.width > 0, scale: document.querySelector(".maplibregl-ctrl-scale")?.textContent,
     geo: !!document.querySelector(".geo-btn"), order: [...document.querySelectorAll(".maplibregl-ctrl-bottom-left .map-btn button")].map((b) => b.className.split(" ").pop()),
     zoom: !!document.querySelector(".maplibregl-ctrl-zoom-in, .maplibregl-ctrl-compass"),
@@ -229,14 +250,14 @@ try {
   // открыть строку поиска (при первом запуске её нет) — лупой справа вверху
   const openSearch = `(async () => { if (document.body.classList.contains("search-hidden")) { document.querySelector(".search-toggle").click(); await new Promise((r) => setTimeout(r, 300)); } return true; })()`;
   // кнопка в столбике слоёв или строка списка в панели раздела — по названию
-  const itemFor = (title) => `[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].find((c) => c.firstChild.textContent === ${JSON.stringify(title)})`;
+  const itemFor = (title) => `[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].find((c) => c.firstChild.textContent === ${JSON.stringify(title)})`;
 
   // карты: в колесе справа кнопка «Карты» — в её столбике виды карт с миниатюрами; каждая загружается без ошибок
   await run(openLayers("maps"));
-  const basemaps = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].filter((b) => b.querySelector(".thumb")).map((b) => b.title)`);
+  const basemaps = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].filter((b) => b.querySelector(".thumb")).map((b) => b.title)`);
   check("виды карт в «Картах»", basemaps.length >= 5, `${basemaps.length} карт`);
   for (let i = 0; i < basemaps.length; i++) {
-    await run(`${openLayers("maps")}.then(() => { [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].filter((b) => b.querySelector(".thumb"))[${i}].click(); return true; })`);
+    await run(`${openLayers("maps")}.then(() => { [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].filter((b) => b.querySelector(".thumb"))[${i}].click(); return true; })`);
     await sleep(500);
     await idle();
     if (i === 0) await shot("50-satellite");
@@ -245,7 +266,7 @@ try {
   }
   const mapsCircle = await run(`document.querySelector('.layers-circle[data-key="maps"]').ariaLabel`);
   check("на кнопке «Карты» — текущая карта", /Тёмная/.test(mapsCircle), mapsCircle);
-  await run(`${openLayers("maps")}.then(() => { [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].filter((b) => b.querySelector(".thumb"))[1].click(); return true; })`);
+  await run(`${openLayers("maps")}.then(() => { [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].filter((b) => b.querySelector(".thumb"))[1].click(); return true; })`);
   await idle();
   await run(closeLayers);
 
@@ -356,7 +377,7 @@ try {
     // виды транспорта из меню: «Метро» — только красные «М», «Фуникулёры и канатные дороги» — без метро
     const pick = async (title) => run(`(async () => {
       await ${openLayers("places/transport")};
-      const items = [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((i) => i.firstChild.textContent);
+      const items = [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((i) => i.firstChild.textContent);
       ${itemFor(title)}.click();
       await new Promise((r) => setTimeout(r, 1500));
       // столбик кнопок не закрывается после выбора
@@ -437,7 +458,7 @@ try {
     const bike = await run(`(async () => {
       await ${openLayers("trails/cycling")};
       const circles = [...document.querySelectorAll(".wheel-layers .layers-circle")].map((c) => c.ariaLabel.split(":")[0]);
-      const items = [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((i) => i.firstChild.textContent);
+      const items = [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((i) => i.firstChild.textContent);
       ${itemFor("Маунтинбайк")}.click();
       await new Promise((r) => setTimeout(r, 1500));
       const layers = { cycling: !!atlas.map.getLayer("trails-cycling-line"), mtb: !!atlas.map.getLayer("trails-mtb-line") };
@@ -474,11 +495,11 @@ try {
   if (want("content/tours") && mods.some((m) => m.id === "content/tours")) {
     const ts = `atlas.modules().find((m) => m.id === "content/tours").stats()`;
     await run(openLayers("content/tours"));
-    for (let i = 0; i < 40 && !(await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].length > 3`)); i++) await sleep(500);
+    for (let i = 0; i < 40 && !(await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].length > 3`)); i++) await sleep(500);
     await shot("98-tours-home");
-    const cs = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((b) => b.firstChild.textContent)`);
+    const cs = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((b) => b.firstChild.textContent)`);
     check("экскурсии: в столбике — страны", cs.length >= 5 && cs.some((c) => /^Италия/.test(c)), JSON.stringify(cs));
-    await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].find((b) => /^Италия/.test(b.firstChild.textContent)).click(); true`);
+    await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].find((b) => /^Италия/.test(b.firstChild.textContent)).click(); true`);
     await sleep(600);
     const lst = await run(`({ panel: !document.querySelector('[data-panel="tours"]').hidden, rows: [...document.querySelectorAll(".tr-row-title")].map((r) => r.textContent),
       mode: document.querySelector(".search-box input").placeholder })`);
@@ -512,8 +533,8 @@ try {
   // в строке поиска — значок режима, ввод ищет фразу; крестик значка — обратно к поиску мест
   if (want("content/languages") && mods.some((m) => m.id === "content/languages")) {
     await run(openLayers("content/languages"));
-    for (let i = 0; i < 40 && !(await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].length > 3`)); i++) await sleep(500);
-    const langs = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((b) => b.firstChild.textContent)`);
+    for (let i = 0; i < 40 && !(await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].length > 3`)); i++) await sleep(500);
+    const langs = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((b) => b.firstChild.textContent)`);
     check("языки: в столбике — языки", langs.length >= 5 && langs.some((l) => /Итальянский/.test(l)), JSON.stringify(langs));
     // уже у списка — значок раздела вместо логотипа, строка поиска ищет язык
     const ll = await run(`(async () => { const i = document.querySelector(".search-box input"); i.value = "итал"; i.dispatchEvent(new Event("input"));
@@ -535,6 +556,10 @@ try {
       return { shown: shown.length, all: shown.every((b) => b.textContent.toLowerCase().includes("спасибо")) }; })()`);
     check("языки: поиск фразы из строки поиска", found.shown > 0 && found.all, JSON.stringify(found));
     await run(`document.querySelector(".pb-phrase:not([hidden])").click(); true`);
+    // стрелка назад — к списку языков
+    const pbBack = await run(`(async () => { const b = document.querySelector('[data-panel="languages"] .tr-bar-left .pb-btn'); const title = b?.title; b?.click();
+      await new Promise((r) => setTimeout(r, 300)); return { title, list: document.querySelectorAll('[data-panel="languages"] .home-row').length, head: document.querySelector('[data-panel="languages"] .panel-title span').textContent }; })()`);
+    check("языки: стрелка назад в разговорнике — к списку языков", pbBack.title === "Все языки" && pbBack.list > 0 && pbBack.head === "Языки", JSON.stringify(pbBack));
     await run(exitMode);
     await sleep(300);
     const back = await run(`({ panel: document.querySelector('[data-panel="languages"]').hidden, mode: !document.querySelector(".search-toggle").classList.contains("mode"),
@@ -548,12 +573,12 @@ try {
   if (want("content/albums") && mods.some((m) => m.id === "content/albums")) {
     const as = `atlas.modules().find((m) => m.id === "content/albums").stats()`;
     await run(openLayers("content/albums"));
-    for (let i = 0; i < 60 && !(await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].some((b) => /^Эстония/.test(b.firstChild.textContent))`)); i++) await sleep(500);
-    const cs = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((b) => b.firstChild.textContent)`);
+    for (let i = 0; i < 60 && !(await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].some((b) => /^Эстония/.test(b.firstChild.textContent))`)); i++) await sleep(500);
+    const cs = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((b) => b.firstChild.textContent)`);
     // телефон узнаётся так же, как в программе (эмуляция здесь меняет только размер экрана)
     const phone = await run(`import("./core/modules.js").then((m) => m.isMobile())`);
     check("альбомы: в столбике — страны, на компьютере первой строкой — выбор папки", cs.some((c) => /^Эстония/.test(c))
-      && (phone ? !/папк/.test(cs[0]) : /^Открыть .*папку/.test(cs[0])), JSON.stringify(cs));
+      && (phone ? !/папк/.test(cs[0]) : cs[0] === "Добавить папку…"), JSON.stringify(cs));
     await run(`${itemFor("Эстония (1)")}.click(); true`);
     await sleep(600);
     const lst = await run(`({ panel: !document.querySelector('[data-panel="albums"]').hidden, rows: [...document.querySelectorAll(".al-row .tr-row-title")].map((r) => r.textContent),
@@ -587,25 +612,32 @@ try {
       await run(`(async () => {
         const jpg = await new Promise((r) => { const c = Object.assign(document.createElement("canvas"), { width: 8, height: 8 }); c.toBlob(r, "image/jpeg"); });
         const clip = await (await fetch("tools/test-clip.mp4")).blob();
-        const file = (name) => ({ kind: "file", name, getFile: async () => /\.(mov|mp4)$/.test(name)
-          ? new File([clip], name, { type: name.endsWith(".mov") ? "video/quicktime" : "video/mp4", lastModified: 1 })
-          : new File([jpg], name, { type: "image/jpeg", lastModified: 1 }) });
-        const folder = (name, items) => ({ kind: "directory", name, async *entries() { for (const i of items) yield [i.name, i]; },
+        const jpgBig = await new Promise((r) => { const c = Object.assign(document.createElement("canvas"), { width: 400, height: 300 }); const x = c.getContext("2d");
+          x.fillStyle = "#6af"; x.fillRect(0, 0, 400, 300); x.fillStyle = "#353"; x.beginPath(); x.moveTo(0, 150); x.lineTo(400, 164); x.lineTo(400, 300); x.lineTo(0, 300); x.fill(); c.toBlob(r, "image/jpeg"); });
+        const file = (name, data) => { const f = { kind: "file", name, data: data || (/\.(mov|mp4|m4a)$/.test(name) ? clip : name === "r.jpg" ? jpgBig : jpg), t: 1,
+          getFile: async () => new File([f.data], name, { type: /\.mov$/.test(name) ? "video/quicktime" : /\.(mp4|m4a)$/.test(name) ? "video/mp4" : "image/jpeg", lastModified: f.t }),
+          createWritable: async () => { const parts = []; return { write: async (d) => { parts.push(d); }, close: async () => { f.data = new Blob(parts); f.t = Date.now(); } }; } }; return f; };
+        const folder = (name, items) => ({ kind: "directory", name, items, async *entries() { for (const i of items) yield [i.name, i]; },
+          async *values() { for (const i of items) yield i; },
+          getDirectoryHandle: async (n, o) => items.find((i) => i.kind === "directory" && i.name === n) || (o?.create ? (items.push(folder(n, [])), items.at(-1)) : Promise.reject(new DOMException("нет", "NotFoundError"))),
+          getFileHandle: async (n, o) => items.find((i) => i.kind === "file" && i.name === n) || (o?.create ? (items.push(file(n, new Blob([]))), items.at(-1)) : Promise.reject(new DOMException("нет", "NotFoundError"))),
+          removeEntry: async (n) => { const i = items.findIndex((x) => x.name === n); if (i < 0) throw new DOMException("нет", "NotFoundError"); items.splice(i, 1); },
+          isSameEntry: async (o) => o?.name === name,
           queryPermission: async () => "granted", requestPermission: async () => "granted" });
         const trip = "20230625-0716 (Travel) Испания";
         window.showDirectoryPicker = async () => folder("Фото", [
           folder(trip, [file("0.jpg"), folder("20230626 Варшава", [file("3.jpg"), folder("[Originals]", [file("3.jpg")])]),
             folder("20230625 Таллин", [file("1.jpg"), file("2.jpg")]), folder(trip + "-Albom", [file("1.jpg")])]),
-          folder("20240101 Рига", [file("r.jpg"), file("r.mov"), file("v.mp4")])]);
+          folder("20240101 Рига", [file("r.jpg"), file("r.mov"), file("v.mp4")]), folder("Music", [file("a.m4a")])]);
         return true; })()`);
       await run(`${gear}.click(); true`);
       await sleep(600);
-      await run(`${setBtn("Выбрать папку…")}.click(); true`);
+      await run(`${setBtn("+ Добавить папку…")}.click(); true`);
       for (let i = 0; i < 30 && !(await run(`${as}.groups === 1 && !${as}.busy`)); i++) await sleep(500);
       await run(`${gear}.click(); true`);
       await run(openLayers("content/albums"));
       for (let i = 0; i < 20 && !(await run(`!!${itemFor("Без страны (2)")}`)); i++) await sleep(500);
-      const tc = await run(`({ ...${as}, items: [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((b) => b.firstChild.textContent) })`);
+      const tc = await run(`({ ...${as}, items: [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((b) => b.firstChild.textContent) })`);
       check("альбомы: поездка с подпапками — одна строка, дни — свои альбомы, «[Originals]» пропущены",
         tc.groups === 1 && tc.albums === 6 && tc.items.includes("Без страны (2)"), JSON.stringify(tc));
       await run(`${itemFor("Без страны (2)")}.click(); true`);
@@ -685,6 +717,79 @@ try {
           gl.live && gl.photo && gl.clip && !gl.controls && gl.op === "1" && gl2.op === "0" && gl2.photo, JSON.stringify({ gl, gl2 }));
         await grun(`window.close(); true`);
         gws.close();
+        // слайд-шоу (как в Albom): кнопка в альбоме — показ сразу, по кругу, живое фото и ролик доигрывают, музыка из «Music»
+        // настоящим щелчком мыши — окно из скрипта браузер не откроет
+        const pxy = await run(`(() => { const r = [...document.querySelectorAll('[data-panel="albums"] .pb-btn')].find((b) => b.title === "Слайд-шоу альбома").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+        for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: pxy[0], y: pxy[1], button: "left", clickCount: 1 });
+        let st = null;
+        for (let i = 0; i < 20 && !st; i++) { await sleep(300); st = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) => /gallery\.html\?.*play=1/.test(t.url)); }
+        if (!st) check("слайд-шоу: окно открылось", false);
+        else {
+          const sws = new WebSocket(st.webSocketDebuggerUrl);
+          await new Promise((r) => (sws.onopen = r));
+          let sid = 0;
+          const spend = new Map();
+          sws.onmessage = (m) => { const d = JSON.parse(m.data); if (spend.has(d.id)) { spend.get(d.id)(d.result); spend.delete(d.id); } };
+          const srun = (expr) => new Promise((r) => { const id = ++sid; spend.set(id, r); sws.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression: expr, awaitPromise: true, returnByValue: true } })); })
+            .then((r) => r.result?.value);
+          const ss = `({ count: document.querySelector(".count").textContent, on: document.querySelector(".play-btn").classList.contains("on"),
+            full: !!document.querySelector(".full-btn svg"), music: !!document.querySelector(".music").getAttribute("src"),
+            btns: [...document.querySelectorAll(".player .player-btn")].filter((b) => !b.hidden && b.querySelector("svg")).map((b) => b.className.split(" ")[1]).join(" ") })`;
+          const seen = new Set();
+          let s0 = null;
+          for (let i = 0; i < 24; i++) { await sleep(500); const v = await srun(ss); s0 ||= v; if (v) seen.add(v.count); }
+          const s1 = await srun(ss);
+          await new Promise((r) => { const id = ++sid; spend.set(id, (res) => { fs.writeFileSync(path.join(OUT, "00-slideshow.png"), Buffer.from(res.data, "base64")); r(); });
+            sws.send(JSON.stringify({ id, method: "Page.captureScreenshot", params: { format: "png" } })); });
+          await srun(`document.querySelector(".play-btn").click(); true`);
+          const s2 = await srun(ss);
+          check("слайд-шоу: «Слайд-шоу альбома» — показ сразу, плеер (во весь экран, назад, дальше, стоп, плей), по кругу через живое фото и ролик, музыка из «Music», кнопка останавливает",
+            s0?.on && s1.on && s1.full && s1.btns === "full-btn back-btn fwd-btn stop-btn play-btn" && seen.has("1 / 2") && seen.has("2 / 2") && s1.music && !s2.on, JSON.stringify({ s0, s1, s2, seen: [...seen] }));
+          // правка снимка (tools/editor.js): r.jpg своей папки — карандаш активен; поворот на 3° —
+          // «Сохранить»: исходник в «[Originals]», снимок переписан (обрезан по рамке), копия в «…-Albom»
+          // поездки; «Оригинал» — снимок как был, копии убраны
+          await srun(`(async () => { window.confirm = () => true; const t = [...document.querySelectorAll(".thumb")].findIndex((b) => b.title === "Рига"); return true; })()`);
+          await srun(`(() => { const i = [...document.querySelectorAll(".thumb")].findIndex((b, k) => k === 0); document.querySelectorAll(".thumb")[i].click(); return true; })()`);
+          await sleep(600);
+          const e0 = await srun(`({ enabled: !document.querySelector(".edit-btn").disabled, meta: document.querySelector(".meta").textContent })`);
+          await srun(`document.querySelector(".edit-btn").click(); true`);
+          for (let i = 0; i < 20 && !(await srun(`window.galleryEditor?.state().open`)); i++) await sleep(300);
+          const e1 = await srun(`({ ...galleryEditor.state(), bar: !document.querySelector(".edit-bar").hidden, tools: document.querySelectorAll(".edit-tool").length,
+            save: document.querySelector(".edit-save").disabled, nav: getComputedStyle(document.querySelector(".nav")).pointerEvents })`);
+          // «Горизонт» (OpenCV, грузится по нажатию): линия на выдуманном снимке завалена на 2° — угол −2°
+          await srun(`[...document.querySelectorAll(".edit-tool")].find((b) => b.title === "Выровнять по горизонту").click(); true`);
+          for (let i = 0; i < 60 && !/Горизонт выровнен|не нашлось|другое|интернет|запустилась/.test(await srun(`galleryEditor.state().note`)); i++) await sleep(500);
+          const hz = await srun(`galleryEditor.state()`);
+          check("правка: «Горизонт» — угол по линии горизонта", Math.abs(hz.angle + 2) <= 0.6 && /Горизонт выровнен/.test(hz.note), JSON.stringify(hz));
+          await srun(`(() => { const s = document.querySelector(".edit-angle input"); s.value = 3; s.dispatchEvent(new Event("input")); return true; })()`);
+          const e2 = await srun(`({ ...galleryEditor.state(), save: document.querySelector(".edit-save").disabled, label: document.querySelector(".edit-angle-value").textContent })`);
+          await new Promise((r) => { const id = ++sid; spend.set(id, (res) => { fs.writeFileSync(path.join(OUT, "00-edit.png"), Buffer.from(res.data, "base64")); r(); });
+            sws.send(JSON.stringify({ id, method: "Page.captureScreenshot", params: { format: "png" } })); });
+          await srun(`document.querySelector(".edit-save").click(); true`);
+          for (let i = 0; i < 30 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          const fsState = `(async () => { const root = atlasGalleryRoots()[0], riga = root.items.find((i) => i.name === "20240101 Рига");
+            const img = riga.items.find((i) => i.name === "r.jpg"), bmp = await createImageBitmap(img.data);
+            return { size: [bmp.width, bmp.height], orig: !!riga.items.find((i) => i.name === "[Originals]")?.items.find((i) => i.name === "r.jpg"),
+              fav: riga.items.find((i) => /-Albom$/.test(i.name))?.items.map((i) => i.name) || null }; })()`;
+          const saved = await run(fsState);
+          check("правка: карандаш у своего снимка, поворот на 3° — сохранено: исходник в «[Originals]», снимок обрезан по рамке, копия в «…-Albom»",
+            e0.enabled && e1.open && e1.bar && e1.tools === 8 && e1.save && e1.nav === "none" && e2.dirty && !e2.save && e2.label === "3,0°"
+            && saved.orig && saved.size[0] < 400 && saved.size[0] > 340 && JSON.stringify(saved.fav) === '["r.jpg"]', JSON.stringify({ e0, e1, e2, saved }));
+          await srun(`document.querySelector(".edit-btn").click(); true`);
+          for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          const e3 = await srun(`({ ...galleryEditor.state(), restore: document.querySelector(".edit-end .edit-tool").disabled })`);
+          await srun(`document.querySelector(".edit-end .edit-tool").click(); true`);
+          for (let i = 0; i < 30 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          const back = await run(fsState);
+          check("правка: «Оригинал» — снимок как был, «[Originals]» и копия в «…-Albom» убраны", e3.hasOriginal && !e3.restore
+            && back.size[0] === 400 && !back.orig && JSON.stringify(back.fav) === "[]", JSON.stringify({ e3, back }));
+          // у ролика правки нет — карандаш виден, но неактивен
+          await srun(`document.querySelectorAll(".thumb")[1].click(); true`);
+          await sleep(500);
+          check("правка: у ролика карандаш неактивен", await srun(`document.querySelector(".edit-btn").disabled && document.querySelector(".edit-btn").title === "Ролики не правятся"`));
+          await srun(`window.close(); true`);
+          sws.close();
+        }
       }
       await run(exitMode);
       await run(closeLayers);
@@ -742,9 +847,9 @@ try {
       await run(openLayers("content/tracks"));
       await sleep(500);
     }
-    const items = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((b) => b.firstChild.textContent)`);
-    const tkHome = await run(`({ panel: !document.querySelector('[data-panel="tracks"]').hidden, open: document.querySelector('[data-panel="tracks"] .tk-open')?.textContent })`);
-    check("треки: кнопка раздела — сразу панель со списком, первой строкой «Открыть файл трека…»", tkHome.panel && tkHome.open === "Открыть файл трека…", JSON.stringify({ items, tkHome }));
+    const items = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((b) => b.firstChild.textContent)`);
+    const tkHome = await run(`({ panel: !document.querySelector('[data-panel="tracks"]').hidden, open: document.querySelector('[data-panel="tracks"] .home-row')?.textContent })`);
+    check("треки: кнопка раздела — сразу панель со списком, первой строкой «+ Открыть трек…»", tkHome.panel && tkHome.open === "Открыть трек…", JSON.stringify({ items, tkHome }));
     await run(`${itemFor("Все треки (0)")}?.click(); true`);
     await sleep(500);
     await run(`${ts}.addText("test.gpx", ${JSON.stringify(gpx)}).then(() => true)`);
@@ -763,7 +868,7 @@ try {
       await wait(300);
       const color = atlas.map.getSource("tracks").serialize().data.features[0].properties.color;
       const i = document.querySelector(".search-box input"); i.value = "маяк"; i.dispatchEvent(new Event("input")); await wait(300);
-      const found = [...document.querySelectorAll('[data-panel="tracks"] .tr-row-title')].map((r) => r.textContent);
+      const found = [...document.querySelectorAll('[data-panel="tracks"] .tr-row:not(.home-row) .tr-row-title')].map((r) => r.textContent);
       const icon = document.querySelector('[data-panel="tracks"] .tk-icon').style.background;
       i.value = ""; i.dispatchEvent(new Event("input")); await wait(200);
       [...document.querySelectorAll('[data-panel="tracks"] .tr-row')].find((r) => r.textContent.includes("Вокруг озера")).click(); await wait(800);
@@ -1039,7 +1144,7 @@ try {
   await run(`atlas.toggle("layers/railways", true).then(() => true)`);
   await run(openLayers("layers/roads"));
   const lm = await run(`({ groups: [...document.querySelectorAll(".wheel-layers .layers-circle")].map((c) => c.ariaLabel.split(":")[0]),
-    sub: [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((c) => c.firstChild.textContent),
+    sub: [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((c) => c.firstChild.textContent),
     on: [...document.querySelectorAll(".wheel-layers .layers-circle.on")].map((c) => c.ariaLabel) })`);
   check("«Слои»: кружки, «Дороги» — виды и железные дороги, «Фото»", ["Карты", "Места", "Транспорт", "Магазины", "Тропы", "Велодорожки", "Дороги", "Погода", "Фото"].every((g) => lm.groups.includes(g))
     && !lm.groups.includes("Экскурсии") && !lm.groups.includes("Языки")
@@ -1097,7 +1202,7 @@ try {
   check("колесо: нажатие — кнопка докручивается в центр и открывается", spun.center === "photo" && spun.open, JSON.stringify(spun));
   await shot("95b-wheel");
   await run(openLayers("maps"));
-  const relief = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .home-row")].map((c) => c.firstChild.textContent)`);
+  const relief = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((c) => c.firstChild.textContent)`);
   check("«Карты»: виды карт, под чертой тени и 3D и высоты", relief.includes("Высоты") && relief.includes("Тени и 3D") && relief.length === 7
     && (await run(`!!document.querySelector(".layers-sub .layers-sep")`)), JSON.stringify(relief));
   await run(`atlas.toggle("layers/railways", false).then(() => true)`);
