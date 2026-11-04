@@ -186,16 +186,26 @@
   .bar-btn.on { background: #4da3ff; color: #1b1b1f; }
   .edit-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; touch-action: none; }
   .edit-canvas[hidden] { display: none; }
-  .edit-bar {
+  .edit-dock {
     position: absolute;
     left: 50%;
     bottom: 12px;
     z-index: 3;
     transform: translateX(-50%);
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 14px;
+    gap: 8px;
+    width: max-content;
     max-width: calc(100% - 24px);
+  }
+  .edit-bar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 6px 14px;
+    max-width: 100%;
     padding: 6px 8px;
     border-radius: 30px;
     background: rgba(38, 38, 44, 0.85);
@@ -203,6 +213,7 @@
   }
   .edit-bar[hidden] { display: none; }
   .edit-tools, .edit-group, .edit-end { display: flex; align-items: center; gap: 4px; }
+  .edit-tools { flex-wrap: wrap; justify-content: center; gap: 4px 12px; }
   .edit-end { padding-left: 10px; border-left: 1px solid rgba(232, 232, 236, 0.2); }
   .edit-tool { width: 40px; height: 40px; background: none; }
   .edit-tool:hover:not(:disabled) { background: rgba(232, 232, 236, 0.12); }
@@ -225,9 +236,9 @@
   }
   .edit-angle-value:hover { background: rgba(232, 232, 236, 0.12); }
   /* вторая строка над полосой — пропорции рамки */
-  .edit-sub { position: absolute; left: 50%; bottom: 74px; z-index: 3; transform: translateX(-50%); display: flex; gap: 8px; }
+  .edit-sub { display: flex; gap: 8px; max-width: 100%; }
   .edit-sub[hidden], .edit-chips[hidden] { display: none; }
-  .edit-chips { display: flex; gap: 4px; padding: 4px; border-radius: 20px; background: rgba(38, 38, 44, 0.85); }
+  .edit-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; padding: 4px; border-radius: 20px; background: rgba(38, 38, 44, 0.85); }
   .edit-chip {
     padding: 5px 11px;
     border: none;
@@ -260,6 +271,9 @@
   /* в правке листание и показ неактивны (видны, но не нажимаются — правило «не прятать») */
   body.editing .photo, body.editing .clip, body.editing .live-btn { visibility: hidden; }
   body.editing .nav, body.editing .player, body.editing .thumbs { opacity: 0.35; pointer-events: none; }
+  /* подпись сверху не мешает тянуть уголки и ручки под ней; карандаш — нажимается */
+  body.editing .bar { pointer-events: none; }
+  body.editing .edit-btn { pointer-events: auto; }
   @media (max-width: 760px) { .edit-angle input { width: 110px; } .edit-bar { gap: 6px; } }
   /* установленное приложение без системного заголовка — полоска, за которую окно перетаскивается */
   .titlebar-drag { display: none; }

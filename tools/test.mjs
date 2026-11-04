@@ -784,7 +784,7 @@ try {
               fav: riga.items.find((i) => /-Albom$/.test(i.name))?.items.map((i) => i.name) || null }; })()`;
           const saved = await run(fsState);
           check("правка: карандаш у своего снимка, поворот на 3° — сохранено: исходник в «[Originals]», снимок обрезан по рамке, копия в «…-Albom»",
-            e0.enabled && e1.open && e1.bar && e1.tools === 9 && e1.save && e1.nav === "none" && e2.dirty && !e2.save && e2.label === "3,0°"
+            e0.enabled && e1.open && e1.bar && e1.tools === 11 && e1.save && e1.nav === "none" && e2.dirty && !e2.save && e2.label === "3,0°"
             && saved.orig && saved.size[0] < 400 && saved.size[0] > 340 && JSON.stringify(saved.fav) === '["r.jpg"]', JSON.stringify({ e0, e1, e2, saved }));
           await srun(`document.querySelector(".edit-btn").click(); true`);
           for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
@@ -824,6 +824,27 @@ try {
           for (let i = 0; i < 30 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
           const sq = await run(fsState);
           check("правка: сохранён кадр по рамке", Math.abs(sq.size[0] - c3.crop.w) <= 2 && sq.size[0] === sq.size[1] && sq.orig, JSON.stringify(sq));
+          // перспектива: ручки по углам; левый верхний угол — вправо: снимок искажён, рамка внутри;
+          // поворот на 90° и зеркало несут перспективу с собой (зеркало — слева направо); сохранение — точный расчёт
+          await srun(`document.querySelector(".edit-btn").click(); true`);
+          for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          await srun(`[...document.querySelectorAll(".edit-tool")].find((b) => /^Перспектива — тяните/.test(b.title)).click(); true`);
+          // угол — где он на экране после перерисовки; окно галереи в общей проверке отвечает не сразу — до трёх попыток
+          for (let t = 0; t < 3 && !(await srun(`galleryEditor.state().warped`)); t++) {
+            await sleep(300);
+            const pc = await srun(`galleryEditor.cornerOnScreen(0)`);
+            await mouse(pc, [pc[0] + 50, pc[1]]);
+          }
+          const p1 = await srun(`galleryEditor.state()`);
+          const p2 = await srun(`(() => { const a = galleryEditor.api; a.turn(1); a.mirror(); const s1 = galleryEditor.state(); a.mirror(); a.turn(-1); return { s1, s2: galleryEditor.state() }; })()`);
+          await gsend("Page.captureScreenshot", { format: "png" }).then((res) => fs.writeFileSync(path.join(OUT, "00-perspective.png"), Buffer.from(res.data, "base64")));
+          check("правка: перспектива — угол тянется, снимок искажён, рамка внутри; поворот и зеркало несут её с собой",
+            p1.persp && p1.warped && p1.quad[0][0] > -125 + 20 && p1.fits && p1.dirty && p2.s1.q === 3 && p2.s1.flip && p2.s1.warped && p2.s1.fits
+            && p2.s2.q === 0 && !p2.s2.flip && JSON.stringify(p2.s2.quad) === JSON.stringify(p1.quad), JSON.stringify({ p1, p2 }));
+          await srun(`document.querySelector(".edit-save").click(); true`);
+          for (let i = 0; i < 40 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          const ps = await run(fsState);
+          check("правка: перспектива сохранена — кадр по рамке", Math.abs(ps.size[0] - p2.s2.crop.w) <= 2 && Math.abs(ps.size[1] - p2.s2.crop.h) <= 2, JSON.stringify({ ps, crop: p2.s2.crop }));
           // у ролика правки нет — карандаш виден, но неактивен
           await srun(`document.querySelectorAll(".thumb")[1].click(); true`);
           await sleep(500);

@@ -10,6 +10,8 @@
 // Рамка кадрирования — одна на все инструменты (правило photo-editor: свои рамки инструменты не
 // строят): «Кадр» (tools/crop.js) показывает её с уголками и пропорциями; уголки тянутся,
 // рамка двигается, но за края снимка (с учётом поворота) не выходит — упирается и скользит.
+// Перспектива (tools/perspective.js) — четыре ручки по углам снимка: тянешь угол — снимок
+// по-настоящему искажается (сходящиеся стены становятся ровными); рамка — внутри искажённого.
 // Сохранение — как в photo-editor: исходник — в «[Originals]» рядом со снимком (только при первой
 // правке), снимок переписывается, копия — в «…-Albom» поездки (в Atlas это «Избранное»); EXIF
 // (место, дата, камера) переносится целиком (tools/jpeg.js). «Оригинал» возвращает исходник.
@@ -19,7 +21,7 @@ import { cacheGet } from "../core/storage.js";
 import * as settings from "../core/settings.js";
 import { keepExif } from "./jpeg.js";
 
-const TOOLS = ["./rotate.js", "./crop.js"]; // новый инструмент — файл в tools/ и строка здесь
+const TOOLS = ["./rotate.js", "./perspective.js", "./crop.js"]; // новый инструмент — файл в tools/ и строка здесь
 const PREVIEW_MAX = 2400; // как в photo-editor (было 1000 — при увеличении снимок размывался)
 const ORIGINALS = "[Originals]";
 const QUALITY = 0.92;
@@ -31,7 +33,10 @@ const canvas = Object.assign(document.createElement("canvas"), { className: "edi
 const bar = Object.assign(document.createElement("div"), { className: "edit-bar", hidden: true });
 const note = Object.assign(document.createElement("div"), { className: "edit-note" });
 const sub = Object.assign(document.createElement("div"), { className: "edit-sub", hidden: true }); // вторая строка (пропорции)
-stage.append(canvas, note, sub, bar);
+// пропорции над полосой; узкое окно — полоса переносится в две строки и растёт вверх
+const dock = Object.assign(document.createElement("div"), { className: "edit-dock" });
+dock.append(sub, bar);
+stage.append(canvas, note, dock);
 const editBtn = $(".edit-btn");
 
 // ---------- уменьшение в линейном свете (photo-editor, imaging.js) ----------
@@ -82,17 +87,97 @@ export const ASPECTS = [
 ];
 const ratio = () => ASPECTS.find((a) => a.key === ed.aspect)?.r || ed.pv.width / ed.pv.height;
 const fixed = () => ed.aspect !== "free";
-// точка рамки — на снимке? (с учётом поворота)
+// ---------- перспектива: снимок — четырёхугольник ----------
+// quad — куда встают углы снимка (верх-лево, верх-право, низ-право, низ-лево) в точках превью от
+// середины снимка, до поворота на angle. Без перспективы — сам прямоугольник снимка
+const rectQuad = () => { const w = ed.pv.width / 2, h = ed.pv.height / 2; return [[-w, -h], [w, -h], [w, h], [-w, h]]; };
+const warped = () => !!ed.quad && rectQuad().some(([x, y], i) => Math.abs(x - ed.quad[i][0]) > 0.5 || Math.abs(y - ed.quad[i][1]) > 0.5);
+const rad = () => (ed.angle * Math.PI) / 180;
+const turn = ([x, y], a) => [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a)];
+// углы снимка на экране (с поворотом)
+const outline = () => ed.quad.map((q) => turn(q, rad()));
+const cross = (a, b, c) => (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+// выпуклый (иначе снимок вывернется) — все повороты обхода в одну сторону
+const convex = (q) => q.every((_, i) => cross(q[i], q[(i + 1) % 4], q[(i + 2) % 4]) > 1) || q.every((_, i) => cross(q[i], q[(i + 1) % 4], q[(i + 2) % 4]) < -1);
+// точка рамки — на снимке? (с учётом поворота и перспективы)
 function onPhoto(x, y) {
-  const a = (-ed.angle * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a);
-  return Math.abs(x * c - y * sn) <= ed.pv.width / 2 + 0.01 && Math.abs(x * sn + y * c) <= ed.pv.height / 2 + 0.01;
+  const pt = turn([x, y], -rad()), q = ed.quad, sign = Math.sign(cross(q[0], q[1], q[2]));
+  return q.every((a, i) => { const b = q[(i + 1) % 4]; return sign * ((b[0] - a[0]) * (pt[1] - a[1]) - (b[1] - a[1]) * (pt[0] - a[0])) >= -0.01 * ed.pv.width; });
 }
 const fits = (r) => onPhoto(r.x, r.y) && onPhoto(r.x + r.w, r.y) && onPhoto(r.x, r.y + r.h) && onPhoto(r.x + r.w, r.y + r.h);
-// самая большая рамка пропорции r посередине повёрнутого снимка
+// самая большая рамка пропорции r посередине снимка (с поворотом — посередине повёрнутого,
+// с перспективой — вокруг середины четырёхугольника)
 function biggest(r = ratio()) {
-  const a = (Math.abs(ed.angle) * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a), W = ed.pv.width, H = ed.pv.height;
-  const w = Math.min(W / (c + sn / r), H / (sn + c / r)), h = w / r;
-  return { x: -w / 2, y: -h / 2, w, h };
+  const pts = outline(), cx = pts.reduce((a, p) => a + p[0], 0) / 4, cy = pts.reduce((a, p) => a + p[1], 0) / 4;
+  const at = (h) => ({ x: cx - (h * r) / 2, y: cy - h / 2, w: h * r, h });
+  let lo = 0, hi = 2 * Math.max(ed.pv.width, ed.pv.height);
+  for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (fits(at(m))) lo = m; else hi = m; }
+  return at(lo);
+}
+
+// куда уходит точка снимка (u, v от 0 до 1) при перспективе — и обратно (Хекберт, квадрат → четырёхугольник)
+function homography(q) {
+  const [[x0, y0], [x1, y1], [x2, y2], [x3, y3]] = q;
+  const dx1 = x1 - x2, dx2 = x3 - x2, dy1 = y1 - y2, dy2 = y3 - y2, sx = x0 - x1 + x2 - x3, sy = y0 - y1 + y2 - y3;
+  let g = 0, h = 0;
+  if (Math.abs(sx) > 1e-9 || Math.abs(sy) > 1e-9) { const d = dx1 * dy2 - dx2 * dy1; g = (sx * dy2 - dx2 * sy) / d; h = (dx1 * sy - sx * dy1) / d; }
+  return [x1 - x0 + g * x1, x3 - x0 + h * x3, x0, y1 - y0 + g * y1, y3 - y0 + h * y3, y0, g, h, 1];
+}
+const apply = (m, x, y) => { const w = m[6] * x + m[7] * y + m[8]; return [(m[0] * x + m[1] * y + m[2]) / w, (m[3] * x + m[4] * y + m[5]) / w]; };
+function invert(m) {
+  const [a, b, c, d, e, f, g, h, i] = m, A = e * i - f * h, B = c * h - b * i, C = b * f - c * e;
+  const det = a * A + d * B + g * C;
+  return [A / det, B / det, C / det, (f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det, (d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det];
+}
+// показ искажённого снимка: сетка 16×16 клеток, каждая — два треугольника, натянутых как есть
+// (быстро; при сохранении — точный расчёт каждой точки)
+function drawWarped(x, img, q, scale) {
+  const N = 16, m = homography(q), W = img.width, H = img.height, grow = 1 / scale;
+  const P = (i, j) => apply(m, i / N, j / N), S = (i, j) => [(W * i) / N, (H * j) / N];
+  const tri = (s, d) => {
+    const cxm = (d[0][0] + d[1][0] + d[2][0]) / 3, cym = (d[0][1] + d[1][1] + d[2][1]) / 3;
+    const out = d.map(([px, py]) => { const vx = px - cxm, vy = py - cym, l = Math.hypot(vx, vy) || 1; return [px + (vx / l) * grow, py + (vy / l) * grow]; });
+    const [[s0x, s0y], [s1x, s1y], [s2x, s2y]] = s, [[d0x, d0y], [d1x, d1y], [d2x, d2y]] = d;
+    const den = s0x * (s1y - s2y) + s1x * (s2y - s0y) + s2x * (s0y - s1y);
+    if (!den) return;
+    x.save();
+    x.beginPath(); x.moveTo(...out[0]); x.lineTo(...out[1]); x.lineTo(...out[2]); x.closePath(); x.clip();
+    x.transform((d0x * (s1y - s2y) + d1x * (s2y - s0y) + d2x * (s0y - s1y)) / den, (d0y * (s1y - s2y) + d1y * (s2y - s0y) + d2y * (s0y - s1y)) / den,
+      (d0x * (s2x - s1x) + d1x * (s0x - s2x) + d2x * (s1x - s0x)) / den, (d0y * (s2x - s1x) + d1y * (s0x - s2x) + d2y * (s1x - s0x)) / den,
+      (d0x * (s1x * s2y - s2x * s1y) + d1x * (s2x * s0y - s0x * s2y) + d2x * (s0x * s1y - s1x * s0y)) / den,
+      (d0y * (s1x * s2y - s2x * s1y) + d1y * (s2x * s0y - s0x * s2y) + d2y * (s0x * s1y - s1x * s0y)) / den);
+    x.drawImage(img, 0, 0);
+    x.restore();
+  };
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    tri([S(i, j), S(i + 1, j), S(i + 1, j + 1)], [P(i, j), P(i + 1, j), P(i + 1, j + 1)]);
+    tri([S(i, j), S(i + 1, j + 1), S(i, j + 1)], [P(i, j), P(i + 1, j + 1), P(i, j + 1)]);
+  }
+}
+// сохранение с перспективой: каждая точка кадра — обратно в снимок, цвет — между четырьмя соседями
+function warpOut(base, r, f) {
+  const W = base.width, H = base.height, ow = Math.max(1, Math.round(r.w * f)), oh = Math.max(1, Math.round(r.h * f));
+  const sc = Object.assign(document.createElement("canvas"), { width: W, height: H });
+  sc.getContext("2d").drawImage(base, 0, 0);
+  const src = sc.getContext("2d").getImageData(0, 0, W, H).data;
+  const out = Object.assign(document.createElement("canvas"), { width: ow, height: oh });
+  const img = out.getContext("2d").createImageData(ow, oh), d = img.data;
+  const inv = invert(homography(ed.quad)), a = -rad(), c = Math.cos(a), sn = Math.sin(a);
+  for (let oy = 0; oy < oh; oy++) {
+    const fy = r.y + (oy + 0.5) / f;
+    for (let ox = 0; ox < ow; ox++) {
+      const fx = r.x + (ox + 0.5) / f;
+      const [u, v] = apply(inv, fx * c - fy * sn, fx * sn + fy * c);
+      const sx = Math.min(W - 1.001, Math.max(0, u * W - 0.5)), sy = Math.min(H - 1.001, Math.max(0, v * H - 0.5));
+      const x0 = sx | 0, y0 = sy | 0, tx = sx - x0, ty = sy - y0, i0 = (y0 * W + x0) * 4, i1 = i0 + W * 4, o = (oy * ow + ox) * 4;
+      for (let k = 0; k < 4; k++) {
+        const top = src[i0 + k] + (src[i0 + 4 + k] - src[i0 + k]) * tx, bot = src[i1 + k] + (src[i1 + 4 + k] - src[i1 + k]) * tx;
+        d[o + k] = top + (bot - top) * ty;
+      }
+    }
+  }
+  out.getContext("2d").putImageData(img, 0, 0);
+  return out;
 }
 // не помещается (повернули сильнее) — уменьшить вокруг середины
 function shrink(r) {
@@ -112,8 +197,8 @@ const kept = () => (ed.cropOn ? ed.crop : biggest(ed.pv.width / ed.pv.height));
 // q, flip — повороты на 90° и зеркало; angle — точный угол, °
 // cropOn — рамка открыта, crop — рамка, aspect — пропорции (помнятся), touched — рамку двигали рукой
 const ed = { p: null, file: null, src: null, pv: null, q: 0, flip: false, angle: 0, grid: false, dragging: false, hasOriginal: false,
-  cropOn: false, crop: null, aspect: settings.get("edit.aspect", "photo"), touched: false };
-const dirty = () => !!ed.p && (ed.angle !== 0 || ed.q % 4 !== 0 || ed.flip || (ed.cropOn && !same(ed.crop, biggest(ed.pv.width / ed.pv.height))));
+  cropOn: false, crop: null, aspect: settings.get("edit.aspect", "photo"), touched: false, quad: null, persp: false };
+const dirty = () => !!ed.p && (ed.angle !== 0 || ed.q % 4 !== 0 || ed.flip || warped() || (ed.cropOn && !same(ed.crop, biggest(ed.pv.width / ed.pv.height))));
 const say = (text) => { note.textContent = text || ""; note.classList.toggle("show", !!text); };
 
 // доступ к своей папке: из IndexedDB этого окна (так браузер даёт просить запись из него),
@@ -149,18 +234,21 @@ function draw() {
   const x = canvas.getContext("2d");
   x.clearRect(0, 0, cw, ch);
   if (!ed.pv) return;
-  const W = ed.pv.width, H = ed.pv.height, s = Math.min((cw * 0.94) / W, ((ch - 130 * dpr) * 0.94) / H);
-  const cx = cw / 2, cy = (ch - 110 * dpr) / 2;
+  // снизу — место под полосу инструментов (на узком окне она в две строки)
+  const low = (dock.offsetHeight + 24) * dpr;
+  const W = ed.pv.width, H = ed.pv.height, s = Math.min((cw * 0.94) / W, ((ch - low - 20 * dpr) * 0.94) / H);
+  const cx = cw / 2, cy = (ch - low) / 2 + 10 * dpr;
   view = { s, cx, cy, dpr };
   x.save();
   x.translate(cx, cy);
   x.rotate((ed.angle * Math.PI) / 180);
   x.imageSmoothingQuality = "high";
-  x.drawImage(ed.pv, (-W * s) / 2, (-H * s) / 2, W * s, H * s);
+  if (warped()) { x.scale(s, s); x.translate(-W / 2, -H / 2); drawWarped(x, ed.pv, ed.quad.map(([qx, qy]) => [qx + W / 2, qy + H / 2]), s); }
+  else x.drawImage(ed.pv, (-W * s) / 2, (-H * s) / 2, W * s, H * s);
   x.restore();
   // рамка: то, что останется; за ней — затемнено; у открытой рамки — уголки
   const k = kept(), rx = cx + k.x * s, ry = cy + k.y * s, rw = k.w * s, rh = k.h * s;
-  if (ed.angle || ed.cropOn) {
+  if (ed.angle || ed.cropOn || warped() || ed.persp) {
     x.fillStyle = "rgba(20, 20, 24, 0.72)";
     x.beginPath();
     x.rect(0, 0, cw, ch);
@@ -182,7 +270,7 @@ function draw() {
     x.stroke();
   }
   // сетка (как в photo-editor): мелкая — по горизонту равняться, крупная (синяя) — трети
-  if (ed.grid || ed.dragging) {
+  if (ed.grid || ed.dragging || ed.persp) {
     const lines = (n, color, width, skip) => {
       x.strokeStyle = color;
       x.lineWidth = width * dpr;
@@ -197,8 +285,22 @@ function draw() {
     lines(30, "rgba(255, 255, 255, 0.22)", 1, 10);
     lines(3, "rgba(77, 163, 255, 0.85)", 2);
   }
+  // перспектива: контур снимка и ручки по углам
+  if (ed.persp) {
+    const pts = outline().map(([px, py]) => [cx + px * s, cy + py * s]);
+    x.strokeStyle = "rgba(77, 163, 255, 0.9)";
+    x.lineWidth = 1.5 * dpr;
+    x.beginPath(); pts.forEach((pp, i) => (i ? x.lineTo(...pp) : x.moveTo(...pp))); x.closePath(); x.stroke();
+    for (const pp of pts) {
+      x.beginPath(); x.arc(pp[0], pp[1], 9 * dpr, 0, Math.PI * 2);
+      x.fillStyle = "#fff"; x.fill();
+      x.lineWidth = 3 * dpr; x.strokeStyle = "#4da3ff"; x.stroke();
+    }
+  }
 }
-new ResizeObserver(() => ed.p && redraw()).observe(stage);
+const resized = new ResizeObserver(() => ed.p && redraw());
+resized.observe(stage);
+resized.observe(dock);
 
 // ---------- рамку тянут мышью или пальцем ----------
 let view = { s: 1, cx: 0, cy: 0, dpr: 1 }, drag = null;
@@ -209,6 +311,10 @@ const toFrame = (e) => {
 };
 const corners = (r) => [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]];
 function grab(pt) {
+  if (ed.persp) {
+    const near = (HIT * view.dpr) / view.s, i = outline().findIndex(([qx, qy]) => Math.hypot(pt.x - qx, pt.y - qy) <= near);
+    if (i >= 0) return { kind: "quad", i };
+  }
   if (!ed.cropOn) return null;
   const r = ed.crop, near = (HIT * view.dpr) / view.s;
   const i = corners(r).findIndex(([cx, cy]) => Math.hypot(pt.x - cx, pt.y - cy) <= near);
@@ -231,7 +337,14 @@ canvas.addEventListener("pointermove", (e) => {
   const pt = toFrame(e);
   if (!drag) {
     const g0 = grab(pt);
-    canvas.style.cursor = !g0 ? "" : g0.kind === "move" ? "move" : g0.i === 0 || g0.i === 3 ? "nwse-resize" : "nesw-resize";
+    canvas.style.cursor = !g0 ? "" : g0.kind === "quad" ? "grab" : g0.kind === "move" ? "move" : g0.i === 0 || g0.i === 3 ? "nwse-resize" : "nesw-resize";
+    return;
+  }
+  if (drag.kind === "quad") {
+    // угол снимка — куда отпустили (не дальше снимка от его края и только выпуклым)
+    const [qx, qy] = turn([pt.x, pt.y], -rad()), W = ed.pv.width, H = ed.pv.height;
+    const q = ed.quad.map((c, i) => (i === drag.i ? [Math.max(-W, Math.min(W, qx)), Math.max(-H, Math.min(H, qy))] : c));
+    if (convex(q)) { ed.quad = q; ed.crop = ed.touched ? shrink(ed.crop) : biggest(); sync(); }
     return;
   }
   const min = (40 * view.dpr) / view.s;
@@ -279,8 +392,23 @@ const api = {
   sub,
   // повернули — рамка не тронута рукой: снова самая большая; тронута — уменьшается, если не влезает
   setAngle(a) { ed.angle = Math.max(-45, Math.min(45, Math.round(a * 10) / 10)); ed.crop = ed.touched ? shrink(ed.crop) : biggest(); sync(); },
-  turn(d) { ed.q = (ed.q + d + 4) % 4; ed.pv = turned(ed.src, ed.q, ed.flip); ed.angle = 0; refit(); sync(); },
-  mirror() { ed.flip = !ed.flip; ed.pv = turned(ed.src, ed.q, ed.flip); ed.angle = 0; refit(); sync(); },
+  // поправленная перспектива поворачивается вместе со снимком (photo-editor: иначе правка пропадёт)
+  turn(d) {
+    const o = ed.quad;
+    ed.quad = d > 0 ? o.map((_, i) => { const [x, y] = o[(i + 3) % 4]; return [-y, x]; }) : o.map((_, i) => { const [x, y] = o[(i + 1) % 4]; return [y, -x]; });
+    ed.q = (ed.q + d + 4) % 4; ed.pv = turned(ed.src, ed.q, ed.flip); ed.angle = 0; refit(); sync();
+  },
+  // зеркало — слева направо, как видно на экране: после поворота на 90° одного переключения flip
+  // мало (отразило бы сверху вниз) — поворот меняется на обратный
+  mirror() {
+    const o = ed.quad;
+    ed.quad = [o[1], o[0], o[3], o[2]].map(([x, y]) => [-x, y]);
+    ed.flip = !ed.flip; ed.q = (4 - ed.q) % 4; ed.pv = turned(ed.src, ed.q, ed.flip); ed.angle = 0; refit(); sync();
+  },
+  // перспектива: ручки показать или убрать (поправленное остаётся); «как было» — снимок без неё
+  perspective(on = !ed.persp) { ed.persp = on; sync(); },
+  resetQuad() { ed.quad = rectQuad(); ed.crop = ed.touched ? shrink(ed.crop) : biggest(); sync(); },
+  warped,
   // рамка: открыть или убрать; пропорции — открывают её заново, самой большой
   crop(on = !ed.cropOn) { ed.cropOn = on; refit(); sync(); },
   setAspect(key) { ed.aspect = key; settings.set("edit.aspect", key); ed.cropOn = true; refit(); sync(); },
@@ -329,7 +457,8 @@ async function open(p) {
     const src = k < 1 ? downsample(bmp, Math.round(bmp.width * k), Math.round(bmp.height * k)) : turned(bmp, 0, false);
     bmp.close?.();
     if (g.current() !== p) return;
-    Object.assign(ed, { p, file, src, pv: src, q: 0, flip: false, angle: 0, cropOn: false, hasOriginal: !!(await originalOf(where)) });
+    Object.assign(ed, { p, file, src, pv: src, q: 0, flip: false, angle: 0, cropOn: false, persp: false, hasOriginal: !!(await originalOf(where)) });
+    ed.quad = rectQuad();
     refit();
     document.body.classList.add("editing");
     canvas.hidden = bar.hidden = sub.hidden = false;
@@ -346,7 +475,7 @@ async function open(p) {
 function close(force = false) {
   if (!ed.p) return true;
   if (!force && dirty() && !confirm("Выйти без сохранения? Правка пропадёт.")) return false;
-  Object.assign(ed, { p: null, file: null, src: null, pv: null, angle: 0, q: 0, flip: false, dragging: false, cropOn: false, crop: null });
+  Object.assign(ed, { p: null, file: null, src: null, pv: null, angle: 0, q: 0, flip: false, dragging: false, cropOn: false, crop: null, quad: null, persp: false });
   drag = null;
   document.body.classList.remove("editing");
   canvas.hidden = bar.hidden = sub.hidden = true;
@@ -390,12 +519,19 @@ async function save() {
     const base = ed.q || ed.flip ? turned(bmp, ed.q, ed.flip) : bmp;
     // рамка — в точках превью: в полный размер — во столько раз, во сколько снимок больше превью
     const W = base.width, H = base.height, f = W / ed.pv.width, r = kept();
-    const out = Object.assign(document.createElement("canvas"), { width: Math.max(1, Math.round(r.w * f)), height: Math.max(1, Math.round(r.h * f)) });
-    const x = out.getContext("2d");
-    x.imageSmoothingQuality = "high";
-    x.translate(-r.x * f, -r.y * f);
-    x.rotate((ed.angle * Math.PI) / 180);
-    x.drawImage(base, -W / 2, -H / 2);
+    let out;
+    if (warped()) {
+      say("Сохраняю: выправляю перспективу…");
+      await new Promise((res) => setTimeout(res, 30)); // надпись успевает показаться
+      out = warpOut(base, r, f);
+    } else {
+      out = Object.assign(document.createElement("canvas"), { width: Math.max(1, Math.round(r.w * f)), height: Math.max(1, Math.round(r.h * f)) });
+      const x = out.getContext("2d");
+      x.imageSmoothingQuality = "high";
+      x.translate(-r.x * f, -r.y * f);
+      x.rotate((ed.angle * Math.PI) / 180);
+      x.drawImage(base, -W / 2, -H / 2);
+    }
     bmp.close?.();
     const type = /\.png$/i.test(where.name) ? "image/png" : /\.webp$/i.test(where.name) ? "image/webp" : "image/jpeg";
     let blob = await new Promise((r) => out.toBlob(r, type, QUALITY));
@@ -464,7 +600,10 @@ addEventListener("beforeunload", (e) => { if (dirty()) e.preventDefault(); });
 
 // для проверки
 window.galleryEditor = { state: () => ({ open: !!ed.p, angle: ed.angle, q: ed.q, flip: ed.flip, dirty: dirty(), hasOriginal: ed.hasOriginal, pv: ed.pv && [ed.pv.width, ed.pv.height], note: note.textContent,
-  cropOn: ed.cropOn, aspect: ed.aspect, crop: ed.crop && Object.fromEntries(Object.entries(ed.crop).map(([k, v]) => [k, Math.round(v * 10) / 10])), fits: !!ed.crop && fits(ed.crop) }),
+  cropOn: ed.cropOn, aspect: ed.aspect, crop: ed.crop && Object.fromEntries(Object.entries(ed.crop).map(([k, v]) => [k, Math.round(v * 10) / 10])), fits: !!ed.crop && fits(ed.crop),
+  persp: ed.persp, warped: !!ed.quad && warped(), quad: ed.quad && ed.quad.map((c) => c.map((v) => Math.round(v))) }),
+  // угол снимка (с перспективой и поворотом) → точка экрана
+  cornerOnScreen: (i) => { const [x, y] = outline()[i], b = canvas.getBoundingClientRect(); return [b.left + (view.cx + x * view.s) / view.dpr, b.top + (view.cy + y * view.s) / view.dpr]; },
   // точка рамки (в точках превью от середины снимка) → точка экрана — проверка тянет за уголки
   toScreen: (x, y) => { const b = canvas.getBoundingClientRect(); return [b.left + (view.cx + x * view.s) / view.dpr, b.top + (view.cy + y * view.s) / view.dpr]; },
   api, save, restore };
