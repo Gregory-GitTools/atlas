@@ -224,10 +224,27 @@
     cursor: pointer;
   }
   .edit-angle-value:hover { background: rgba(232, 232, 236, 0.12); }
+  /* вторая строка над полосой — пропорции рамки */
+  .edit-sub { position: absolute; left: 50%; bottom: 74px; z-index: 3; transform: translateX(-50%); display: flex; gap: 8px; }
+  .edit-sub[hidden], .edit-chips[hidden] { display: none; }
+  .edit-chips { display: flex; gap: 4px; padding: 4px; border-radius: 20px; background: rgba(38, 38, 44, 0.85); }
+  .edit-chip {
+    padding: 5px 11px;
+    border: none;
+    border-radius: 16px;
+    background: none;
+    color: #e8e8ec;
+    font: inherit;
+    font-size: 0.82rem;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .edit-chip:hover { background: rgba(232, 232, 236, 0.12); }
+  .edit-chip.on { background: rgba(77, 163, 255, 0.25); color: #4da3ff; }
   .edit-note {
     position: absolute;
     left: 50%;
-    bottom: 74px;
+    top: 56px;
     z-index: 3;
     transform: translateX(-50%);
     padding: 5px 12px;

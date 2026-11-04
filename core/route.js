@@ -20,6 +20,7 @@ register({
 const self = () => modules("service").find((m) => m.id === "core/route");
 
 const OSRM = "https://routing.openstreetmap.de";
+const ROUTE_COLOR = "#0a5cff"; // ярко-синий: красный терялся среди дорог (Грегори 2026-11-04)
 const svg = (d) => `<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="${d}"/></svg>`;
 // значки — те же, что у видов активности треков (Pictogrammers MDI)
 const WAYS = [
@@ -113,13 +114,21 @@ export function initRoute({ map, maplibregl, status }) {
     map.addSource("go-line", { type: "geojson", data: line(null) });
     map.addSource("go-route", { type: "geojson", data: line(null) });
     map.addLayer({ id: "go-route-casing", type: "line", source: "go-route", layout: { "line-join": "round", "line-cap": "round" },
-      paint: { "line-color": "#fff", "line-width": 8 } });
+      paint: { "line-color": "#fff", "line-width": 10 } });
     map.addLayer({ id: "go-route", type: "line", source: "go-route", layout: { "line-join": "round", "line-cap": "round" },
-      paint: { "line-color": "#e53935", "line-width": 5 } });
+      paint: { "line-color": ROUTE_COLOR, "line-width": 6 } });
     map.addLayer({ id: "go-line", type: "line", source: "go-line", layout: { "line-cap": "round" },
       paint: { "line-color": "#e53935", "line-width": 2.5, "line-dasharray": [2, 2] } });
     draw();
   };
+  // линии пути — поверх всех слоёв (модули добавляют свои позже, и путь уходил под дороги —
+  // Грегори 2026-11-04: «проложенный маршрут не видно»)
+  const LAYERS = ["go-route-casing", "go-route", "go-line"];
+  const raise = () => {
+    const ids = map.getStyle()?.layers?.map((l) => l.id) || [];
+    if (ids.slice(-LAYERS.length).join() !== LAYERS.join()) for (const id of LAYERS) if (map.getLayer(id)) map.moveLayer(id);
+  };
+  map.on("styledata", () => { if (map.getLayer("go-line")) raise(); });
   map.on("style.load", addLayers);
   if (map.isStyleLoaded()) addLayers();
 
@@ -155,7 +164,8 @@ export function initRoute({ map, maplibregl, status }) {
     show();
   };
 
-  on("me", (p) => { me = p?.lngLat || null; draw(); show(); });
+  // навигацию выключили — проложенный путь убирается (точка остаётся; Грегори 2026-11-04)
+  on("me", (p) => { me = p?.lngLat || null; if (!me && route) { route = null; asked++; } draw(); show(); });
   map.on("rotate", show);
 
   // в каждом окне на карте — «Сюда»

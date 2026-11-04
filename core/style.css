@@ -1116,7 +1116,7 @@ body.has-photo-strip .status {
   z-index: 26;
 }
 
-/* логотип — во весь кружок кнопки (глобус в картинке занимает 90 из 96 точек) */
+/* логотип — во весь кружок кнопки, без ободка: шар в картинке — во всю её ширину */
 .search-toggle.open,
 .search-toggle.open:hover {
   padding: 0;
@@ -1126,9 +1126,10 @@ body.has-photo-strip .status {
   filter: none;
 }
 
+/* шар в картинке — во всю её ширину: картинка ровно с кнопку */
 .search-toggle.open img {
-  width: calc(var(--button) * 96 / 90);
-  height: calc(var(--button) * 96 / 90);
+  width: var(--button);
+  height: var(--button);
   max-width: none;
 }
 
@@ -2379,7 +2380,8 @@ body.has-photo-strip .status {
   position: fixed;
   left: 50%;
   top: calc(var(--top-inset) + var(--button) + 2 * var(--gap));
-  z-index: 4;
+  /* поверх барабанов (Грегори 2026-11-04: на телефоне барабан закрывал плашку) */
+  z-index: 22;
   transform: translateX(-50%);
   box-sizing: border-box;
   display: flex;
@@ -2407,14 +2409,15 @@ body.has-photo-strip .status {
 }
 
 .go-text {
+  flex: 1;
   min-width: 0;
   line-height: 1.25;
 }
 
+/* длинное «6,1 км на северо-восток» на телефоне переносится, а не наезжает на значки */
 .go-main {
   font-size: 14px;
   font-weight: 600;
-  white-space: nowrap;
 }
 
 .go-sub {

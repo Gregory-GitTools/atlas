@@ -190,8 +190,19 @@ try {
   await run(`document.querySelector(".go-way").click(); true`);
   await sleep(6000);
   const walk = await run(`atlas.route.state()`);
-  check("куда идти: путь пешком — линия, длина и время", walk.route?.way === "foot" && walk.route.points > 10 && /Пешком: .* · \d+ мин/.test(walk.text), JSON.stringify(walk));
+  // путь — ярко-синий и поверх всех слоёв (даже включённых после него)
+  const top = await run(`(() => { const ids = atlas.map.getStyle().layers.map((l) => l.id); return { last: ids.slice(-3), color: atlas.map.getPaintProperty("go-route", "line-color"),
+    z: [getComputedStyle(document.querySelector(".go-card")).zIndex, getComputedStyle(document.querySelector(".wheel")).zIndex] }; })()`);
+  check("куда идти: путь пешком — линия, длина и время; синяя, поверх всего, плашка над барабаном", walk.route?.way === "foot" && walk.route.points > 10 && /Пешком: .* · \d+ мин/.test(walk.text)
+    && top.last.join() === "go-route-casing,go-route,go-line" && top.color === "#0a5cff" && +top.z[0] > +top.z[1], JSON.stringify({ walk, top }));
   await shot("00-route");
+  // навигацию выключили — путь убран, точка осталась
+  await run(`document.querySelector(".geo-btn").click(); true`);
+  await sleep(500);
+  const off = await run(`atlas.route.state()`);
+  check("куда идти: навигация выключена — путь убран, точка осталась", !off.route && off.target?.title === "Проба", JSON.stringify(off));
+  await run(`document.querySelector(".geo-btn").click(); true`);
+  await sleep(2500);
   await run(`document.querySelector(".go-close").click(); true`);
   check("куда идти: крестик убирает точку", (await run(`({ hidden: document.querySelector(".go-card").hidden, t: atlas.route.state().target })`)).hidden);
   await run(`document.querySelector(".compass-btn").click(); true`); // снова 2D
@@ -773,7 +784,7 @@ try {
               fav: riga.items.find((i) => /-Albom$/.test(i.name))?.items.map((i) => i.name) || null }; })()`;
           const saved = await run(fsState);
           check("правка: карандаш у своего снимка, поворот на 3° — сохранено: исходник в «[Originals]», снимок обрезан по рамке, копия в «…-Albom»",
-            e0.enabled && e1.open && e1.bar && e1.tools === 8 && e1.save && e1.nav === "none" && e2.dirty && !e2.save && e2.label === "3,0°"
+            e0.enabled && e1.open && e1.bar && e1.tools === 9 && e1.save && e1.nav === "none" && e2.dirty && !e2.save && e2.label === "3,0°"
             && saved.orig && saved.size[0] < 400 && saved.size[0] > 340 && JSON.stringify(saved.fav) === '["r.jpg"]', JSON.stringify({ e0, e1, e2, saved }));
           await srun(`document.querySelector(".edit-btn").click(); true`);
           for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
@@ -783,6 +794,36 @@ try {
           const back = await run(fsState);
           check("правка: «Оригинал» — снимок как был, «[Originals]» и копия в «…-Albom» убраны", e3.hasOriginal && !e3.restore
             && back.size[0] === 400 && !back.orig && JSON.stringify(back.fav) === "[]", JSON.stringify({ e3, back }));
+          // рамка кадрирования: «Кадр» → «1:1» — квадрат во всю высоту; уголок тянется (мышью), рамка
+          // двигается и упирается в край снимка; «Сохранить» — квадратный снимок
+          const gsend = (method, params) => new Promise((r) => { const id = ++sid; spend.set(id, r); sws.send(JSON.stringify({ id, method, params })); });
+          const mouse = async (from, to) => {
+            await gsend("Input.dispatchMouseEvent", { type: "mouseMoved", x: from[0], y: from[1] });
+            await gsend("Input.dispatchMouseEvent", { type: "mousePressed", x: from[0], y: from[1], button: "left", clickCount: 1 });
+            for (let k = 1; k <= 5; k++) await gsend("Input.dispatchMouseEvent", { type: "mouseMoved", x: from[0] + ((to[0] - from[0]) * k) / 5, y: from[1] + ((to[1] - from[1]) * k) / 5, button: "left", buttons: 1 });
+            await gsend("Input.dispatchMouseEvent", { type: "mouseReleased", x: to[0], y: to[1], button: "left", clickCount: 1 });
+          };
+          await srun(`document.querySelector(".edit-btn").click(); true`);
+          for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          await srun(`[...document.querySelectorAll(".edit-tool")].find((b) => /^Кадрировать/.test(b.title)).click(); true`);
+          await srun(`[...document.querySelectorAll(".edit-chip")].find((b) => b.textContent === "1:1").click(); true`);
+          await sleep(200);
+          const c1 = await srun(`galleryEditor.state()`);
+          const k1 = await srun(`galleryEditor.toScreen(150, 150)`), k2 = await srun(`galleryEditor.toScreen(100, 100)`);
+          await mouse(k1, k2);
+          const c2 = await srun(`galleryEditor.state()`);
+          const m1 = await srun(`galleryEditor.toScreen(0, 0)`), m2 = await srun(`galleryEditor.toScreen(300, 0)`);
+          await mouse(m1, m2);
+          const c3 = await srun(`galleryEditor.state()`);
+          await gsend("Page.captureScreenshot", { format: "png" }).then((res) => fs.writeFileSync(path.join(OUT, "00-crop.png"), Buffer.from(res.data, "base64")));
+          check("правка: рамка «1:1» — квадрат, уголок тянется, рамка упирается в край снимка",
+            c1.cropOn && c1.aspect === "1:1" && c1.crop.w === 300 && c1.crop.h === 300 && c1.dirty
+            && Math.abs(c2.crop.w - 250) <= 3 && c2.crop.w === c2.crop.h && c2.fits
+            && Math.abs(c3.crop.x + c3.crop.w - 200) <= 1 && c3.fits, JSON.stringify({ c1, c2, c3 }));
+          await srun(`document.querySelector(".edit-save").click(); true`);
+          for (let i = 0; i < 30 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          const sq = await run(fsState);
+          check("правка: сохранён кадр по рамке", Math.abs(sq.size[0] - c3.crop.w) <= 2 && sq.size[0] === sq.size[1] && sq.orig, JSON.stringify(sq));
           // у ролика правки нет — карандаш виден, но неактивен
           await srun(`document.querySelectorAll(".thumb")[1].click(); true`);
           await sleep(500);

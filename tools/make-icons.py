@@ -7,10 +7,10 @@ OUT.mkdir(exist_ok=True)
 S = 1024  # рисуем крупно, потом уменьшаем — так края гладкие
 
 
-def draw(rim=S * 0.028, pin_rim=S * 0.022, light=False):
+def draw(rim=S * 0.028, pin_rim=S * 0.022, light=False, size=0.44):
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    c, r = S / 2, S * 0.44
+    c, r = S / 2, S * size
     # шар: тёмно-синий, светлее к верхнему левому краю
     for i in range(60, 0, -1):
         k = i / 60
@@ -46,6 +46,7 @@ big = draw()
 for size, name in ((512, "icon-512.png"), (192, "icon-192.png"), (180, "apple-touch-icon.png"), (32, "icon-32.png")):
     big.resize((size, size), Image.LANCZOS).save(OUT / name)
 big.resize((256, 256), Image.LANCZOS).save(OUT / "app.ico", sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
-# логотип в строке поиска (Грегори, 2026-10-29): глобус светлее, кант вокруг него тонкий, вокруг метки — чёткий
-draw(rim=S * 0.012, pin_rim=S * 0.016, light=True).resize((96, 96), Image.LANCZOS).save(OUT / "logo.png")
+# логотип на кнопке справа вверху (Грегори, 2026-10-29): глобус светлее, вокруг метки — чёткий кант;
+# шар во всю картинку и без белого ободка (Грегори, 2026-11-04: «у логотипа остался белый ободок»)
+draw(rim=0, pin_rim=S * 0.016, light=True, size=0.5).resize((96, 96), Image.LANCZOS).save(OUT / "logo.png")
 print("значки готовы:", OUT)
