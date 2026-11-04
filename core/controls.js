@@ -3,7 +3,7 @@
 // MapLibre ставит каждый следующий элемент угла выше предыдущих, поэтому порядок addControl важен.
 // Кнопок «+ −» нет (Грегори, 2026-11-02): приближают колёсиком, пальцами, двойным щелчком
 import * as settings from "./settings.js";
-import { emit } from "./events.js";
+import { emit, on } from "./events.js";
 
 // кнопка столбика — полупрозрачная, как лупа и треугольник (класс glass — один на все такие кнопки)
 export function addMapButton(map, { title, html, className = "" }) {
@@ -67,7 +67,10 @@ export function addGeolocate(map, maplibregl, status) {
 
   const courseUp = () => compassMode === "3d";
   const low = () => compassMode === "3d";
+  let wasOn = null;
   const update = () => {
+    // навигация включена или выключена — событие nav (кнопка «Навигация» в барабане — её индикатор)
+    if (wasOn !== (watch !== null)) { wasOn = watch !== null; emit("nav", { on: wasOn }); }
     btn.classList.toggle("on", watch !== null);
     btn.classList.toggle("follow", watch !== null && follow);
     btn.title = watch === null ? "Навигация" : !follow ? "Навигация: снова ко мне" : "Навигация — щелчок выключит";
@@ -192,7 +195,9 @@ export function addGeolocate(map, maplibregl, status) {
     update();
     if (follow && position) map.once("moveend", () => follow && setTimeout(center));
   });
-  if (settings.get("geolocate")) start();
+  // включить или выключить из раздела «Навигация»
+  on("nav-switch", ({ on: want }) => { if (want && watch === null) start(); else if (!want && watch !== null) stop(); }, { replay: false });
+  if (settings.get("geolocate")) start(); else update();
   // для проверки
   return { state: () => ({ on: watch !== null, follow, mode: compassMode, heading, position }) };
 }

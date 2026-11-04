@@ -39,6 +39,7 @@
   --tone-tour: #e53935;
   --tone-my: #7c4dff;
   --tone-track: #3949ab;
+  --tone-nav: #1a73e8;
 
   --radius: 10px;
   --button: 40px;
@@ -598,6 +599,44 @@ html, body {
 
 .search-delete:hover {
   background: var(--panel-hover);
+}
+
+/* история (core/history.js): заголовок со стрелкой «свернуть» и «Очистить» */
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 6px 2px 4px;
+  border-bottom: 1px solid var(--panel-hover);
+}
+
+.history-fold,
+.history-clear {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.history-fold:hover,
+.history-clear:hover {
+  background: var(--panel-hover);
+  color: var(--text);
+}
+
+.history-fold svg {
+  transition: transform 0.15s;
+}
+
+.history-fold.folded svg {
+  transform: rotate(180deg);
 }
 
 .search-history-clear,
@@ -1175,6 +1214,7 @@ body.has-photo-strip .status {
 .tone-tour { --tone: var(--tone-tour); }
 .tone-my { --tone: var(--tone-my); }
 .tone-track { --tone: var(--tone-track); }
+.tone-nav { --tone: var(--tone-nav); }
 
 /* «Карты» — миниатюра текущей карты в кольце цвета группы */
 .maps-circle {
@@ -2374,28 +2414,33 @@ body.has-photo-strip .status {
   background: var(--active);
 }
 
-/* ---------- «Куда идти» (core/route.js) ---------- */
-/* плашка вверху по центру, под строкой поиска: стрелка к точке, расстояние, сторона света, путь */
-.go-card {
-  position: fixed;
-  left: 50%;
-  top: calc(var(--top-inset) + var(--button) + 2 * var(--gap));
-  /* поверх барабанов (Грегори 2026-11-04: на телефоне барабан закрывал плашку) */
-  z-index: 22;
-  transform: translateX(-50%);
-  box-sizing: border-box;
+/* ---------- «Куда идти» — карточка цели в окне «Навигация» (content/navigation.js) ---------- */
+.nav-card {
+  margin: 2px 4px 10px;
+  padding: 8px 6px 8px 10px;
+  border-radius: var(--radius);
+  background: var(--panel-hover);
+}
+
+.nav-card-top {
   display: flex;
   align-items: center;
   gap: 8px;
-  max-width: calc(100vw - var(--side-l) - var(--side-r));
-  padding: 4px 4px 4px 10px;
-  background: var(--panel);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
 }
 
-.go-card[hidden] {
-  display: none;
+.nav-card .go-ways {
+  margin-top: 6px;
+}
+
+.nav-way {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nav-results {
+  display: flex;
+  flex-direction: column;
 }
 
 .go-arrow {

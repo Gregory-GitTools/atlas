@@ -179,32 +179,65 @@ try {
   await sleep(3000);
   const nN = await nav();
   check("навигация: С — я в центре, север вверху, точка вместо стрелки", nN.mode === "north" && nN.bearing === 0 && nN.pitch === 0 && Math.abs(nN.me.x) <= 3 && Math.abs(nN.me.y) <= 3 && !nN.chevron && nN.zoom === 14.3, JSON.stringify(nN));
-  // «Куда идти»: в окне на карте — «Сюда»; плашка — расстояние и сторона; путь пешком (сервер маршрутов)
+  // «Куда идти» — в самом окне поиска (Грегори 2026-11-04: «не под строкой поиска, а в окне поиска»): «Сюда»
+  // в окне на карте — точка, строка поиска «Куда идти?», в её списке стрелка, расстояние и сторона; путь пешком
+  const navPanel = `document.querySelector(".search-results")`;
+  const exitModeNav = `(async () => { const b = document.querySelector(".search-toggle");
+    if (document.querySelector(".wheel-content").classList.contains("closed")) { b.click(); await new Promise((r) => setTimeout(r, 300)); }
+    b.click(); return true; })()`;
+  const navStats = `atlas.modules().find((m) => m.id === "content/navigation").stats()`;
   const here = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
     const p = track(new atlas.ctx.maplibregl.Popup()).setLngLat([24.76, 59.43]).setHTML('<div class="popup-title">Проба</div>').addTo(atlas.map);
     const b = p.getElement().querySelector(".go-here"); const had = !!b; b?.click();
-    return { had, open: p.isOpen(), ...atlas.route.state(), card: !document.querySelector(".go-card").hidden,
-      line: atlas.map.getSource("go-line")?._data?.features?.length ?? atlas.map.querySourceFeatures("go-line").length }; })()`);
-  check("куда идти: «Сюда» в окне — плашка с расстоянием и стороной, пунктир", here.had && !here.open && here.card && here.target?.title === "Проба"
-    && /^\d[\d,]* (м|км) на юго-восток \| Проба$/.test(here.text), JSON.stringify(here));
-  await run(`document.querySelector(".go-way").click(); true`);
-  await sleep(6000);
-  const walk = await run(`atlas.route.state()`);
+    const shut = !p.isOpen();
+    await new Promise((r) => setTimeout(r, 400));
+    return { had, open: !shut, openLater: p.isOpen(), ...atlas.route.state(), panel: !${navPanel}.hidden, panels: document.querySelectorAll(".panel-left:not([hidden])").length, card: ${navPanel}.querySelector(".nav-card")?.textContent || "",
+      placeholder: document.querySelector(".search-box input").placeholder, search: !document.body.classList.contains("search-hidden"), ...${navStats} }; })()`);
+  check("куда идти: «Сюда» — в окне поиска «Куда идти?»: стрелка, расстояние и сторона, отдельного окна нет", here.had && !here.openLater && here.panel && !here.panels && here.target === "Проба"
+    && /^\d[\d,]* (м|км) на юго-восток.*Проба/.test(here.card) && here.placeholder === "Куда идти?" && here.search, JSON.stringify(here));
+  await run(`${navPanel}.querySelector(".go-way").click(); true`);
+  for (let i = 0; i < 20 && !(await run(`!!atlas.route.state().route`)); i++) await sleep(500);
+  await sleep(300);
+  const walk = await run(`({ ...atlas.route.state(), way: ${navPanel}.querySelector(".nav-way").textContent })`);
   // путь — ярко-синий и поверх всех слоёв (даже включённых после него)
-  const top = await run(`(() => { const ids = atlas.map.getStyle().layers.map((l) => l.id); return { last: ids.slice(-3), color: atlas.map.getPaintProperty("go-route", "line-color"),
-    z: [getComputedStyle(document.querySelector(".go-card")).zIndex, getComputedStyle(document.querySelector(".wheel")).zIndex] }; })()`);
-  check("куда идти: путь пешком — линия, длина и время; синяя, поверх всего, плашка над барабаном", walk.route?.way === "foot" && walk.route.points > 10 && /Пешком: .* · \d+ мин/.test(walk.text)
-    && top.last.join() === "go-route-casing,go-route,go-line" && top.color === "#0a5cff" && +top.z[0] > +top.z[1], JSON.stringify({ walk, top }));
+  const top = await run(`(() => { const ids = atlas.map.getStyle().layers.map((l) => l.id); return { last: ids.slice(-3), color: atlas.map.getPaintProperty("go-route", "line-color") }; })()`);
+  check("куда идти: путь пешком — линия, длина и время в окне; синяя, поверх всего", walk.route?.way === "foot" && walk.route.points > 10 && /Пешком: .* · \d+ мин/.test(walk.way)
+    && top.last.join() === "go-route-casing,go-route,go-line" && top.color === "#0a5cff", JSON.stringify({ walk, top }));
   await shot("00-route");
-  // навигацию выключили — путь убран, точка осталась
+  // кнопка «Навигация» в барабане поиска светится, пока навигация включена; выключили — путь убран, точка осталась
+  const wheelNav = `document.querySelector('.wheel-content .layers-circle[data-key="content/navigation"]')`;
+  const lit = await run(`({ on: ${wheelNav}?.classList.contains("on"), nav: ${navStats}.navOn })`);
   await run(`document.querySelector(".geo-btn").click(); true`);
   await sleep(500);
-  const off = await run(`atlas.route.state()`);
-  check("куда идти: навигация выключена — путь убран, точка осталась", !off.route && off.target?.title === "Проба", JSON.stringify(off));
-  await run(`document.querySelector(".geo-btn").click(); true`);
+  const off = await run(`({ ...atlas.route.state(), on: ${wheelNav}?.classList.contains("on"), nav: ${navStats}.navOn })`);
+  check("навигация: кнопка в барабане светится, пока навигация включена; выключили — путь убран, точка осталась",
+    lit.on && lit.nav && !off.on && !off.nav && !off.route && off.target?.title === "Проба", JSON.stringify({ lit, off }));
+  // кнопка в барабане включает навигацию снова
+  await run(`${wheelNav}.click(); true`);
   await sleep(2500);
-  await run(`document.querySelector(".go-close").click(); true`);
-  check("куда идти: крестик убирает точку", (await run(`({ hidden: document.querySelector(".go-card").hidden, t: atlas.route.state().target })`)).hidden);
+  const relit = await run(`({ geo: atlas.geo.state().on, on: ${wheelNav}?.classList.contains("on") })`);
+  check("навигация: кнопка в барабане включает навигацию", relit.geo && relit.on, JSON.stringify(relit));
+  // поиск места в окне навигации (Enter) — точка; история точек: свернуть, удалить
+  await run(`(() => { const i = document.querySelector(".search-box input"); i.value = "Kadriorg"; i.dispatchEvent(new Event("input")); i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return true; })()`);
+  for (let i = 0; i < 20 && !(await run(`${navPanel}.querySelectorAll(":scope > .search-item").length`)); i++) await sleep(500);
+  const found = await run(`${navPanel}.querySelectorAll(":scope > .search-item").length`);
+  await run(`${navPanel}.querySelector(":scope > .search-item").click(); true`);
+  await sleep(500);
+  const picked = await run(`({ target: atlas.route.state().target?.title, history: JSON.parse(localStorage.getItem("atlas.route.history") || "[]").map((e) => e.title) })`);
+  await run(`(() => { const i = document.querySelector(".search-box input"); i.value = ""; i.dispatchEvent(new Event("input")); return true; })()`);
+  await sleep(200);
+  const hist = await run(`({ rows: ${navPanel}.querySelectorAll(".search-history-row").length, head: ${navPanel}.querySelector(".history-fold")?.textContent })`);
+  await run(`${navPanel}.querySelector(".history-fold").click(); true`);
+  const folded = await run(`${navPanel}.querySelectorAll(".search-history-row").length`);
+  await run(`${navPanel}.querySelector(".history-fold").click(); true`);
+  await run(`${navPanel}.querySelector(".search-history-row:last-child .search-delete").click(); true`);
+  const left = await run(`JSON.parse(localStorage.getItem("atlas.route.history") || "[]").length`);
+  check("навигация: место из строки поиска — точка; история точек — свернуть, удалить", found > 0 && /Kadri|Кадри/i.test(picked.target) && picked.history.length === 2
+    && hist.rows === 2 && /Недавние точки \(2\)/.test(hist.head) && folded === 0 && left === 1, JSON.stringify({ found, picked, hist, folded, left }));
+  await run(`${navPanel}.querySelector(".go-close").click(); true`);
+  await sleep(200);
+  check("куда идти: крестик убирает точку", !(await run(`atlas.route.state().target`)) && !(await run(`!!${navPanel}.querySelector(".nav-card")`)));
+  await run(exitModeNav);
   await run(`document.querySelector(".compass-btn").click(); true`); // снова 2D
   await run(`document.querySelector(".geo-btn").click(); true`); // слежение → выключить
   await send("Emulation.clearGeolocationOverride");
@@ -315,6 +348,9 @@ try {
   await sleep(2500);
   const empty = await run(`document.querySelector(".maplibregl-popup .popup-coords")?.textContent || ""`);
   check("щелчок по карте — координаты", /^\d+\.\d+, \d+\.\d+$/.test(empty), empty);
+  // окно со «Сюда» у края экрана целиком на экране (Грегори 2026-11-04: на телефоне уходило за край)
+  const popFit = await run(`(() => { const r = document.querySelector(".maplibregl-popup")?.getBoundingClientRect(); return r && { l: Math.round(r.left), t: Math.round(r.top), r: Math.round(r.right), b: Math.round(r.bottom), w: innerWidth, h: innerHeight, here: !!document.querySelector(".maplibregl-popup .go-here") }; })()`);
+  check("окно места со «Сюда» — целиком на экране", popFit && popFit.here && popFit.l >= 0 && popFit.t >= 0 && popFit.r <= popFit.w && popFit.b <= popFit.h, JSON.stringify(popFit));
   await clickAt(40, 400);
   await sleep(400);
   check("второй щелчок закрывает окно", await run(`!document.querySelector(".maplibregl-popup")`));
@@ -1262,7 +1298,7 @@ try {
   check("лупа: щелчок — поиск и разделы, на её месте логотип; треугольник — слои; второй щелчок прячет",
     !lens.s0.search && !lens.s0.content && lens.s0.lenses === 1 && lens.s1.content && lens.s1.search && lens.s1.logo && lens.s1.lenses === 1
     && lens.s2.layers && !lens.s2.content && lens.s2.search && !lens.s3.layers && !lens.s4.search && !lens.s4.content && !lens.s4.logo
-    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои треки", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
+    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои треки", "Навигация", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико
   // крутит его, нажатие по кнопке не в центре докручивает её и открывает столбик
   await run(`document.querySelector(".sub-layers").hidden || document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); true`);

@@ -173,6 +173,8 @@ export function initLayersPanel(ctx) {
     if (mode) emit("search-exit");
   });
   on("search-mode", (m) => { mode = m; paint(); });
+  // раздел живёт в самой строке поиска (навигация) — строка нужна; на телефоне барабан уступает место
+  on("search-show", () => setShown(innerWidth <= 600 ? null : shown || "content", true), { replay: false });
   // открылась панель настроек (на телефоне — любая) — барабан уступает место
   on("panel", (p) => p && shown && (p.side === "right" || innerWidth <= 600) && setShown(null), { replay: false });
 

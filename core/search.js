@@ -2,7 +2,13 @@
 // правила запрещают подсказки на каждую букву, поэтому поиск — по Enter или лупе. Места рядом
 // с видимой частью карты — выше в списке. История — последние выбранные места (до 20): при пустой
 // строке видна под полем, щелчок ведёт на место без нового запроса; строки можно перетаскивать
-// (так складывается своё избранное) и удалять. Стрелки ↑↓ — по списку, Enter — выбрать.
+// (так складывается своё избранное) и удалять, историю — свернуть (core/history.js; Грегори
+// 2026-11-04: «не хватает сворачивания истории поиска»). Стрелки ↑↓ — по списку, Enter — выбрать.
+// Режим с submit и list (навигация, Грегори 2026-11-04: «не под строкой поиска, а в окне поиска — это
+// поиск и список поисковых запросов, только с возможностью проложить») — свой список в том же окне под
+// строкой: list({ full }) → узлы; full — полный (строка в работе), иначе — только главное (щёлкнули мимо);
+// Enter — его submit(текст), места он ищет сам через geocode() — тот же Nominatim с теми же правилами.
+// refreshSearchList() — раздел перерисовывает свой список
 // Поиск — модуль-служба: отправляет текст запроса и район карты, подчиняется режиму «без сети».
 // Режимы (Грегори, 2026-10-29: «без окна поиска не обойтись; после выбора режимов в окне поиска должен
 // появляться соответствующий значок»): раздел (Языки, Экскурсии, Альбомы) включает свой режим —
@@ -15,6 +21,7 @@ import { emit, on } from "./events.js";
 import * as settings from "./settings.js";
 import { uiLanguage, languageButton } from "./labels.js";
 import { track } from "./popups.js";
+import { historyList, remember as rememberIn } from "./history.js";
 
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
 const HISTORY_KEY = "search.history";
@@ -22,7 +29,6 @@ const HISTORY_SIZE = 20;
 
 const SEARCH_ICON = `<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>`;
 const CLEAR_ICON = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
-const DRAG_ICON = `<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M9 5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm-6 5.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM9 16a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z"/></svg>`;
 
 register({
   id: "core/search",
@@ -35,12 +41,27 @@ const self = () => modules("service").find((m) => m.id === "core/search");
 let mode = null, setMode = () => {};
 // включить режим раздела (null — обратно к поиску мест)
 export const setSearchMode = (m) => setMode(m);
+let showMode = () => {};
+export const refreshSearchList = () => showMode();
 export const searchMode = () => mode;
 
-const loadHistory = () => settings.get(HISTORY_KEY, []);
-const saveHistory = (list) => settings.set(HISTORY_KEY, list.length ? list : null);
+// места по тексту (Nominatim): рядом с видимой частью карты — выше; null — поиск выключен в настройках
+let mapRef = null;
+export async function geocode(q, limit = 8) {
+  if (!allowed(self())) return null;
+  const params = new URLSearchParams({ q, format: "jsonv2", limit: String(limit), "accept-language": uiLanguage() });
+  if (mapRef && mapRef.getZoom() >= 5) {
+    const b = mapRef.getBounds();
+    params.set("viewbox", [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()].map((v) => v.toFixed(4)).join(","));
+    params.set("bounded", "0");
+  }
+  const res = await fetch(`${NOMINATIM}?${params}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
 
 export function initSearch({ map, maplibregl }) {
+  mapRef = map;
   const bar = Object.assign(document.createElement("div"), { className: "search" });
   // слева — логотип Atlas (Грегори, 2026-10-29: строка поиска как у Google, логотип внутри слева)
   bar.innerHTML = `<div class="search-box">
@@ -64,6 +85,16 @@ export function initSearch({ map, maplibregl }) {
     input.placeholder = m?.placeholder || "Поиск места";
     emit("search-mode", m && { icon: m.icon, title: m.title, tone: m.tone || "lang" });
     old?.filter("");
+    full = true;
+    showMode();
+  };
+  // свой список раздела — в окне поиска
+  let full = true;
+  showMode = () => {
+    if (!mode?.list) return;
+    const nodes = mode.list({ full });
+    list.replaceChildren(...nodes);
+    list.hidden = !nodes.length;
   };
   // закрыли поиск кнопкой справа вверху — выйти из режима раздела (и закрыть его панель)
   on("search-exit", () => { const m = mode; setMode(null); m?.exit(); }, { replay: false });
@@ -85,53 +116,17 @@ export function initSearch({ map, maplibregl }) {
     return b;
   };
 
-  const historyRow = (r) => {
-    const row = Object.assign(document.createElement("div"), { className: "search-history-row" });
-    row.entry = r;
-    const handle = Object.assign(document.createElement("span"), { className: "search-drag", title: "Перетащить выше или ниже", innerHTML: DRAG_ICON });
-    handle.addEventListener("pointerdown", (e) => drag(e, row));
-    const del = Object.assign(document.createElement("button"), { className: "search-delete", title: "Удалить из истории", innerHTML: CLEAR_ICON });
-    del.addEventListener("click", (e) => {
-      e.stopPropagation(); // список перерисуется — щелчок не должен считаться «мимо поиска»
-      saveHistory(loadHistory().filter((h) => h.display_name !== r.display_name));
-      showHistory();
-    });
-    row.append(handle, item(r), del);
-    return row;
-  };
-
-  // перетаскивание указателем (HTML5 drag-and-drop не работает на телефоне): соседи перепрыгивают
-  // через строку, сама строка остаётся на месте — иначе браузер отпустит захват указателя
-  const drag = (e, row) => {
-    e.preventDefault();
-    const handle = e.currentTarget;
-    const isRow = (n) => n?.classList?.contains("search-history-row");
-    handle.setPointerCapture(e.pointerId);
-    row.classList.add("dragging");
-    const move = (ev) => {
-      const { top, bottom } = row.getBoundingClientRect();
-      if (ev.clientY < top && isRow(row.previousElementSibling)) list.insertBefore(row.previousElementSibling, row.nextElementSibling);
-      else if (ev.clientY > bottom && isRow(row.nextElementSibling)) list.insertBefore(row.nextElementSibling, row);
-    };
-    const end = () => {
-      handle.removeEventListener("pointermove", move);
-      handle.removeEventListener("pointerup", end);
-      handle.removeEventListener("pointercancel", end);
-      row.classList.remove("dragging");
-      saveHistory([...list.querySelectorAll(".search-history-row")].map((r) => r.entry));
-    };
-    handle.addEventListener("pointermove", move);
-    handle.addEventListener("pointerup", end);
-    handle.addEventListener("pointercancel", end);
-  };
 
   const showHistory = () => {
     cursor = null;
-    const history = loadHistory();
-    if (input.value.trim() || !history.length) { close(); return; }
-    const clear = Object.assign(document.createElement("button"), { className: "search-history-clear", textContent: "Очистить историю" });
-    clear.addEventListener("click", (e) => { e.stopPropagation(); saveHistory([]); close(); });
-    list.replaceChildren(...history.map(historyRow), clear);
+    if (input.value.trim()) { close(); return; }
+    const h = historyList({ key: HISTORY_KEY, title: "История поиска", id: (e) => e.display_name,
+      label: (e) => { const [t, ...rest] = e.display_name.split(", "); return { title: t, sub: rest.join(", ") }; },
+      pick: (e) => choose(e, e.display_name.split(", ")[0]), changed: showHistory });
+    if (!h.childElementCount) { close(); return; }
+    // строкам истории — как найденным: стрелки ↑↓ ходят по ним
+    for (const b of h.querySelectorAll(".search-item")) b.dataset.key = b.closest(".search-history-row").entry.display_name;
+    list.replaceChildren(h);
     list.hidden = false;
   };
 
@@ -140,18 +135,9 @@ export function initSearch({ map, maplibregl }) {
     const q = input.value.trim();
     if (!q) return;
     if (!allowed(self())) { note("Поиск мест выключен в настройках: он обращается в интернет"); return; }
-    const params = new URLSearchParams({ q, format: "jsonv2", limit: "8", "accept-language": uiLanguage() });
-    // места рядом с видимой частью карты — выше (bounded=0 — остальной мир не отсекается)
-    if (map.getZoom() >= 5) {
-      const b = map.getBounds();
-      params.set("viewbox", [b.getWest(), b.getNorth(), b.getEast(), b.getSouth()].map((v) => v.toFixed(4)).join(","));
-      params.set("bounded", "0");
-    }
     note("Поиск…");
     try {
-      const res = await fetch(`${NOMINATIM}?${params}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const results = await res.json();
+      const results = await geocode(q);
       if (!results.length) { note("Ничего не найдено"); return; }
       list.replaceChildren(...results.map(item));
     } catch (err) {
@@ -161,11 +147,8 @@ export function initSearch({ map, maplibregl }) {
   };
 
   // новое место — наверх; уже известное остаётся на своём месте (избранное не перемешивается)
-  const remember = (r) => {
-    const entry = { display_name: r.display_name, lat: r.lat, lon: r.lon, boundingbox: r.boundingbox };
-    const history = loadHistory();
-    if (!history.some((h) => h.display_name === entry.display_name)) saveHistory([entry, ...history].slice(0, HISTORY_SIZE));
-  };
+  const remember = (r) => rememberIn(HISTORY_KEY, { display_name: r.display_name, lat: r.lat, lon: r.lon, boundingbox: r.boundingbox },
+    (e) => e.display_name, HISTORY_SIZE);
 
   const choose = (r, title) => {
     close();
@@ -197,21 +180,25 @@ export function initSearch({ map, maplibregl }) {
     const i = items.findIndex((it) => it.dataset.key === cursor);
     if (e.key === "ArrowDown" && items.length) { e.preventDefault(); cursor = items[Math.min(items.length - 1, i + 1)].dataset.key; mark(); }
     else if (e.key === "ArrowUp" && i >= 0) { e.preventDefault(); cursor = i > 0 ? items[i - 1].dataset.key : null; mark(); }
-    else if (e.key === "Enter") { if (mode) return; if (i >= 0) { e.preventDefault(); items[i].click(); } else run(); }
+    else if (e.key === "Enter") { if (mode) { mode.submit?.(input.value.trim()); return; } if (i >= 0) { e.preventDefault(); items[i].click(); } else run(); }
     else if (e.key === "Escape") close();
   });
-  input.addEventListener("input", () => { clearBtn.hidden = !input.value; if (mode) mode.filter(input.value.trim()); else showHistory(); });
-  input.addEventListener("focus", () => !mode && showHistory());
-  bar.querySelector(".search-go").addEventListener("click", () => { input.focus(); if (mode) mode.filter(input.value.trim()); else run(); });
+  input.addEventListener("input", () => { clearBtn.hidden = !input.value; full = true; if (mode) { mode.filter(input.value.trim()); showMode(); } else showHistory(); });
+  input.addEventListener("focus", () => { full = true; if (!mode) showHistory(); else showMode(); });
+  bar.querySelector(".search-go").addEventListener("click", () => { input.focus(); if (mode) (mode.submit || mode.filter)(input.value.trim()); else run(); });
   clearBtn.addEventListener("click", () => {
     input.value = "";
     clearBtn.hidden = true;
-    if (mode) { mode.filter(""); input.focus(); return; }
+    if (mode) { mode.filter(""); full = true; showMode(); input.focus(); return; }
     marker?.remove();
     marker = null;
     input.focus();
     showHistory();
   });
   // щелчок мимо поиска закрывает список (строка, по которой щёлкнули, могла уже перерисоваться)
-  document.addEventListener("click", (e) => e.target.isConnected && !bar.contains(e.target) && close());
+  // у раздела со своим списком — сворачивается до главного (цель навигации остаётся видна)
+  document.addEventListener("click", (e) => {
+    if (!e.target.isConnected || bar.contains(e.target)) return;
+    if (mode?.list) { if (full) { full = false; showMode(); } } else close();
+  });
 }
