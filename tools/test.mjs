@@ -784,7 +784,7 @@ try {
               fav: riga.items.find((i) => /-Albom$/.test(i.name))?.items.map((i) => i.name) || null }; })()`;
           const saved = await run(fsState);
           check("правка: карандаш у своего снимка, поворот на 3° — сохранено: исходник в «[Originals]», снимок обрезан по рамке, копия в «…-Albom»",
-            e0.enabled && e1.open && e1.bar && e1.tools === 11 && e1.save && e1.nav === "none" && e2.dirty && !e2.save && e2.label === "3,0°"
+            e0.enabled && e1.open && e1.bar && e1.tools === 13 && e1.save && e1.nav === "none" && e2.dirty && !e2.save && e2.label === "3,0°"
             && saved.orig && saved.size[0] < 400 && saved.size[0] > 340 && JSON.stringify(saved.fav) === '["r.jpg"]', JSON.stringify({ e0, e1, e2, saved }));
           await srun(`document.querySelector(".edit-btn").click(); true`);
           for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
@@ -845,6 +845,32 @@ try {
           for (let i = 0; i < 40 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
           const ps = await run(fsState);
           check("правка: перспектива сохранена — кадр по рамке", Math.abs(ps.size[0] - p2.s2.crop.w) <= 2 && Math.abs(ps.size[1] - p2.s2.crop.h) <= 2, JSON.stringify({ ps, crop: p2.s2.crop }));
+          // шум и цвет: плитки вариантов с маленьким снимком; «Лёгкое» и «Ч/Б» — превью с обработкой, сохранено серым
+          await srun(`document.querySelector(".edit-btn").click(); true`);
+          for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          const tool = (t) => srun(`[...document.querySelectorAll(".edit-tool")].find((b) => b.title === ${JSON.stringify(t)}).click(); true`);
+          const tile = (t) => srun(`[...document.querySelectorAll(".edit-tiles:not([hidden]) .edit-tile")].find((b) => b.title === ${JSON.stringify(t)}).click(); true`);
+          await tool("Шумоподавление");
+          for (let i = 0; i < 40 && (await srun(`document.querySelectorAll(".edit-tiles:not([hidden]) .edit-tile canvas").length`)) < 4; i++) await sleep(300);
+          const nt = await srun(`({ tiles: [...document.querySelectorAll(".edit-tiles:not([hidden]) .edit-tile")].map((b) => b.title), drawn: document.querySelectorAll(".edit-tiles:not([hidden]) canvas").length })`);
+          await tile("Лёгкое");
+          for (let i = 0; i < 40 && !(await srun(`galleryEditor.state().shown`)); i++) await sleep(300);
+          await tool("Цвет");
+          for (let i = 0; i < 40 && (await srun(`document.querySelectorAll(".edit-tiles:not([hidden]) .edit-tile canvas").length`)) < 5; i++) await sleep(300);
+          await tile("Ч/Б");
+          for (let i = 0; i < 40 && (await srun(`galleryEditor.state().values.color !== "bw" || document.body.classList.contains("busy")`)); i++) await sleep(300);
+          const cs = await srun(`({ ...galleryEditor.state(), tiles: [...document.querySelectorAll(".edit-tiles:not([hidden]) .edit-tile")].map((b) => b.title) })`);
+          await gsend("Page.captureScreenshot", { format: "png" }).then((res) => fs.writeFileSync(path.join(OUT, "00-color.png"), Buffer.from(res.data, "base64")));
+          check("правка: шум и цвет — плитки с вариантами, «Лёгкое» и «Ч/Б» на превью",
+            JSON.stringify(nt.tiles) === '["Выкл","Лёгкое","Среднее","Сильное"]' && nt.drawn === 4 && cs.values.noise === "light" && cs.values.color === "bw" && cs.shown && cs.dirty
+            && JSON.stringify(cs.tiles) === '["Оригинал","Авто","Контраст+","Ч/Б","Тепло"]', JSON.stringify({ nt, cs }));
+          await srun(`document.querySelector(".edit-save").click(); true`);
+          for (let i = 0; i < 60 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          const gray = await run(`(async () => { const riga = atlasGalleryRoots()[0].items.find((i) => i.name === "20240101 Рига"), f = riga.items.find((i) => i.name === "r.jpg");
+            const b = await createImageBitmap(f.data), c = Object.assign(document.createElement("canvas"), { width: b.width, height: b.height }), x = c.getContext("2d"); x.drawImage(b, 0, 0);
+            const pts = [[0.5, 0.25], [0.5, 0.75]].map(([u, v]) => [...x.getImageData(Math.floor(b.width * u), Math.floor(b.height * v), 1, 1).data.slice(0, 3)]);
+            return { pts, gray: pts.every(([r, g, bl]) => Math.abs(r - g) <= 6 && Math.abs(g - bl) <= 6) }; })()`);
+          check("правка: шум и цвет сохранены — снимок серый", gray.gray, JSON.stringify(gray));
           // у ролика правки нет — карандаш виден, но неактивен
           await srun(`document.querySelectorAll(".thumb")[1].click(); true`);
           await sleep(500);

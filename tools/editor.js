@@ -12,6 +12,10 @@
 // рамка двигается, но за края снимка (с учётом поворота) не выходит — упирается и скользит.
 // Перспектива (tools/perspective.js) — четыре ручки по углам снимка: тянешь угол — снимок
 // по-настоящему искажается (сходящиеся стены становятся ровными); рамка — внутри искажённого.
+// Шум и цвет (tools/noise.js, tools/color.js, как в photo-editor) — обработка пикселей (filter):
+// превью показывает её сразу, при сохранении она идёт по снимку в полный размер, по всему кадру
+// до поворота и рамки (иначе автоконтраст менялся бы от рамки — опыт photo-editor). Варианты —
+// плитками над полосой с маленьким снимком в каждом; одна строка над полосой за раз (panel).
 // Сохранение — как в photo-editor: исходник — в «[Originals]» рядом со снимком (только при первой
 // правке), снимок переписывается, копия — в «…-Albom» поездки (в Atlas это «Избранное»); EXIF
 // (место, дата, камера) переносится целиком (tools/jpeg.js). «Оригинал» возвращает исходник.
@@ -21,7 +25,7 @@ import { cacheGet } from "../core/storage.js";
 import * as settings from "../core/settings.js";
 import { keepExif } from "./jpeg.js";
 
-const TOOLS = ["./rotate.js", "./perspective.js", "./crop.js"]; // новый инструмент — файл в tools/ и строка здесь
+const TOOLS = ["./rotate.js", "./perspective.js", "./crop.js", "./noise.js", "./color.js"]; // новый инструмент — файл в tools/ и строка здесь
 const PREVIEW_MAX = 2400; // как в photo-editor (было 1000 — при увеличении снимок размывался)
 const ORIGINALS = "[Originals]";
 const QUALITY = 0.92;
@@ -197,8 +201,12 @@ const kept = () => (ed.cropOn ? ed.crop : biggest(ed.pv.width / ed.pv.height));
 // q, flip — повороты на 90° и зеркало; angle — точный угол, °
 // cropOn — рамка открыта, crop — рамка, aspect — пропорции (помнятся), touched — рамку двигали рукой
 const ed = { p: null, file: null, src: null, pv: null, q: 0, flip: false, angle: 0, grid: false, dragging: false, hasOriginal: false,
-  cropOn: false, crop: null, aspect: settings.get("edit.aspect", "photo"), touched: false, quad: null, persp: false };
-const dirty = () => !!ed.p && (ed.angle !== 0 || ed.q % 4 !== 0 || ed.flip || warped() || (ed.cropOn && !same(ed.crop, biggest(ed.pv.width / ed.pv.height))));
+  cropOn: false, crop: null, aspect: settings.get("edit.aspect", "photo"), touched: false, quad: null, persp: false,
+  panel: null, shown: null, values: {} };
+// обработка пикселей от инструментов: { key, order, off, apply(canvas, value) } — по порядку order
+const filters = [];
+const active = (v = ed.values) => filters.filter((f) => v[f.key] !== undefined && v[f.key] !== f.off);
+const dirty = () => !!ed.p && (ed.angle !== 0 || ed.q % 4 !== 0 || ed.flip || warped() || active().length > 0 || (ed.cropOn && !same(ed.crop, biggest(ed.pv.width / ed.pv.height))));
 const say = (text) => { note.textContent = text || ""; note.classList.toggle("show", !!text); };
 
 // доступ к своей папке: из IndexedDB этого окна (так браузер даёт просить запись из него),
@@ -243,8 +251,9 @@ function draw() {
   x.translate(cx, cy);
   x.rotate((ed.angle * Math.PI) / 180);
   x.imageSmoothingQuality = "high";
-  if (warped()) { x.scale(s, s); x.translate(-W / 2, -H / 2); drawWarped(x, ed.pv, ed.quad.map(([qx, qy]) => [qx + W / 2, qy + H / 2]), s); }
-  else x.drawImage(ed.pv, (-W * s) / 2, (-H * s) / 2, W * s, H * s);
+  const img = ed.shown || ed.pv; // с шумом и цветом
+  if (warped()) { x.scale(s, s); x.translate(-W / 2, -H / 2); drawWarped(x, img, ed.quad.map(([qx, qy]) => [qx + W / 2, qy + H / 2]), s); }
+  else x.drawImage(img, (-W * s) / 2, (-H * s) / 2, W * s, H * s);
   x.restore();
   // рамка: то, что останется; за ней — затемнено; у открытой рамки — уголки
   const k = kept(), rx = cx + k.x * s, ry = cy + k.y * s, rw = k.w * s, rh = k.h * s;
@@ -396,26 +405,59 @@ const api = {
   turn(d) {
     const o = ed.quad;
     ed.quad = d > 0 ? o.map((_, i) => { const [x, y] = o[(i + 3) % 4]; return [-y, x]; }) : o.map((_, i) => { const [x, y] = o[(i + 1) % 4]; return [y, -x]; });
-    ed.q = (ed.q + d + 4) % 4; ed.pv = turned(ed.src, ed.q, ed.flip); ed.angle = 0; refit(); sync();
+    ed.q = (ed.q + d + 4) % 4; ed.pv = turned(ed.src, ed.q, ed.flip); ed.angle = 0; refit(); refilter();
   },
   // зеркало — слева направо, как видно на экране: после поворота на 90° одного переключения flip
   // мало (отразило бы сверху вниз) — поворот меняется на обратный
   mirror() {
     const o = ed.quad;
     ed.quad = [o[1], o[0], o[3], o[2]].map(([x, y]) => [-x, y]);
-    ed.flip = !ed.flip; ed.q = (4 - ed.q) % 4; ed.pv = turned(ed.src, ed.q, ed.flip); ed.angle = 0; refit(); sync();
+    ed.flip = !ed.flip; ed.q = (4 - ed.q) % 4; ed.pv = turned(ed.src, ed.q, ed.flip); ed.angle = 0; refit(); refilter();
   },
   // перспектива: ручки показать или убрать (поправленное остаётся); «как было» — снимок без неё
   perspective(on = !ed.persp) { ed.persp = on; sync(); },
   resetQuad() { ed.quad = rectQuad(); ed.crop = ed.touched ? shrink(ed.crop) : biggest(); sync(); },
   warped,
   // рамка: открыть или убрать; пропорции — открывают её заново, самой большой
-  crop(on = !ed.cropOn) { ed.cropOn = on; refit(); sync(); },
+  crop(on = !ed.cropOn) { ed.cropOn = on; ed.panel = on ? "crop" : ed.panel === "crop" ? null : ed.panel; refit(); sync(); },
   setAspect(key) { ed.aspect = key; settings.set("edit.aspect", key); ed.cropOn = true; refit(); sync(); },
+  // строка над полосой: одна за раз (пропорции, шум, цвет); второй щелчок — убрать
+  panel(key) { ed.panel = ed.panel === key ? null : key; sync(); },
+  // обработка пикселей: инструмент объявляет её, значение — в ed.values[key]
+  filter(f) { filters.push(f); filters.sort((a, b) => a.order - b.order); ed.values[f.key] = f.off; },
+  setValue(key, v) { ed.values[key] = v; refilter(); },
+  // маленькая копия снимка с обработкой, как будто ed.values[key] = v — для плиток вариантов
+  async sample(key, v, width = 96) {
+    const src = ed.pv, w = width, h = Math.max(1, Math.round((width * src.height) / src.width));
+    const c = Object.assign(document.createElement("canvas"), { width: w, height: h });
+    c.getContext("2d").drawImage(src, 0, 0, w, h);
+    await runFilters(c, { ...ed.values, [key]: v }, w / src.width);
+    return c;
+  },
   // копия превью без поворота — для поиска горизонта
   preview: () => ed.pv,
 };
 const refit = () => { ed.touched = false; ed.crop = biggest(); };
+// k — во сколько раз холст меньше превью (у плиток): шумодаву — меньше окрестность
+async function runFilters(c, values, k = 1) {
+  for (const f of active(values)) await f.apply(c, values[f.key], k);
+}
+// превью с обработкой — заново; пока считается (шум — секунды), крутится кружок
+let filtering = 0;
+async function refilter() {
+  const n = ++filtering;
+  if (!active().length) { ed.shown = null; sync(); return; }
+  document.body.classList.add("busy");
+  sync();
+  try {
+    const c = Object.assign(document.createElement("canvas"), { width: ed.pv.width, height: ed.pv.height });
+    c.getContext("2d").drawImage(ed.pv, 0, 0);
+    await new Promise((r) => setTimeout(r, 20)); // кружок успевает показаться
+    await runFilters(c, ed.values);
+    if (n === filtering && ed.pv) ed.shown = c;
+  } catch (err) { say(err.message); }
+  if (n === filtering) { document.body.classList.remove("busy"); sync(); }
+}
 const syncers = [];
 const groups = Object.assign(document.createElement("div"), { className: "edit-tools" });
 const restoreBtn = button(svg("M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"), "Вернуть снимок, каким он был до правки", restore);
@@ -457,7 +499,8 @@ async function open(p) {
     const src = k < 1 ? downsample(bmp, Math.round(bmp.width * k), Math.round(bmp.height * k)) : turned(bmp, 0, false);
     bmp.close?.();
     if (g.current() !== p) return;
-    Object.assign(ed, { p, file, src, pv: src, q: 0, flip: false, angle: 0, cropOn: false, persp: false, hasOriginal: !!(await originalOf(where)) });
+    Object.assign(ed, { p, file, src, pv: src, shown: null, q: 0, flip: false, angle: 0, cropOn: false, persp: false, panel: null, hasOriginal: !!(await originalOf(where)) });
+    for (const f of filters) ed.values[f.key] = f.off; // как в photo-editor: «Оригинал», шум выключен
     ed.quad = rectQuad();
     refit();
     document.body.classList.add("editing");
@@ -475,7 +518,7 @@ async function open(p) {
 function close(force = false) {
   if (!ed.p) return true;
   if (!force && dirty() && !confirm("Выйти без сохранения? Правка пропадёт.")) return false;
-  Object.assign(ed, { p: null, file: null, src: null, pv: null, angle: 0, q: 0, flip: false, dragging: false, cropOn: false, crop: null, quad: null, persp: false });
+  Object.assign(ed, { p: null, file: null, src: null, pv: null, angle: 0, q: 0, flip: false, dragging: false, cropOn: false, crop: null, quad: null, persp: false, shown: null, panel: null });
   drag = null;
   document.body.classList.remove("editing");
   canvas.hidden = bar.hidden = sub.hidden = true;
@@ -516,7 +559,14 @@ async function save() {
     const where = await locate(p, true);
     // полный размер: исходник → повороты на 90° и зеркало → точный угол и рамка
     const bmp = await createImageBitmap(ed.file, { imageOrientation: "from-image" });
-    const base = ed.q || ed.flip ? turned(bmp, ed.q, ed.flip) : bmp;
+    let base = ed.q || ed.flip ? turned(bmp, ed.q, ed.flip) : bmp;
+    // шум и цвет — по всему кадру в полный размер, до поворота и рамки
+    if (active().length) {
+      say("Сохраняю: шум и цвет…");
+      if (!(base instanceof HTMLCanvasElement)) base = turned(base, 0, false);
+      await new Promise((res) => setTimeout(res, 30));
+      await runFilters(base, ed.values, base.width / ed.pv.width);
+    }
     // рамка — в точках превью: в полный размер — во столько раз, во сколько снимок больше превью
     const W = base.width, H = base.height, f = W / ed.pv.width, r = kept();
     let out;
@@ -601,7 +651,7 @@ addEventListener("beforeunload", (e) => { if (dirty()) e.preventDefault(); });
 // для проверки
 window.galleryEditor = { state: () => ({ open: !!ed.p, angle: ed.angle, q: ed.q, flip: ed.flip, dirty: dirty(), hasOriginal: ed.hasOriginal, pv: ed.pv && [ed.pv.width, ed.pv.height], note: note.textContent,
   cropOn: ed.cropOn, aspect: ed.aspect, crop: ed.crop && Object.fromEntries(Object.entries(ed.crop).map(([k, v]) => [k, Math.round(v * 10) / 10])), fits: !!ed.crop && fits(ed.crop),
-  persp: ed.persp, warped: !!ed.quad && warped(), quad: ed.quad && ed.quad.map((c) => c.map((v) => Math.round(v))) }),
+  persp: ed.persp, warped: !!ed.quad && warped(), panel: ed.panel, values: { ...ed.values }, shown: !!ed.shown, quad: ed.quad && ed.quad.map((c) => c.map((v) => Math.round(v))) }),
   // угол снимка (с перспективой и поворотом) → точка экрана
   cornerOnScreen: (i) => { const [x, y] = outline()[i], b = canvas.getBoundingClientRect(); return [b.left + (view.cx + x * view.s) / view.dpr, b.top + (view.cy + y * view.s) / view.dpr]; },
   // точка рамки (в точках превью от середины снимка) → точка экрана — проверка тянет за уголки

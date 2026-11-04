@@ -10,7 +10,7 @@ let loading = null;
 // cv успевает проснуться раньше, чем на него вешают onRuntimeInitialized (опыт photo-editor) —
 // готовность проверяется опросом. Сам cv обещанием не отдаётся: у него есть then, и обещание,
 // получив его, зовёт then снова и снова — страница падала (проверено на снимках Грегори)
-function opencv() {
+export function opencv() {
   if (window.cv && typeof window.cv.Mat === "function") return Promise.resolve(); // уже загружена
   loading ??= new Promise((resolve, reject) => {
     const s = Object.assign(document.createElement("script"), { src: OPENCV, async: true });
