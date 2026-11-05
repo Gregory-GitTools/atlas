@@ -29,7 +29,7 @@ export function addScale(map, maplibregl) {
 // как в Google Maps и Mapy.com: первый щелчок — слежение, карта встаёт на меня (центр значка синий);
 // сдвинул карту рукой — она не бегает за мной (центр серый), через 10 секунд сама возвращается
 // («пешком и в машине всегда к себе»); щелчок по серому — сразу ко мне, по синему — выключить.
-// Включённое слежение помнится. Грегори, 2026-11-03 — где я на экране, по режиму компаса:
+// При запуске не включается никогда. Грегори, 2026-11-03 — где я на экране, по режиму компаса:
 //   С (север вверху) — я в центре, карта не крутится;
 //   2D — я в центре, стороны света — как повернули (карта не крутится);
 //   3D — я в нижней части, карта по ходу движения.
@@ -85,8 +85,9 @@ export function addGeolocate(map, maplibregl, status) {
     if (!position || compassTurning) return;
     const offset = [0, low() ? Math.round(innerHeight * NAV_LOW) : 0];
     const bearing = compassMode === "north" ? { bearing: 0 } : courseUp() && moveHeading !== null ? { bearing: moveHeading } : {};
-    if (first && map.getZoom() < FAR_ZOOM) map.flyTo({ center: position, zoom: GEO_ZOOM, offset, ...bearing, duration: 3000 });
-    else map.easeTo({ center: position, offset, ...bearing, duration, easing: (t) => t });
+    // navFollow — окна на карте от этого не закрываются (Грегори 2026-11-04: «окно Сюда постоянно сбрасывается»)
+    if (first && map.getZoom() < FAR_ZOOM) map.flyTo({ center: position, zoom: GEO_ZOOM, offset, ...bearing, duration: 3000 }, { navFollow: true });
+    else map.easeTo({ center: position, offset, ...bearing, duration, easing: (t) => t }, { navFollow: true });
     first = false;
   };
   // метка — плавно от прежней точки к новой
@@ -152,7 +153,6 @@ export function addGeolocate(map, maplibregl, status) {
       if (err.code === err.PERMISSION_DENIED) { stop(); status("Нет доступа к местоположению — разрешите его браузеру"); }
       else status("Не удаётся определить местоположение");
     }, { enableHighAccuracy: true, maximumAge: 1000 });
-    settings.set("geolocate", true);
     update();
   };
   const stop = () => {
@@ -164,7 +164,6 @@ export function addGeolocate(map, maplibregl, status) {
     removeEventListener("deviceorientation", onCompass);
     marker?.remove(); marker = null;
     emit("me", null);
-    settings.set("geolocate", null);
     update();
   };
 
@@ -197,7 +196,10 @@ export function addGeolocate(map, maplibregl, status) {
   });
   // включить или выключить из раздела «Навигация»
   on("nav-switch", ({ on: want }) => { if (want && watch === null) start(); else if (!want && watch !== null) stop(); }, { replay: false });
-  if (settings.get("geolocate")) start(); else update();
+  // при запуске навигация не включается никогда, даже если была включена при закрытии (Грегори 2026-11-05:
+  // «загрузка идёт, ничего не происходит, а кнопка включена — дезориентирует»)
+  settings.set("geolocate", null);
+  update();
   // для проверки
   return { state: () => ({ on: watch !== null, follow, mode: compassMode, heading, position }) };
 }

@@ -1804,6 +1804,48 @@ body.has-photo-strip .status {
   margin: 4px 6px 8px;
 }
 
+/* день в альбоме: дата, число снимков, стрелка — свернуть */
+.al-day {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 6px 0 4px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.al-day:hover {
+  background: var(--panel-hover);
+}
+
+.al-day-n {
+  margin-left: auto;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.al-day svg {
+  transform: rotate(90deg);
+  transition: transform 0.15s;
+}
+
+.al-day.shut svg {
+  transform: none;
+}
+
+.al-grid[hidden] {
+  display: none;
+}
+
 .al-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
@@ -2412,6 +2454,47 @@ body.has-photo-strip .status {
 
 .home-row.selected {
   background: var(--active);
+}
+
+/* строку поиска спрятали — окно раздела слева прячется вместе с ней (не закрывается: вернётся с ней) */
+body.search-hidden .panel-left {
+  display: none;
+}
+
+/* карточка раздела — своя панель под строкой поиска, над подсказками; свёрнута — значок в строке */
+.search-card {
+  margin-top: 6px;
+  overflow: visible;
+}
+
+.search-card .nav-card {
+  margin: 0;
+  background: none;
+}
+
+.search-card-btn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.search-card-btn:hover {
+  background: var(--panel-hover);
+}
+
+.search-card-btn[hidden] {
+  display: none;
+}
+
+.search-card-arrow {
+  display: grid;
+  color: #e53935;
 }
 
 /* ---------- «Куда идти» — карточка цели в окне «Навигация» (content/navigation.js) ---------- */

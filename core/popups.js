@@ -20,7 +20,8 @@ export function closeAll() {
 }
 
 export function initPopups(map) {
-  map.on("movestart", closeAll);
+  // кроме того, как навигация ведёт карту за мной (каждый замер GPS) — иначе окно не успеть прочитать
+  map.on("movestart", (e) => { if (!e.navFollow) closeAll(); });
 }
 
 // Свои кликабельные слои модулей (флажки мест, значки экскурсий…): щелчок по ним обрабатывает сам

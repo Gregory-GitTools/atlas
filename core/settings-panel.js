@@ -5,7 +5,7 @@ import { createPanel } from "./panel.js";
 import { addMapButton } from "./controls.js";
 import { modules, available, toggle, onRegister, isBlocked, setBlocked, offline, setOffline } from "./modules.js";
 import * as settings from "./settings.js";
-import { usage, models, removeModel, formatBytes, persist } from "./storage.js";
+import { usage, models, removeModel, formatBytes, persist, viewCache, clearViewCache } from "./storage.js";
 import { installSection, openedForInstall } from "./install.js";
 
 const GEAR_ICON = `<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54a7.4 7.4 0 0 0-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58a7.07 7.07 0 0 0 0 1.88l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54a7.4 7.4 0 0 0 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.48.48 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>`;
@@ -81,6 +81,15 @@ export function initSettingsPanel(ctx) {
       ml.append(netRow(m.title, formatBytes(m.bytes), del));
     }
     body.push(ml);
+    // запомненное при просмотре (Грегори 2026-11-04: «где хранятся? нужна кнопка очистить»): в хранилище
+    // браузера на этом устройстве, не папкой на диске — открыть её нельзя, очистить можно
+    const vc = await viewCache().catch(() => ({ n: 0, bytes: 0 }));
+    const vrow = h("div", "set-row");
+    const vclear = h("button", "text-btn", "Очистить историю просмотра");
+    vclear.disabled = !vc.n;
+    vclear.addEventListener("click", async () => { vclear.disabled = true; await clearViewCache().catch(() => {}); render(); });
+    vrow.append(h("span", "set-hint", vc.n ? `Запомнено при просмотре: ${formatBytes(vc.bytes)}` : "Запомненного при просмотре нет"), vclear);
+    body.push(vrow, h("p", "set-hint", "Найденные на карте снимки, тропы, места экскурсий и сведения о ваших снимках программа помнит неделю, чтобы знакомые места открывались без интернета и быстрее. Хранится это внутри браузера на этом устройстве, отдельной папки на диске нет. Ваши треки и выбранные папки очистка не трогает. Сами картинки браузер держит в своём временном хранилище и удаляет сам."));
     if (!u.persisted && list.length) {
       const keep = h("button", "text-btn", "Не удалять скачанное при нехватке места");
       keep.addEventListener("click", async () => { await persist(); render(); });

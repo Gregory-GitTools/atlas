@@ -1,16 +1,15 @@
 // Навигация — раздел в барабане поиска (Грегори, 2026-11-04: «кнопку Навигация — в барабан поиска,
 // окно маршрута — в окно поиска; история маршрутов — как история поиска»). Кнопка включает навигацию
 // (ту же, что кнопка слева внизу) и светится, пока она включена; её крестик навигацию выключает.
-// Окно — сама строка поиска с её списком (Грегори 2026-11-04: «не под строкой поиска, а в окне поиска:
-// поиск и список поисковых запросов, только с возможностью проложить»): строка ищет место (Enter —
-// как обычный поиск мест, Nominatim), выбранное место — цель; в списке — стрелка, расстояние и сторона
-// света, способы передвижения (пешком, велосипед, машина — проложить путь), «Убрать точку»; ниже —
-// найденные места или история точек (щелчок — снова цель, строки перетаскиваются и удаляются, историю
-// можно свернуть). Щёлкнули мимо — в списке остаётся только цель. Сама цель, линия и путь — в
-// core/route.js (здесь только окно)
+// Пока навигация включена, строка поиска — в её режиме (значок — стрелка на кнопке справа вверху):
+// «Куда»; щелчок по строке — подсказки (история точек), набор — подсказки из неё, Enter — поиск мест
+// (Nominatim), выбранное место — цель. Цель — отдельная панель под строкой (Грегори 2026-11-05: «это
+// должны быть разные панели»): стрелка, расстояние и сторона света, способы передвижения (пешком,
+// велосипед, машина — проложить путь), «Свернуть» (в строке остаётся стрелка — щелчок раскрывает) и
+// «Убрать точку». Сама цель, линия и путь — в core/route.js (здесь только окно)
 import { register } from "../core/modules.js";
 import { emit, on } from "../core/events.js";
-import { setSearchMode, searchMode, geocode, refreshSearchList } from "../core/search.js";
+import { setSearchMode, searchMode, geocode, refreshSearchList, foldSearchList, foldSearchCard } from "../core/search.js";
 import { historyList, remember } from "../core/history.js";
 import { WAYS, ARROW } from "../core/route.js";
 
@@ -21,13 +20,20 @@ const h = (tag, cls, text) => Object.assign(document.createElement(tag), { class
 
 let navOn = false, state = {}, results = null, note = "", ctx = null;
 
-// строка поиска: Enter — найти место; пустая — снова история
-const MODE = { icon: ICON, title: "Навигация", placeholder: "Куда идти?", tone: "nav",
+// строка поиска «Куда»: подсказки — история точек (при наборе — подходящие), Enter — найти место;
+// цель — своя карточка над подсказками
+const FOLD = '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>';
+const MODE = { icon: ICON, title: "Навигация", placeholder: "Куда", tone: "nav",
   filter: (text) => { if (!text && results) { results = null; note = ""; } },
   submit: (text) => find(text),
-  list: ({ full }) => nodes(full),
+  list: (q) => suggestions(q),
+  card: () => (state.target ? targetCard() : null),
+  // свёрнутая карточка — стрелка к цели в строке поиска
+  cardIcon: () => `<span class="search-card-arrow" style="transform: rotate(${state.me ? state.arrow || 0 : 0}deg)">${ARROW}</span>`,
+  cardTitle: () => (state.me ? `${state.main} — показать` : `${state.target?.title || "Точка"} — показать`),
   exit: () => {} };
-const render = () => { if (searchMode() === MODE) refreshSearchList(); };
+// карточка цели — на каждое изменение; подсказки — только когда сменились они сами
+const render = (withList = true) => { if (searchMode() === MODE) refreshSearchList(withList); };
 
 async function find(q) {
   if (!q) return;
@@ -47,7 +53,8 @@ function choose(t) {
   note = "";
   remember(HISTORY, t, id);
   emit("route-target", t);
-  render();
+  // выбрали — подсказки закрываются, карточка цели раскрыта
+  foldSearchList();
   // на карте — и я, и точка
   const map = ctx?.map;
   if (map) {
@@ -69,10 +76,13 @@ function targetCard() {
   arrow.style.transform = `rotate(${state.arrow || 0}deg)`;
   const text = h("div", "go-text");
   text.append(h("div", "go-main", state.me ? state.main : t.title), h("div", "go-sub", state.me ? t.title : "Включите навигацию — покажу, куда идти"));
+  const fold = h("button", "go-close");
+  Object.assign(fold, { type: "button", title: "Свернуть — в строке останется стрелка", innerHTML: FOLD });
+  fold.addEventListener("click", (e) => { e.stopPropagation(); foldSearchCard(); });
   const close = h("button", "go-close", "×");
   Object.assign(close, { type: "button", title: "Убрать точку" });
-  close.addEventListener("click", () => emit("route-target", null));
-  top.append(arrow, text, close);
+  close.addEventListener("click", (e) => { e.stopPropagation(); emit("route-target", null); });
+  top.append(arrow, text, fold, close);
   const ways = h("div", "go-ways");
   for (const w of WAYS) {
     const b = h("button", "go-way");
@@ -86,10 +96,9 @@ function targetCard() {
   return card;
 }
 
-function nodes(full) {
+// подсказки: найденные места или история точек (при наборе — подходящие), как у поиска мест
+function suggestions(q) {
   const out = [];
-  if (state.target) out.push(targetCard());
-  if (!full) return out;
   if (results) {
     if (note) out.push(h("div", "search-note", note));
     for (const r of results) {
@@ -102,19 +111,19 @@ function nodes(full) {
       b.addEventListener("click", () => choose({ lngLat: [Number(r.lon), Number(r.lat)], title, address: rest.join(", ") }));
       out.push(b);
     }
-  } else {
-    const hist = historyList({ key: HISTORY, title: "Недавние точки", id,
-      label: (e) => ({ title: e.title, sub: e.address || `${e.lngLat[1].toFixed(5)}, ${e.lngLat[0].toFixed(5)}` }),
-      pick: choose, changed: render });
-    if (hist.childElementCount) out.push(hist);
-    else if (!state.target) out.push(h("div", "search-note", "Наберите место и нажмите Enter — или «Сюда» в окне любого места на карте"));
+    return out;
   }
+  const hist = historyList({ key: HISTORY, id, match: q ? (e) => `${e.title} ${e.address || ""}`.toLowerCase().includes(q) : null,
+    label: (e) => ({ title: e.title, sub: e.address || `${e.lngLat[1].toFixed(5)}, ${e.lngLat[0].toFixed(5)}` }),
+    pick: choose, changed: render });
+  if (hist.childElementCount) out.push(hist);
+  else if (!q) out.push(h("div", "search-note", "Наберите место и нажмите Enter — или «Сюда» в окне любого места на карте"));
   return out;
 }
 
 function openPanel(c) {
   if (c) ctx = c;
-  emit("nav-switch", { on: true }); // кнопка раздела включает навигацию
+  if (!navOn) emit("nav-switch", { on: true }); // кнопка раздела включает навигацию (только она)
   results = null;
   note = "";
   emit("search-show");
@@ -122,12 +131,18 @@ function openPanel(c) {
   render();
 }
 
-on("route", (s) => { state = s; render(); });
+on("route", (s) => { state = s; render(false); });
+// навигацию включили (кнопкой слева внизу, в барабане или сама при запуске) — строка поиска в режиме
+// навигации (если в ней не другой раздел); выключили — режим снят
 on("nav", ({ on: v }) => {
   if (navOn === v) return;
   navOn = v;
+  if (v && (!searchMode() || searchMode() === MODE)) setSearchMode(MODE);
+  if (!v && searchMode() === MODE) setSearchMode(null);
   emit("module", { id: "content/navigation", on: v }); // барабан перерисует кнопку
 });
+// другой раздел ушёл из строки поиска, а навигация включена — снова режим навигации
+on("search-mode", (m) => { if (!m && navOn) setTimeout(() => navOn && !searchMode() && setSearchMode(MODE)); }, { replay: false });
 // «Сюда» в окне места — в историю и окно навигации
 on("route-open", (t) => {
   remember(HISTORY, t, id);

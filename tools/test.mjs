@@ -173,28 +173,28 @@ try {
   const flatBack = await nav();
   check("навигация: выровнял рукой — 2D, через 10 секунд я в центре", flat.mode === "2d" && !flat.follow && flatBack.follow && flatBack.mode === "2d"
     && Math.abs(flatBack.me.x) <= 3 && Math.abs(flatBack.me.y) <= 3 && flatBack.chevron, JSON.stringify({ flat, flatBack }));
-  await run(`document.querySelector(".compass-btn").click(); true`); // 3D
-  await sleep(2000);
-  await run(`document.querySelector(".compass-btn").click(); true`); // С
-  await sleep(3000);
+  // компас по кругу до «С» (из 2D — через 3D; если наклон на этом масштабе недоступен — сразу «С»)
+  for (let k = 0; k < 3 && (await run(`document.querySelector(".compass-mode").textContent`)) !== "С"; k++) {
+    await run(`document.querySelector(".compass-btn").click(); true`);
+    await sleep(2000);
+  }
+  await sleep(1000);
   const nN = await nav();
   check("навигация: С — я в центре, север вверху, точка вместо стрелки", nN.mode === "north" && nN.bearing === 0 && nN.pitch === 0 && Math.abs(nN.me.x) <= 3 && Math.abs(nN.me.y) <= 3 && !nN.chevron && nN.zoom === 14.3, JSON.stringify(nN));
   // «Куда идти» — в самом окне поиска (Грегори 2026-11-04: «не под строкой поиска, а в окне поиска»): «Сюда»
-  // в окне на карте — точка, строка поиска «Куда идти?», в её списке стрелка, расстояние и сторона; путь пешком
-  const navPanel = `document.querySelector(".search-results")`;
-  const exitModeNav = `(async () => { const b = document.querySelector(".search-toggle");
-    if (document.querySelector(".wheel-content").classList.contains("closed")) { b.click(); await new Promise((r) => setTimeout(r, 300)); }
-    b.click(); return true; })()`;
+  // в окне на карте — точка, строка поиска «Куда», в её списке стрелка, расстояние и сторона; путь пешком
+  const navPanel = `document.querySelector(".search-card")`, navList = `document.querySelector(".search-results")`;
+  const exitModeNav = `(() => { if (!document.body.classList.contains("search-hidden")) document.querySelector(".search-toggle").click(); return true; })()`;
   const navStats = `atlas.modules().find((m) => m.id === "content/navigation").stats()`;
   const here = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
     const p = track(new atlas.ctx.maplibregl.Popup()).setLngLat([24.76, 59.43]).setHTML('<div class="popup-title">Проба</div>').addTo(atlas.map);
     const b = p.getElement().querySelector(".go-here"); const had = !!b; b?.click();
     const shut = !p.isOpen();
     await new Promise((r) => setTimeout(r, 400));
-    return { had, open: !shut, openLater: p.isOpen(), ...atlas.route.state(), panel: !${navPanel}.hidden, panels: document.querySelectorAll(".panel-left:not([hidden])").length, card: ${navPanel}.querySelector(".nav-card")?.textContent || "",
+    return { had, open: !shut, openLater: p.isOpen(), ...atlas.route.state(), panel: !${navPanel}.hidden, list: !${navList}.hidden, panels: document.querySelectorAll(".panel-left:not([hidden])").length, card: ${navPanel}.querySelector(".nav-card")?.textContent || "",
       placeholder: document.querySelector(".search-box input").placeholder, search: !document.body.classList.contains("search-hidden"), ...${navStats} }; })()`);
-  check("куда идти: «Сюда» — в окне поиска «Куда идти?»: стрелка, расстояние и сторона, отдельного окна нет", here.had && !here.openLater && here.panel && !here.panels && here.target === "Проба"
-    && /^\d[\d,]* (м|км) на юго-восток.*Проба/.test(here.card) && here.placeholder === "Куда идти?" && here.search, JSON.stringify(here));
+  check("куда идти: «Сюда» — карточка под строкой «Куда»: стрелка, расстояние и сторона; подсказки закрыты, отдельного окна нет", here.had && !here.openLater && here.panel && !here.list && !here.panels && here.target === "Проба"
+    && /^\d[\d,]* (м|км) на юго-восток.*Проба/.test(here.card) && here.placeholder === "Куда" && here.search, JSON.stringify(here));
   await run(`${navPanel}.querySelector(".go-way").click(); true`);
   for (let i = 0; i < 20 && !(await run(`!!atlas.route.state().route`)); i++) await sleep(500);
   await sleep(300);
@@ -219,25 +219,58 @@ try {
   check("навигация: кнопка в барабане включает навигацию", relit.geo && relit.on, JSON.stringify(relit));
   // поиск места в окне навигации (Enter) — точка; история точек: свернуть, удалить
   await run(`(() => { const i = document.querySelector(".search-box input"); i.value = "Kadriorg"; i.dispatchEvent(new Event("input")); i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return true; })()`);
-  for (let i = 0; i < 20 && !(await run(`${navPanel}.querySelectorAll(":scope > .search-item").length`)); i++) await sleep(500);
-  const found = await run(`${navPanel}.querySelectorAll(":scope > .search-item").length`);
-  await run(`${navPanel}.querySelector(":scope > .search-item").click(); true`);
+  for (let i = 0; i < 20 && !(await run(`${navList}.querySelectorAll(":scope > .search-item").length`)); i++) await sleep(500);
+  const found = await run(`${navList}.querySelectorAll(":scope > .search-item").length`);
+  await run(`${navList}.querySelector(":scope > .search-item").click(); true`);
   await sleep(500);
-  const picked = await run(`({ target: atlas.route.state().target?.title, history: JSON.parse(localStorage.getItem("atlas.route.history") || "[]").map((e) => e.title) })`);
+  // выбрали точку — подсказки закрылись, карточка цели раскрыта; строка — «Куда»
+  const picked = await run(`({ target: atlas.route.state().target?.title, history: JSON.parse(localStorage.getItem("atlas.route.history") || "[]").map((e) => e.title),
+    list: !${navList}.hidden, card: !${navPanel}.hidden && !!${navPanel}.querySelector(".nav-card"), placeholder: document.querySelector(".search-box input").placeholder })`);
+  // щелчок по строке — подсказки (история точек, как у поиска: внизу «Очистить историю» и ползунок), второй — закрыть
+  const clickInput = async () => {
+    const xy = await run(`(() => { const r = document.querySelector(".search-box input").getBoundingClientRect(); return [r.x + 30, r.y + r.height / 2]; })()`);
+    for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: xy[0], y: xy[1], button: "left", clickCount: 1 });
+    await sleep(200);
+  };
   await run(`(() => { const i = document.querySelector(".search-box input"); i.value = ""; i.dispatchEvent(new Event("input")); return true; })()`);
-  await sleep(200);
-  const hist = await run(`({ rows: ${navPanel}.querySelectorAll(".search-history-row").length, head: ${navPanel}.querySelector(".history-fold")?.textContent })`);
-  await run(`${navPanel}.querySelector(".history-fold").click(); true`);
-  const folded = await run(`${navPanel}.querySelectorAll(".search-history-row").length`);
-  await run(`${navPanel}.querySelector(".history-fold").click(); true`);
-  await run(`${navPanel}.querySelector(".search-history-row:last-child .search-delete").click(); true`);
+  await run(`(() => { document.querySelector(".search-results").hidden = true; return true; })()`);
+  await clickInput();
+  const hist = await run(`({ rows: ${navList}.querySelectorAll(".search-history-row").length, open: !${navList}.hidden,
+    clear: !!${navList}.querySelector(".search-history-clear"), grip: !!${navList}.querySelector(".search-grip"), card: !${navPanel}.hidden })`);
+  // набор — подсказки из уже найденного
+  await run(`(() => { const i = document.querySelector(".search-box input"); i.value = "Про"; i.dispatchEvent(new Event("input")); return true; })()`);
+  const typed = await run(`[...${navList}.querySelectorAll(".search-history-row .search-item-title")].map((t) => t.textContent)`);
+  await run(`(() => { const i = document.querySelector(".search-box input"); i.value = ""; i.dispatchEvent(new Event("input")); return true; })()`);
+  await clickInput();
+  const shut = await run(`${navList}.hidden`);
+  await clickInput();
+  await run(`${navList}.querySelector(".search-history-row:last-child .search-delete").click(); true`);
   const left = await run(`JSON.parse(localStorage.getItem("atlas.route.history") || "[]").length`);
-  check("навигация: место из строки поиска — точка; история точек — свернуть, удалить", found > 0 && /Kadri|Кадри/i.test(picked.target) && picked.history.length === 2
-    && hist.rows === 2 && /Недавние точки \(2\)/.test(hist.head) && folded === 0 && left === 1, JSON.stringify({ found, picked, hist, folded, left }));
-  await run(`${navPanel}.querySelector(".go-close").click(); true`);
+  check("навигация: место из «Куда» — точка, подсказки закрылись; щелчок по строке — история (отдельно от карточки), набор — подходящие, второй щелчок — закрыть",
+    found > 0 && /Kadri|Кадри/i.test(picked.target) && picked.history.length === 2 && !picked.list && picked.card && picked.placeholder === "Куда"
+    && hist.rows === 2 && hist.open && hist.clear && hist.grip && hist.card && JSON.stringify(typed) === '["Проба"]' && shut && left === 1, JSON.stringify({ found, picked, hist, typed, shut, left }));
+  // «Свернуть» карточку — в строке стрелка; щелчок по ней — карточка снова
+  await run(`(() => { document.querySelector(".search-results").hidden = true; return true; })()`);
+  await run(`[...${navPanel}.querySelectorAll(".go-close")].find((b) => /Свернуть/.test(b.title)).click(); true`);
+  const folded = await run(`({ card: !${navPanel}.hidden, btn: !document.querySelector(".search-card-btn").hidden, arrow: !!document.querySelector(".search-card-btn .search-card-arrow") })`);
+  await run(`document.querySelector(".search-card-btn").click(); true`);
+  const unfolded = await run(`({ card: !${navPanel}.hidden, btn: !document.querySelector(".search-card-btn").hidden })`);
+  check("навигация: «Свернуть» — карточка уходит в стрелку в строке, щелчок по стрелке — снова карточка", !folded.card && folded.btn && folded.arrow && unfolded.card && !unfolded.btn, JSON.stringify({ folded, unfolded }));
+  await run(`[...${navPanel}.querySelectorAll(".go-close")].find((b) => b.title === "Убрать точку").click(); true`);
   await sleep(200);
   check("куда идти: крестик убирает точку", !(await run(`atlas.route.state().target`)) && !(await run(`!!${navPanel}.querySelector(".nav-card")`)));
+  // кнопка справа вверху: один щелчок закрывает поиск, значок навигации остаётся, пока она включена; снова — открывает,
+  // режим тот же (ничего не сброшено)
   await run(exitModeNav);
+  await sleep(300);
+  const closedLens = await run(`({ hidden: document.body.classList.contains("search-hidden"), mode: document.querySelector(".search-toggle").classList.contains("mode"),
+    nav: !!document.querySelector(".search-toggle svg path")?.getAttribute("d").startsWith("M12 2 4.5"), wheel: !document.querySelector(".wheel-content").classList.contains("closed") })`);
+  await run(`document.querySelector(".search-toggle").click(); true`);
+  await sleep(300);
+  const reopened = await run(`({ placeholder: document.querySelector(".search-box input").placeholder, focus: document.activeElement === document.querySelector(".search-box input"), list: !document.querySelector(".search-results").hidden })`);
+  await run(`document.querySelector(".search-toggle").click(); true`);
+  check("кнопка поиска: закрывает и открывает, ничего не сбрасывая (значок навигации, «Куда»); открытый поиск — без курсора и без списка",
+    closedLens.hidden && closedLens.mode && closedLens.nav && !closedLens.wheel && reopened.placeholder === "Куда" && !reopened.focus && !reopened.list, JSON.stringify({ closedLens, reopened }));
   await run(`document.querySelector(".compass-btn").click(); true`); // снова 2D
   await run(`document.querySelector(".geo-btn").click(); true`); // слежение → выключить
   await send("Emulation.clearGeolocationOverride");
@@ -268,7 +301,8 @@ try {
   // два барабана справа: слои — открывает треугольник, кнопка — свой столбик; разделы (content/…) —
   // открывает лупа справа вверху, кнопка — сразу панель раздела со списком (как человек щёлкает)
   const openLayers = (key) => key.startsWith("content/") ? `(async () => {
-    if (document.querySelector(".wheel-content").classList.contains("closed")) {
+    // лупа открывает поиск с барабаном разделов, а при открытом поиске — закрывает (Грегори 2026-11-04)
+    for (let t = 0; t < 2 && document.querySelector(".wheel-content").classList.contains("closed"); t++) {
       document.querySelector(".search-toggle").click();
       await new Promise((r) => setTimeout(r, 400));
     }
@@ -288,9 +322,10 @@ try {
   // второй щелчок по треугольнику — спрятать барабан слоёв
   const closeLayers = `(() => { if (!document.querySelector(".wheel-layers").classList.contains("closed")) document.querySelector(".wheel-toggle").click(); return true; })()`;
   // закрыть поиск и раздел — щелчок по значку раздела справа вверху (барабан разделов спрятан — сначала он)
-  const exitMode = `(async () => { const b = document.querySelector(".search-toggle");
-    if (document.querySelector(".wheel-content").classList.contains("closed")) { b.click(); await new Promise((r) => setTimeout(r, 300)); }
-    b.click(); return true; })()`;
+  // выйти из раздела — крестиком его окна (кнопка справа вверху теперь ничего не сбрасывает), потом закрыть поиск
+  const exitMode = `(async () => { document.querySelector(".panel-left:not([hidden]) .panel-head .panel-btn[title=Закрыть]")?.click();
+    await new Promise((r) => setTimeout(r, 200));
+    if (!document.body.classList.contains("search-hidden")) document.querySelector(".search-toggle").click(); return true; })()`;
   // открыть строку поиска (при первом запуске её нет) — лупой справа вверху
   const openSearch = `(async () => { if (document.body.classList.contains("search-hidden")) { document.querySelector(".search-toggle").click(); await new Promise((r) => setTimeout(r, 300)); } return true; })()`;
   // кнопка в столбике слоёв или строка списка в панели раздела — по названию
@@ -333,6 +368,23 @@ try {
     await new Promise((r) => setTimeout(r, 300));
     return { n, marker: !!document.querySelector(".maplibregl-marker"), history: JSON.parse(localStorage.getItem("atlas.search.history") || "[]").length }; })()`);
   check("поиск мест", search.n > 0 && search.marker && search.history === 1, JSON.stringify(search));
+  // окно поиска — общепринятое (Грегори 2026-11-05): щелчок по строке — подсказки (история), набор — из уже
+  // найденного, второй щелчок — закрыть
+  const tapInput = async () => {
+    const xy = await run(`(() => { const r = document.querySelector(".search-box input").getBoundingClientRect(); return [r.x + 30, r.y + r.height / 2]; })()`);
+    for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: xy[0], y: xy[1], button: "left", clickCount: 1 });
+    await sleep(200);
+  };
+  await run(`(() => { const i = document.querySelector(".search-box input"); i.value = ""; i.dispatchEvent(new Event("input")); document.querySelector(".search-results").hidden = true; return true; })()`);
+  await tapInput();
+  const sug = await run(`({ open: !document.querySelector(".search-results").hidden, rows: document.querySelectorAll(".search-results .search-history-row").length })`);
+  await run(`(() => { const i = document.querySelector(".search-box input"); i.value = "zzzq"; i.dispatchEvent(new Event("input")); return true; })()`);
+  const none = await run(`document.querySelector(".search-results").hidden`);
+  await run(`(() => { const i = document.querySelector(".search-box input"); i.value = "Tall"; i.dispatchEvent(new Event("input")); return true; })()`);
+  const typedS = await run(`document.querySelectorAll(".search-results .search-history-row").length`);
+  await tapInput();
+  const shutS = await run(`document.querySelector(".search-results").hidden`);
+  check("поиск: щелчок по строке — история, набор — подходящие из найденного, второй щелчок — закрыть", sug.open && sug.rows === 1 && none && typedS === 1 && shutS, JSON.stringify({ sug, none, typedS, shutS }));
   await sleep(2800);
   await idle();
   await shot("60-search");
@@ -362,9 +414,13 @@ try {
     const info = await run(`({ title: document.querySelector(".maplibregl-popup .popup-title")?.textContent, sub: document.querySelector(".maplibregl-popup .popup-sub")?.textContent, wiki: !!document.querySelector(".maplibregl-popup .popup-wiki") })`);
     check("щелчок по подписи города — окно места", !!info.title, JSON.stringify(info));
     await shot("70-place");
+    // навигация ведёт карту за мной — окно остаётся (Грегори 2026-11-04: «окно Сюда постоянно сбрасывается»)
+    await run(`atlas.map.panBy([5, 5], { duration: 0 }, { navFollow: true }); true`);
+    await sleep(300);
+    const stays = await run(`!!document.querySelector(".maplibregl-popup")`);
     await run(`atlas.map.panBy([5, 5]); true`);
     await sleep(500);
-    check("окно закрывается при движении карты", await run(`!document.querySelector(".maplibregl-popup")`));
+    check("окно закрывается при движении карты, но не от навигации", stays && await run(`!document.querySelector(".maplibregl-popup")`));
   } else check("подпись города на карте", false);
 
 
@@ -585,7 +641,7 @@ try {
     check("языки: в столбике — языки", langs.length >= 5 && langs.some((l) => /Итальянский/.test(l)), JSON.stringify(langs));
     // уже у списка — значок раздела вместо логотипа, строка поиска ищет язык
     const ll = await run(`(async () => { const i = document.querySelector(".search-box input"); i.value = "итал"; i.dispatchEvent(new Event("input"));
-      await new Promise((r) => setTimeout(r, 200)); const shown = [...document.querySelectorAll(".home-row:not([hidden])")].map((b) => b.textContent);
+      await new Promise((r) => setTimeout(r, 200)); const shown = [...document.querySelectorAll(".panel:not([hidden]) .home-row:not([hidden])")].map((b) => b.textContent);
       i.value = ""; i.dispatchEvent(new Event("input"));
       return { mode: document.querySelector(".search-toggle").classList.contains("mode"), placeholder: i.placeholder, shown }; })()`);
     check("языки: у списка — значок раздела на кнопке, поиск ищет язык", ll.mode && ll.placeholder === "Найти язык" && ll.shown.length === 1 && /Итальянский/.test(ll.shown[0]), JSON.stringify(ll));
@@ -732,11 +788,18 @@ try {
       await sleep(300);
       await run(`[...document.querySelectorAll(".al-row")].find((r) => r.textContent.startsWith("Рига")).click(); true`);
       for (let i = 0; i < 20 && !(await run(`[...document.querySelectorAll(".al-cell img")].every((i) => i.src)`)); i++) await sleep(500);
-      const riga = await run(`({ facts: document.querySelector(".al-facts").textContent, cells: [...document.querySelectorAll(".al-cell")].map((c) => [c.title, c.querySelector(".al-badge")?.textContent || "", !!c.querySelector("img").src]) })`);
-      check("альбомы: живое фото — одна клетка LIVE, ролик — своя клетка ▶ с кадром", riga.cells.length === 2 && riga.cells[0][1] === "LIVE" && riga.cells[1][1] === "▶"
+      // снимки по дням (Грегори 2026-11-04): у ролика дата из файла — «1 января 2024», у снимка без даты — «Без даты», последним
+      const riga = await run(`({ facts: document.querySelector(".al-facts").textContent, cells: [...document.querySelectorAll(".al-cell")].map((c) => [c.title, c.querySelector(".al-badge")?.textContent || "", !!c.querySelector("img").src]),
+        days: [...document.querySelectorAll(".al-day")].map((d) => d.textContent) })`);
+      check("альбомы: живое фото — одна клетка LIVE, ролик — своя клетка ▶ с кадром", riga.cells.length === 2 && riga.cells[1][1] === "LIVE" && riga.cells[0][1] === "▶"
         && riga.cells.every((c) => c[2]) && /^1 фото · 1 видео/.test(riga.facts), JSON.stringify(riga));
-      check("альбомы: дата ролика — из самого файла", /^01\.01\.2024 · v\.mp4$/.test(riga.cells[1]?.[0]), JSON.stringify(riga));
-      const cxy = await run(`(() => { const r = document.querySelectorAll(".al-cell")[1].getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+      check("альбомы: дата ролика — из самого файла; снимки по дням", /^01\.01\.2024 · v\.mp4$/.test(riga.cells[0]?.[0])
+        && riga.days.length === 2 && /1 января 2024/.test(riga.days[0]) && /^Без даты1$/.test(riga.days[1]), JSON.stringify(riga));
+      await run(`document.querySelector(".al-day").click(); true`);
+      const shut = await run(`({ hidden: document.querySelector(".al-grid").hidden, cells: [...document.querySelectorAll(".al-grid:not([hidden]) .al-cell")].length })`);
+      await run(`document.querySelector(".al-day").click(); true`);
+      check("альбомы: щелчок по дню сворачивает его", shut.hidden && shut.cells === 1, JSON.stringify(shut));
+      const cxy = await run(`(() => { const r = [...document.querySelectorAll(".al-cell")].find((c) => c.querySelector(".al-badge")?.textContent === "▶").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
       for (const n of [1, 2]) for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: cxy[0], y: cxy[1], button: "left", clickCount: n });
       let gt = null;
       for (let i = 0; i < 20 && !gt; i++) { await sleep(300); gt = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) => /gallery\.html/.test(t.url)); }
@@ -1283,15 +1346,16 @@ try {
     const st = () => ({ layers: !document.querySelector(".wheel-layers").classList.contains("closed"), content: !document.querySelector(".wheel-content").classList.contains("closed"),
       search: getComputedStyle(document.querySelector(".search")).display !== "none", logo: !!L.querySelector("img"),
       lenses: [L, document.querySelector(".search-go")].filter((b) => b.getClientRects().length && b.querySelector("svg path")?.getAttribute("d").startsWith("M15.5 14")).length });
-    // поиск открыт, а на месте барабана разделов — слои: первый щелчок вернёт разделы, второй закроет
-    for (let k = 0; k < 2 && !document.body.classList.contains("search-hidden"); k++) { L.click(); await wait(); }
+    // поиск открыт — щелчок закрывает
+    if (!document.body.classList.contains("search-hidden")) { L.click(); await wait(); }
     if (st().layers) { A.click(); await wait(); }
     const s0 = st();
     L.click(); await wait(); const s1 = st();
     const keys = [...document.querySelectorAll(".wheel-content .wheel-cell:not([hidden]) .layers-circle")].map((c) => c.ariaLabel).sort();
     A.click(); await wait(); const s2 = st();
     A.click(); await wait(); const s3 = st();
-    L.click(); await wait(); L.click(); await wait(); const s4 = st();
+    // поиск открыт без барабана — один щелчок закрывает всё (Грегори 2026-11-04: «во всех режимах»)
+    L.click(); await wait(); const s4 = st();
     const lr = L.getBoundingClientRect();
     A.click(); await wait();
     return { s0, s1, s2, s3, s4, keys, corner: innerWidth - lr.right >= 18 && innerWidth - lr.right <= 24 && lr.top < 20 }; })()`);
@@ -1338,6 +1402,14 @@ try {
   const share = await run(`(async () => { const b = document.querySelector(".panel:not([hidden]) .panel-body > :first-child");
     const m = await import("./core/settings-panel.js"); return { first: b?.classList.contains("share-btn") && b.textContent.includes("Поделиться"), link: m.SITE }; })()`);
   check("настройки: первой строкой «Поделиться», ссылка на сайт", share.first && share.link === "https://gregory-gittools.github.io/atlas/", JSON.stringify(share));
+  // «Очистить историю просмотра» — запомненное при просмотре уходит, треки остаются
+  const vc = await run(`(async () => { const st = await import("./core/storage.js"); await st.cacheSet("tracks/zz-test", { keep: 1 }); await st.cacheSet("commons/zz-test", { t: 1 });
+    const before = await st.viewCache(); const gear = document.querySelector(".maplibregl-ctrl-bottom-left button[title=Настройки]");
+    gear.click(); await new Promise((r) => setTimeout(r, 300)); gear.click(); await new Promise((r) => setTimeout(r, 800)); // окно заново — кнопка знает, что есть что очищать
+    const b = [...document.querySelectorAll(".panel:not([hidden]) .text-btn")].find((x) => x.textContent === "Очистить историю просмотра");
+    b?.click(); for (let i = 0; i < 20 && await st.cacheGet("commons/zz-test"); i++) await new Promise((r) => setTimeout(r, 200));
+    const r = { btn: !!b, before: before.n, after: (await st.viewCache()).n, track: !!(await st.cacheGet("tracks/zz-test")) }; await st.cacheDelete("tracks/zz-test"); return r; })()`);
+  check("настройки: «Очистить историю просмотра» — запомненное ушло, треки остались", vc.btn && vc.before > 0 && vc.after === 0 && vc.track, JSON.stringify(vc));
   // своя папка «Моих альбомов» — только на компьютере
   // (эмуляция телефона здесь меняет только размер экрана — телефон узнаётся так же, как в программе)
   const albumsSet = await run(`(async () => { const m = await import("./core/modules.js");

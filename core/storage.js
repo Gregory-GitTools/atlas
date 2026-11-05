@@ -33,6 +33,43 @@ export const cacheGet = (key) => tx("readonly", (s) => s.get(key));
 export const cacheSet = (key, value) => tx("readwrite", (s) => s.put(value, key));
 export const cacheDelete = (key) => tx("readwrite", (s) => s.delete(key));
 
+// запомненное при просмотре (найденные снимки Commons, тропы, места экскурсий, сведения о снимках,
+// списки файлов): сколько записей и примерно сколько места; своё (треки, доступ к папкам) — не в счёт
+const MINE = /^(tracks\/|albums\/dirs?$)/;
+export async function viewCache() {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const t = d.transaction("cache", "readonly"), st = t.objectStore("cache"), req = st.openCursor();
+    let n = 0, bytes = 0;
+    req.onsuccess = () => {
+      const c = req.result;
+      if (!c) return;
+      if (typeof c.key === "string" && !MINE.test(c.key)) {
+        n++;
+        try { bytes += c.key.length + JSON.stringify(c.value)?.length || 0; } catch { /* не строка */ }
+      }
+      c.continue();
+    };
+    t.oncomplete = () => resolve({ n, bytes });
+    t.onerror = () => reject(t.error);
+  });
+}
+// забыть запомненное при просмотре (треки и выбранные папки остаются)
+export async function clearViewCache() {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const t = d.transaction("cache", "readwrite"), req = t.objectStore("cache").openCursor();
+    req.onsuccess = () => {
+      const c = req.result;
+      if (!c) return;
+      if (typeof c.key === "string" && !MINE.test(c.key)) c.delete();
+      c.continue();
+    };
+    t.oncomplete = () => resolve();
+    t.onerror = () => reject(t.error);
+  });
+}
+
 export async function persist() {
   if (!navigator.storage?.persist) return false;
   return (await navigator.storage.persisted()) || navigator.storage.persist();

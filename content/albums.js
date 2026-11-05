@@ -748,8 +748,38 @@ function renderAlbum() {
   bar.append(left);
   const clips = a.photos.filter((id) => photos.get(id).video).length;
   const facts = h("div", "tr-facts al-facts", [`${a.photos.length - clips} фото`, clips ? `${clips} видео` : "", dates(a), a.country?.name, a.local ? "на этом компьютере" : ""].filter(Boolean).join(" · "));
-  const grid = h("div", "al-grid");
-  for (const id of a.photos) {
+  // снимки по дням (Грегори 2026-11-04: «когда открыты миниатюры альбома, поделить их по датам»):
+  // день — заголовок с датой и числом снимков, щелчок по нему сворачивает день; внутри дня — по времени;
+  // без даты — последним. Один день — без заголовков
+  const dayOf = (p) => (p.rec?.date ? new Date(p.rec.date).toDateString() : "");
+  const days = new Map();
+  for (const id of [...a.photos].sort((x, y) => (photos.get(x).rec?.date || Infinity) - (photos.get(y).rec?.date || Infinity))) {
+    const k = dayOf(photos.get(id));
+    if (!days.has(k)) days.set(k, []);
+    days.get(k).push(id);
+  }
+  const blocks = [];
+  for (const [k, ids] of days) {
+    const grid = h("div", "al-grid");
+    if (days.size > 1) {
+      const d = k && new Date(ids.length && photos.get(ids[0]).rec.date);
+      const head = h("button", "al-day" + (shutDays.has(`${a.id}|${k}`) ? " shut" : ""));
+      head.type = "button";
+      head.innerHTML = `<span></span><span class="al-day-n"></span>${CHEVRON}`;
+      head.firstChild.textContent = k ? d.toLocaleDateString("ru", { day: "numeric", month: "long", year: "numeric", weekday: "short" }) : "Без даты";
+      head.children[1].textContent = String(ids.length);
+      head.title = "Свернуть или развернуть день";
+      head.addEventListener("click", () => {
+        const key = `${a.id}|${k}`;
+        if (shutDays.has(key)) shutDays.delete(key); else shutDays.add(key);
+        head.classList.toggle("shut");
+        grid.hidden = head.classList.contains("shut");
+      });
+      grid.hidden = head.classList.contains("shut");
+      blocks.push(head);
+    }
+    blocks.push(grid);
+    for (const id of ids) {
     const p = photos.get(id);
     const cell = h("button", "al-cell");
     cell.title = [photoDate(p), p.name].filter(Boolean).join(" · ");
@@ -766,18 +796,25 @@ function renderAlbum() {
     });
     cell.addEventListener("dblclick", () => gallery(a, id));
     grid.append(cell);
+    }
   }
   // ролики iPhone (.mov) там, где браузер не умеет HEVC, — сразу подсказка (живые фото иначе молча остаются снимками)
   const iphone = a.photos.some((id) => { const p = photos.get(id); return p.noFrame || (!hevc() && /\.mov$/i.test((p.live || p).name)); });
-  panel.body.replaceChildren(bar, facts, ...(iphone ? [noClipHint()] : []), grid);
-  panel.body.scrollTop = 0;
+  const keep = openAlbum === renderedAlbum ? panel.body.scrollTop : 0;
+  panel.body.replaceChildren(bar, facts, ...(iphone ? [noClipHint()] : []), ...blocks);
+  // заново (дочитаны даты) — прокрутка на месте
+  panel.body.scrollTop = keep;
+  renderedAlbum = openAlbum;
 }
+const shutDays = new Set(); // свёрнутые дни: «альбом|день», пока открыта страница
+let renderedAlbum = null;
 
 function openAlbumById(id) {
   const a = albums.get(id);
   if (!a) return;
   openAlbum = a;
   openGroup = null;
+  renderedAlbum = null; // открыли заново — с начала
   renderAlbum();
   fitAlbum(a);
   if (!a.done) finish(a).then(() => { refresh(); if (openAlbum === a) renderAlbum(); });

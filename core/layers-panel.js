@@ -146,10 +146,12 @@ export function initLayersPanel(ctx) {
   const paint = () => {
     arrowBtn.classList.toggle("open", shown === "layers");
     arrowBtn.title = shown === "layers" ? "Спрятать слои карты" : "Слои карты";
+    // кнопка — ещё и индикатор режима строки поиска (Грегори 2026-11-04): режим есть — его значок, даже
+    // при закрытом поиске (навигация включена — значок навигации)
     lensBtn.classList.toggle("open", searchOn && !mode);
-    lensBtn.classList.toggle("mode", searchOn && !!mode);
-    lensBtn.style.background = searchOn && mode ? `var(--tone-${mode.tone})` : "";
-    lensBtn.innerHTML = !searchOn ? LENS : mode ? mode.icon : '<img src="icons/logo.png" alt="">';
+    lensBtn.classList.toggle("mode", !!mode);
+    lensBtn.style.background = mode ? `var(--tone-${mode.tone})` : "";
+    lensBtn.innerHTML = mode ? mode.icon : !searchOn ? LENS : '<img src="icons/logo.png" alt="">';
     lensBtn.title = !searchOn ? "Поиск и разделы: экскурсии, языки, треки, фото"
       : shown === "content" ? `Закрыть ${mode ? `«${mode.title}» и ` : ""}поиск` : "Поиск и разделы";
   };
@@ -165,13 +167,12 @@ export function initLayersPanel(ctx) {
     }
     paint();
   };
-  // щелчок — свой барабан (вместо другого), второй щелчок — спрятать; у лупы — вместе с поиском и разделом
+  // щелчок — свой барабан (вместо другого), второй щелчок — спрятать. Лупа (логотип, значок режима) —
+  // только открыть или закрыть строку поиска вместе с барабаном разделов и окном раздела, в любом режиме,
+  // и показать режим; ничего не сбрасывает (Грегори 2026-11-05: «выбор — только в барабане»): окно раздела
+  // прячется вместе со строкой и возвращается с ней (body.search-hidden)
   arrowBtn.addEventListener("click", () => setShown(shown === "layers" ? null : "layers"));
-  lensBtn.addEventListener("click", () => {
-    if (shown !== "content") return setShown("content", true);
-    setShown(null, false);
-    if (mode) emit("search-exit");
-  });
+  lensBtn.addEventListener("click", () => setShown(searchOn ? null : "content", !searchOn));
   on("search-mode", (m) => { mode = m; paint(); });
   // раздел живёт в самой строке поиска (навигация) — строка нужна; на телефоне барабан уступает место
   on("search-show", () => setShown(innerWidth <= 600 ? null : shown || "content", true), { replay: false });
