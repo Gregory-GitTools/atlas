@@ -9,7 +9,7 @@
 // «Убрать точку». Сама цель, линия и путь — в core/route.js (здесь только окно)
 import { register } from "../core/modules.js";
 import { emit, on } from "../core/events.js";
-import { setSearchMode, searchMode, geocode, refreshSearchList, foldSearchList, foldSearchCard } from "../core/search.js";
+import { setSearchMode, searchMode, geocode, refreshSearchList, foldSearchList, foldSearchCard, setSearchCard } from "../core/search.js";
 import { historyList, remember } from "../core/history.js";
 import { WAYS, ARROW } from "../core/route.js";
 
@@ -28,13 +28,16 @@ const MODE = { icon: ICON, title: "Навигация", placeholder: "Куда",
   filter: (text) => { if (!text && results) { results = null; note = ""; } },
   submit: (text) => find(text),
   list: (q) => suggestions(q),
-  card: () => (state.target ? targetCard() : null),
-  // свёрнутая карточка — стрелка к цели в строке поиска
-  cardIcon: () => `<span class="search-card-arrow" style="transform: rotate(${state.me ? state.arrow || 0 : 0}deg)">${ARROW}</span>`,
-  cardTitle: () => (state.me ? `${state.main} — показать` : `${state.target?.title || "Точка"} — показать`),
   exit: () => {} };
+// карточка пути — висящий маршрут: видна при любом режиме строки поиска (Грегори 2026-11-05: «навигация
+// работает со всеми режимами»); свёрнута — в строке крупная красная стрелка к цели
+setSearchCard({
+  card: () => (state.target ? targetCard() : null),
+  icon: () => `<span class="search-card-arrow" style="transform: rotate(${state.me ? state.arrow || 0 : 0}deg)">${ARROW}</span>`,
+  title: () => (state.me ? `${state.main} — показать путь` : `${state.target?.title || "Точка"} — показать путь`),
+});
 // карточка цели — на каждое изменение; подсказки — только когда сменились они сами
-const render = (withList = true) => { if (searchMode() === MODE) refreshSearchList(withList); };
+const render = (withList = true) => refreshSearchList(withList && searchMode() === MODE);
 
 async function find(q) {
   if (!q) return;

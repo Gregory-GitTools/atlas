@@ -6,7 +6,7 @@
 // поиска; колесо справа при ней остаётся открытым).
 // Внизу — ползунок (Грегори, 2026-10-30): потянуть — окно выше или ниже, высота помнится; двойное
 // нажатие — снова по содержимому. Своя кнопка раздела в шапке (перед «свернуть») — addButton
-import { emit } from "./events.js";
+import { emit, on } from "./events.js";
 import * as settings from "./settings.js";
 import { backable } from "./back.js";
 
@@ -56,16 +56,26 @@ export function createPanel({ id, title, icon = "", side = "right" }) {
   const saved = settings.get(`panel.${id}.h`);
   if (saved) el.style.maxHeight = `${Math.min(saved, innerHeight - 60)}px`;
 
+  // окно справа (настройки) сворачивается до шапки; окно слева — значком в строку поиска (Грегори
+  // 2026-11-05: «окно просто свёрнуто и занимает место — свернуть в окно поиска»): событие panel-fold
   const setMin = (min) => {
+    if (side === "left") {
+      if (min === el.classList.contains("folded")) return;
+      el.classList.toggle("folded", min);
+      emit("panel-fold", min ? { id, icon, title: name.querySelector("span").textContent } : null);
+      if (!min) emit("panel", { id, side });
+      return;
+    }
     el.classList.toggle("min", min);
     minBtn.innerHTML = min ? MAX_ICON : MIN_ICON;
     minBtn.title = min ? "Развернуть" : "Свернуть";
     settings.set(`panel.${id}.min`, min || null);
   };
-  minBtn.addEventListener("click", () => setMin(!el.classList.contains("min")));
+  minBtn.addEventListener("click", () => setMin(side === "left" ? true : !el.classList.contains("min")));
+  if (side === "left") minBtn.title = "Свернуть — в строку поиска";
   closeBtn.addEventListener("click", () => close(id));
   const closers = [];
-  setMin(!!settings.get(`panel.${id}.min`));
+  if (side !== "left") setMin(!!settings.get(`panel.${id}.min`));
 
   const panel = { id, side, el, body, setMin, closers, open: () => open(id), close: () => close(id), toggle: () => (openId === id ? close(id) : open(id)),
     setTitle: (text) => { name.querySelector("span").textContent = text; },
@@ -79,6 +89,7 @@ export function open(id) {
   if (openId && openId !== id) close(openId, true);
   const p = panels.get(id);
   p.el.hidden = false;
+  p.el.classList.remove("folded"); // открыли — развёрнутым
   openId = id;
   // окно — шаг для «Назад» телефона
   if (!p.back) p.back = backable(() => { p.back = null; close(id); });
@@ -89,6 +100,7 @@ export function close(id, replaced = false) {
   const p = panels.get(id);
   if (!p || p.el.hidden) return;
   p.el.hidden = true;
+  if (p.el.classList.contains("folded")) { p.el.classList.remove("folded"); emit("panel-fold", null); }
   if (p.back) { const d = p.back; p.back = null; d(); }
   if (openId === id) {
     openId = null;
@@ -98,6 +110,8 @@ export function close(id, replaced = false) {
 }
 
 export const isOpen = (id) => openId === id;
+// окно слева — свернуть в строку поиска (открылось другое окно — карточка пути) или развернуть (значок)
+on("panel-fold-request", ({ fold }) => { const p = openId && panels.get(openId); if (p?.side === "left") p.setMin(fold); }, { replay: false });
 
 // список раздела в его панели (страны, языки; Грегори 2026-11-02: «сразу панели… проще прокрутка, если
 // список вырастет»): items — [{ id, title, thumb, icon, hint, selected }], флаг или значок слева

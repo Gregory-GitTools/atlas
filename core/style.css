@@ -2520,6 +2520,12 @@ body.search-hidden .panel-left {
   background: none;
 }
 
+/* окно слева свёрнуто — оно значком в строке поиска (core/search.js), места на карте не занимает */
+.panel.folded {
+  display: none;
+}
+
+.search-panel-btn,
 .search-card-btn {
   display: grid;
   place-items: center;
@@ -2532,17 +2538,33 @@ body.search-hidden .panel-left {
   cursor: pointer;
 }
 
+.search-panel-btn:hover,
 .search-card-btn:hover {
   background: var(--panel-hover);
 }
 
+.search-panel-btn[hidden],
 .search-card-btn[hidden] {
   display: none;
 }
 
+.search-panel-btn {
+  color: var(--text);
+}
+
+/* стрелка висящего маршрута — во всю кнопку (была точкой: значок внутри обёртки не растягивался) */
 .search-card-arrow {
   display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
   color: #e53935;
+}
+
+.search-card-arrow svg,
+.search-panel-btn svg {
+  width: calc(100% - 4px);
+  height: calc(100% - 4px);
 }
 
 /* ---------- «Куда идти» — карточка цели в окне «Навигация» (content/navigation.js) ---------- */

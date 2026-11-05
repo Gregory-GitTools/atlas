@@ -12,8 +12,11 @@
 // внутри раздела (filter на каждую букву — своё, не Nominatim); значок режима — на кнопке справа
 // вверху (событие search-mode). Режим со своим списком (навигация): list(text) → узлы подсказок
 // вместо истории, submit(text) — Enter (места он ищет сам через geocode() — тот же Nominatim);
-// card() → карточка над списком — отдельная панель (куда идти), она сворачивается своей кнопкой, а
-// в строке тогда — значок (cardIcon()), щелчок по нему — карточка снова. refreshSearchList() —
+// Карточка пути (навигация, setSearchCard({ card, icon, title })) — висящий маршрут, работает при
+// любом режиме: отдельная панель под строкой; свёрнута — в строке стрелка, щелчок — карточка снова.
+// Открыто всегда одно окно (Грегори 2026-11-05): подсказки, карточка пути или окно раздела — другое
+// уходит значком в строку (окно раздела — своим значком, событие panel-fold) и возвращается щелчком по
+// нему или по строке (щелчок по строке открывает окно активного режима). refreshSearchList() —
 // раздел перерисовал своё, foldSearchList() — выбрал: список закрыть, карточку показать.
 // Поиск — модуль-служба: отправляет текст запроса и район карты, подчиняется режиму «без сети»
 import { register, modules, allowed } from "./modules.js";
@@ -46,7 +49,9 @@ let refresh = () => {}, picked = () => {};
 // withList — и подсказки (если открыты): карточка обновляется часто (каждый замер GPS), список — нет
 export const refreshSearchList = (withList = false) => refresh(withList);
 export const foldSearchList = () => picked();
-let foldCard = () => {};
+let foldCard = () => {}, cardSrc = null;
+// карточка пути — от навигации, при любом режиме
+export const setSearchCard = (src) => { cardSrc = src; refresh(false); };
 // свернуть карточку раздела в значок в строке поиска
 export const foldSearchCard = () => foldCard();
 export const searchMode = () => mode;
@@ -72,6 +77,7 @@ export function initSearch({ map, maplibregl }) {
   // слева — логотип Atlas (Грегори, 2026-10-29: строка поиска как у Google, логотип внутри слева)
   bar.innerHTML = `<div class="search-box">
       <input type="search" placeholder="Поиск места" autocomplete="off" enterkeyhint="search" aria-label="Поиск места">
+      <button class="search-panel-btn" hidden></button>
       <button class="search-card-btn" title="Показать" hidden></button>
       <button class="search-clear" title="Очистить" hidden>${CLEAR_ICON}</button>
       <button class="search-go" title="Найти">${SEARCH_ICON}</button>
@@ -87,7 +93,19 @@ export function initSearch({ map, maplibregl }) {
   const list = bar.querySelector(".search-results");
   let cursor = null; // display_name выделенной стрелками строки
   let marker = null;
-  let cardOpen = true; // карточка раздела развёрнута (свернули — значок в строке)
+  let cardOpen = true; // карточка пути развёрнута (свернули — стрелка в строке)
+  const panelBtn = bar.querySelector(".search-panel-btn");
+  let folded = null, leftOpen = false; // свёрнутое окно раздела { id, icon, title }; открыто ли окно слева
+  on("panel-fold", (f) => { folded = f; leftOpen = !!leftOpen && !f; refresh(false); }, { replay: false });
+  on("panel", (p) => {
+    leftOpen = p?.side === "left";
+    if (!p || p.side === "left") folded = null;
+    // открылось окно раздела — карточка пути уходит в строку
+    if (leftOpen) { cardOpen = false; close(); }
+    refresh(false);
+  }, { replay: false });
+  const unfoldPanel = () => { cardOpen = false; close(); emit("panel-fold-request", { fold: false }); };
+  panelBtn.addEventListener("click", (e) => { e.stopPropagation(); input.blur(); unfoldPanel(); });
 
   // ---------- режим раздела ----------
   setMode = (m) => {
@@ -105,16 +123,21 @@ export function initSearch({ map, maplibregl }) {
   };
   // карточка раздела (куда идти) — своя панель над списком; свёрнута — значок в строке
   refresh = (withList = true) => {
-    const card = mode?.card?.() || null;
+    const card = cardSrc?.card() || null;
     cardBox.replaceChildren(...(card ? [card] : []));
-    // подсказки и карточка вместе — никогда (Грегори 2026-11-05): открыты подсказки — карточки нет
-    cardBox.hidden = !card || !cardOpen || !list.hidden;
-    cardBtn.hidden = !card || (cardOpen && list.hidden);
-    if (card && !cardOpen) { cardBtn.innerHTML = mode.cardIcon?.() || ""; cardBtn.title = mode.cardTitle?.() || "Показать"; }
+    // одно окно за раз: открыты подсказки или окно раздела — карточки нет, в строке стрелка
+    const shown = !!card && cardOpen && list.hidden && !leftOpen;
+    cardBox.hidden = !shown;
+    cardBtn.hidden = !card || shown;
+    if (card && !shown) { cardBtn.innerHTML = cardSrc.icon?.() || ""; cardBtn.title = cardSrc.title?.() || "Показать путь"; }
+    panelBtn.hidden = !folded;
+    if (folded) { panelBtn.innerHTML = folded.icon; panelBtn.title = `${folded.title} — показать`; }
     if (withList && (!list.hidden || wantList)) suggest();
   };
-  picked = () => { close(); cardOpen = true; refresh(); input.blur(); };
-  cardBtn.addEventListener("click", (e) => { e.stopPropagation(); close(); input.blur(); cardOpen = true; refresh(false); });
+  // карточку пути открыли — окно раздела уходит в строку
+  const showCard = () => { close(); input.blur(); cardOpen = true; if (leftOpen) emit("panel-fold-request", { fold: true }); refresh(false); };
+  picked = showCard;
+  cardBtn.addEventListener("click", (e) => { e.stopPropagation(); showCard(); });
   // карточка сворачивается своей кнопкой (раздел зовёт foldCard)
   foldCard = () => { cardOpen = false; refresh(); };
 
@@ -154,6 +177,7 @@ export function initSearch({ map, maplibregl }) {
     const was = list.hidden;
     list.hidden = false;
     if (!listBack) listBack = backable(() => { listBack = null; close(); });
+    if (leftOpen) emit("panel-fold-request", { fold: true }); // подсказки — одно окно с окном раздела
     if (was) refresh(false);
   };
   // высота — по видимой части экрана: открылась клавиатура — список над ней, не под ней
@@ -256,9 +280,11 @@ export function initSearch({ map, maplibregl }) {
   // щелчок по строке — подсказки (и клавиатура), следующий — подсказки закрыть и клавиатуру спрятать
   // (Грегори 2026-11-05: «остаётся только окно без клавиатуры»); «Назад» на телефоне прячет клавиатуру,
   // подсказки остаются; без щелчка список сам не открывается
+  // у раздела без своих подсказок (Экскурсии, Альбомы…) щелчок открывает его свёрнутое окно
   input.addEventListener("click", () => {
     if (!list.hidden) { close(); input.blur(); }
-    else if (!mode || mode.list) suggest();
+    else if (!mode || mode.list) { if (leftOpen) emit("panel-fold-request", { fold: true }); suggest(); }
+    else if (folded) unfoldPanel();
   });
   bar.querySelector(".search-go").addEventListener("click", () => {
     if (mode?.submit) { wantList = true; mode.submit(input.value.trim()); } else if (mode) mode.filter(input.value.trim()); else run();

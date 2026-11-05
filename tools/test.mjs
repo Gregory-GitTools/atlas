@@ -627,6 +627,28 @@ try {
     const lst = await run(`({ panel: !document.querySelector('[data-panel="tours"]').hidden, rows: [...document.querySelectorAll(".tr-row-title")].map((r) => r.textContent),
       mode: document.querySelector(".search-box input").placeholder })`);
     check("экскурсии: список страны в панели, режим поиска", lst.panel && lst.rows.length >= 2 && lst.mode === "Найти экскурсию", JSON.stringify(lst));
+    // «Свернуть» окна — оно уходит значком в строку поиска (места не занимает); щелчок по значку или по
+    // строке — окно снова (Грегори 2026-11-05); висящий маршрут — стрелкой, одно окно за раз
+    const tp = `document.querySelector('[data-panel="tours"]')`;
+    await run(`${tp}.querySelector(".panel-btn[title^='Свернуть']").click(); true`);
+    const fold1 = await run(`({ shown: getComputedStyle(${tp}).display !== "none", chip: !document.querySelector(".search-panel-btn").hidden && !!document.querySelector(".search-panel-btn svg") })`);
+    await run(`document.querySelector(".search-panel-btn").click(); true`);
+    const fold2 = await run(`getComputedStyle(${tp}).display !== "none" && document.querySelector(".search-panel-btn").hidden`);
+    await run(`${tp}.querySelector(".panel-btn[title^='Свернуть']").click(); true`);
+    await run(`(() => { const i = document.querySelector(".search-box input"); i.click(); return true; })()`);
+    const fold3 = await run(`getComputedStyle(${tp}).display !== "none"`);
+    await run(`atlas.route.setTarget({ lngLat: [12.33, 45.44], title: "Проба пути" }); true`);
+    await sleep(200);
+    const arrow1 = await run(`({ card: !document.querySelector(".search-card").hidden, arrow: !document.querySelector(".search-card-btn").hidden, w: Math.round(document.querySelector(".search-card-btn svg")?.getBoundingClientRect().width || 0) })`);
+    await run(`document.querySelector(".search-card-btn").click(); true`);
+    await sleep(200);
+    const arrow2 = await run(`({ card: !document.querySelector(".search-card").hidden, panel: getComputedStyle(${tp}).display !== "none", chip: !document.querySelector(".search-panel-btn").hidden })`);
+    await run(`document.querySelector(".search-panel-btn").click(); true`);
+    const arrow3 = await run(`({ card: !document.querySelector(".search-card").hidden, panel: getComputedStyle(${tp}).display !== "none", arrow: !document.querySelector(".search-card-btn").hidden })`);
+    await run(`atlas.route.setTarget(null); true`);
+    check("окна: «Свернуть» — значком в строку поиска, значок или строка — снова; маршрут — стрелкой, одно окно за раз",
+      !fold1.shown && fold1.chip && fold2 && fold3 && !arrow1.card && arrow1.arrow && arrow1.w >= 24 && arrow2.card && !arrow2.panel && arrow2.chip
+      && !arrow3.card && arrow3.panel && arrow3.arrow, JSON.stringify({ fold1, fold2, fold3, arrow1, arrow2, arrow3 }));
     await run(`(([...document.querySelectorAll(".tr-row")].find((r) => /Венеция/.test(r.textContent))) || document.querySelector(".tr-row")).click(); true`);
     for (let i = 0; i < 60 && (await run(`${ts}.found`)) < 3; i++) await sleep(1000);
     for (let i = 0; i < 30 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["tour-stops"] }).length >= 2`)); i++) await sleep(1000);
