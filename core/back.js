@@ -23,5 +23,13 @@ addEventListener("popstate", () => {
   stack.pop()?.close();
 });
 
+// Esc на компьютере — то же, что «Назад» на телефоне (Грегори 2026-11-05): закрывает последнее открытое.
+// Кто сам обработал Esc (строка поиска, колесо), ставит preventDefault — тогда здесь ничего
+addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || e.defaultPrevented || !stack.length) return;
+  e.preventDefault();
+  history.back();
+});
+
 // для проверки
 export const backDepth = () => stack.length;

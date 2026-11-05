@@ -4,6 +4,7 @@
 // Выбор помнится; событие "label-language" — для поиска и окон мест (язык ответов)
 import * as settings from "./settings.js";
 import { emit } from "./events.js";
+import { addMapButton } from "./controls.js";
 
 export const LANGUAGES = [
   { code: "none", short: "—", name: "Без подписей" },
@@ -48,14 +49,13 @@ export function setLabelLanguage(map, lang) {
   emit("label-language", { code: lang.code, ui: uiLanguage() });
 }
 
-// меню языка — выпадающий список у кнопки (кнопка живёт в строке поиска)
+// язык подписей — кнопка столбика слева внизу (Грегори 2026-11-05: «убирай в столбик» — была в строке
+// поиска), меню — справа от неё
 export function languageButton(map) {
-  const wrap = Object.assign(document.createElement("div"), { className: "lang" });
-  const btn = Object.assign(document.createElement("button"), { className: "lang-btn", title: "Язык подписей на карте" });
+  const btn = addMapButton(map, { title: "Язык подписей на карте", className: "lang-btn", html: "<span></span>" });
   const menu = Object.assign(document.createElement("div"), { className: "lang-menu menu", hidden: true });
-  wrap.append(btn, menu);
+  document.body.append(menu);
   const render = () => {
-    btn.innerHTML = `<span></span><svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M7 10l5 5 5-5z"/></svg>`;
     btn.firstChild.textContent = current.short;
     menu.replaceChildren(...LANGUAGES.map((l) => {
       const item = Object.assign(document.createElement("button"), { className: "menu-item" + (l === current ? " active" : ""), textContent: l.name });
@@ -63,9 +63,16 @@ export function languageButton(map) {
       return item;
     }));
   };
-  btn.addEventListener("click", (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; });
-  document.addEventListener("click", (e) => !wrap.contains(e.target) && (menu.hidden = true));
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    menu.hidden = !menu.hidden;
+    if (menu.hidden) return;
+    const r = btn.getBoundingClientRect();
+    menu.style.left = `${Math.round(r.right + 8)}px`;
+    menu.style.bottom = `${Math.round(innerHeight - r.bottom)}px`;
+  });
+  document.addEventListener("click", (e) => !menu.contains(e.target) && (menu.hidden = true));
   render();
   map.on("style.load", () => applyLabels(map));
-  return wrap;
+  return btn;
 }

@@ -66,7 +66,7 @@ ws.onmessage = (m) => {
     // сбои чужих серверов (плитка не пришла или пришла пустой) — не ошибка программы, только счёт
     // и горизонтали (maplibre-contour), когда сервер высот не ответил вовремя
     if (/Failed to fetch|AJAXError|could not be decoded/.test(text) || /timed out/.test(text) && /maplibre-contour/.test(text)) netFails++;
-    else errors.push("console.error: " + text.slice(0, 400));
+    else errors.push("console.error: " + text.slice(0, 400) + " [после: " + (lastCheck || "") + "]");
   }
 };
 const send = (method, params = {}) => new Promise((r) => { const id = ++nextId; pending.set(id, r); ws.send(JSON.stringify({ id, method, params })); });
@@ -104,7 +104,9 @@ await send("Runtime.enable");
 await send("Emulation.setDeviceMetricsOverride", PHONE ? { width: 390, height: 800, deviceScaleFactor: 2, mobile: true } : { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false });
 await send("Page.navigate", { url });
 const report = [];
-const check = (name, ok, extra = "") => { report.push(`${ok ? "✓" : "✗"} ${name}${extra ? " — " + extra : ""}`); if (!ok) errors.push(name); };
+let lastCheck = "";
+const check = (name, ok, extra = "") => { lastCheck = name; process.stderr.write(`${ok ? "+" : "-"} ${name.slice(0, 70)}
+`); report.push(`${ok ? "✓" : "✗"} ${name}${extra ? " — " + extra : ""}`); if (!ok) errors.push(name); };
 
 try {
   await run(`new Promise((r) => { const c = () => window.atlas?.map?.loaded() ? r(true) : setTimeout(c, 200); c(); })`);
@@ -117,8 +119,8 @@ try {
     zoom: !!document.querySelector(".maplibregl-ctrl-zoom-in, .maplibregl-ctrl-compass"),
     glass: [...document.querySelectorAll(".map-btn button, .wheel-toggle, .search-toggle")].every((b) => b.classList.contains("glass")) })`);
   check("звёзды, шкала, навигация", extras.stars && /км|м$/.test(extras.scale || "") && extras.geo, JSON.stringify(extras));
-  check("слева внизу: навигация, компас, настройки — полупрозрачные, без «+ −»",
-    JSON.stringify(extras.order) === '["geo-btn","compass-btn","glass"]' && !extras.zoom && extras.glass, JSON.stringify(extras));
+  check("слева внизу: навигация, компас, язык подписей, настройки — полупрозрачные, без «+ −»",
+    JSON.stringify(extras.order) === '["geo-btn","compass-btn","lang-btn","glass"]' && !extras.zoom && extras.glass, JSON.stringify(extras));
   const tilt = async () => { await run(`document.querySelector(".compass-btn").click(); true`); await sleep(1300);
     return run(`({ pitch: Math.round(atlas.map.getPitch()), bearing: Math.round(atlas.map.getBearing()), label: document.querySelector(".compass-mode").textContent })`); };
   const view0 = await run(`({ center: atlas.map.getCenter().toArray(), zoom: atlas.map.getZoom() })`);
@@ -195,6 +197,8 @@ try {
       placeholder: document.querySelector(".search-box input").placeholder, search: !document.body.classList.contains("search-hidden"), ...${navStats} }; })()`);
   check("куда идти: «Сюда» — карточка под строкой «Куда»: стрелка, расстояние и сторона; подсказки закрыты, отдельного окна нет", here.had && !here.openLater && here.panel && !here.list && !here.panels && here.target === "Проба"
     && /^\d[\d,]* (м|км) на юго-восток.*Проба/.test(here.card) && here.placeholder === "Куда" && here.search, JSON.stringify(here));
+  const flag = await run(`(() => { const f = document.querySelector(".go-flag svg"); const r = f?.getBoundingClientRect(); return r && { w: Math.round(r.width), h: Math.round(r.height), red: !!document.querySelector(".maplibregl-marker svg path[fill='#e53935']") }; })()`);
+  check("куда идти: цель — крупный синий флажок финиша", flag && flag.w >= 40 && flag.h >= 48, JSON.stringify(flag));
   await run(`${navPanel}.querySelector(".go-way").click(); true`);
   for (let i = 0; i < 20 && !(await run(`!!atlas.route.state().route`)); i++) await sleep(500);
   await sleep(300);
@@ -212,6 +216,11 @@ try {
   const off = await run(`({ ...atlas.route.state(), on: ${wheelNav}?.classList.contains("on"), nav: ${navStats}.navOn })`);
   check("навигация: кнопка в барабане светится, пока навигация включена; выключили — путь и точка сняты",
     lit.on && lit.nav && !off.on && !off.nav && !off.route && !off.target, JSON.stringify({ lit, off }));
+  // «Сюда» — только при навигации; без неё окно на карте — только сведения
+  const noHere = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
+    const p = track(new atlas.ctx.maplibregl.Popup()).setLngLat([24.76, 59.43]).setHTML('<div class="popup-title">Проба</div>').addTo(atlas.map);
+    const b = p.getElement().querySelector(".go-here"); const r = { has: !!b, visible: !!b && !b.hidden && b.offsetParent !== null }; p.remove(); return r; })()`);
+  check("«Сюда» в окне на карте — только при включённой навигации", !noHere.visible, JSON.stringify(noHere));
   // кнопка в барабане включает навигацию снова
   await run(`${wheelNav}.click(); true`);
   await sleep(2500);
@@ -219,9 +228,9 @@ try {
   check("навигация: кнопка в барабане включает навигацию", relit.geo && relit.on, JSON.stringify(relit));
   // поиск места в окне навигации (Enter) — точка; история точек: свернуть, удалить
   await run(`(() => { const i = document.querySelector(".search-box input"); i.value = "Kadriorg"; i.dispatchEvent(new Event("input")); i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return true; })()`);
-  for (let i = 0; i < 20 && !(await run(`${navList}.querySelectorAll(".search-scroll > .search-item").length`)); i++) await sleep(500);
-  const found = await run(`${navList}.querySelectorAll(".search-scroll > .search-item").length`);
-  await run(`${navList}.querySelector(".search-scroll > .search-item").click(); true`);
+  for (let i = 0; i < 20 && !(await run(`${navList}.querySelectorAll(".search-scroll > .search-item:not(.search-everywhere)").length`)); i++) await sleep(500);
+  const found = await run(`${navList}.querySelectorAll(".search-scroll > .search-item:not(.search-everywhere)").length`);
+  await run(`${navList}.querySelector(".search-scroll > .search-item:not(.search-everywhere)").click(); true`);
   await sleep(500);
   // выбрали точку — подсказки закрылись, карточка цели раскрыта; строка — «Куда»
   const picked = await run(`({ target: atlas.route.state().target?.title, history: JSON.parse(localStorage.getItem("atlas.route.history") || "[]").map((e) => e.title),
@@ -233,13 +242,15 @@ try {
     await sleep(200);
   };
   await run(`(() => { const i = document.querySelector(".search-box input"); i.value = ""; i.dispatchEvent(new Event("input")); return true; })()`);
-  await run(`(() => { document.querySelector(".search-box input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return true; })()`);
+  await run(`(() => { (document.querySelector(".search-results").hidden || document.querySelector(".search-box input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))); return true; })()`);
   await clickInput();
   const hist = await run(`({ rows: ${navList}.querySelectorAll(".search-history-row").length, open: !${navList}.hidden,
     clear: !!${navList}.querySelector(".search-history-clear"), grip: !!${navList}.querySelector(".search-grip"), card: !${navPanel}.hidden })`);
   // набор — подсказки из уже найденного
   await run(`(() => { const i = document.querySelector(".search-box input"); i.value = "Про"; i.dispatchEvent(new Event("input")); return true; })()`);
   const typed = await run(`[...${navList}.querySelectorAll(".search-history-row .search-item-title")].map((t) => t.textContent)`);
+  const every = await run(`${navList}.querySelector(".search-scroll > .search-item:first-child.search-everywhere")?.textContent || ""`);
+  check("набор — первой строкой «Искать «…» везде — Enter»", /Искать «Про» везде/.test(every) && /Enter/.test(every), every);
   await run(`(() => { const i = document.querySelector(".search-box input"); i.value = ""; i.dispatchEvent(new Event("input")); return true; })()`);
   await clickInput();
   const shut = await run(`${navList}.hidden`);
@@ -250,7 +261,7 @@ try {
     found > 0 && /Kadri|Кадри/i.test(picked.target) && picked.history.length === 2 && !picked.list && picked.card && picked.placeholder === "Куда"
     && hist.rows === 2 && hist.open && hist.clear && hist.grip && !hist.card && JSON.stringify(typed) === '["Проба"]' && shut && left === 1, JSON.stringify({ found, picked, hist, typed, shut, left }));
   // «Свернуть» карточку — в строке стрелка; щелчок по ней — карточка снова
-  await run(`(() => { document.querySelector(".search-box input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return true; })()`);
+  await run(`(() => { (document.querySelector(".search-results").hidden || document.querySelector(".search-box input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))); return true; })()`);
   await run(`[...${navPanel}.querySelectorAll(".go-close")].find((b) => /Свернуть/.test(b.title)).click(); true`);
   const folded = await run(`({ card: !${navPanel}.hidden, btn: !document.querySelector(".search-card-btn").hidden, arrow: !!document.querySelector(".search-card-btn .search-card-arrow") })`);
   await run(`document.querySelector(".search-card-btn").click(); true`);
@@ -367,6 +378,19 @@ try {
     b.click(); [...document.querySelectorAll(".lang-menu .menu-item")].find((i) => i.textContent === "Русский").click();
     return { en, label: b.textContent }; })()`);
   check("язык подписей переключается", lang.en && lang.label === "Ру", JSON.stringify(lang));
+  // ревизия 2026-11-05: язык — в столбике слева внизу; ⓘ при запуске свёрнута; пустая строка состояния не видна
+  const misc = await run(`({ lang: !!document.querySelector(".maplibregl-ctrl-bottom-left .lang-btn"), inSearch: !!document.querySelector(".search-box .lang-btn"),
+    attrib: document.querySelector(".maplibregl-ctrl-attrib")?.classList.contains("maplibregl-compact-show"),
+    status: (() => { const s = document.getElementById("status"); return s.textContent ? "text" : getComputedStyle(s).display; })() })`);
+  check("язык подписей — в столбике слева; ⓘ свёрнута; пустая строка состояния спрятана", misc.lang && !misc.inSearch && !misc.attrib && (misc.status === "none" || misc.status === "text"), JSON.stringify(misc));
+  // окно настроек: только «закрыть», без «свернуть»; Esc закрывает его, как «Назад» на телефоне
+  await run(`document.querySelector(".maplibregl-ctrl-bottom-left button[title=Настройки]").click(); true`);
+  await sleep(300);
+  const setHead = await run(`[...document.querySelectorAll(".panel-right:not([hidden]) .panel-head .panel-btn")].map((b) => b.title)`);
+  await run(`document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); true`);
+  await sleep(400);
+  const escShut = await run(`!document.querySelector(".panel-right:not([hidden])")`);
+  check("окно настроек — без «Свернуть»; Esc закрывает его", setHead.length > 0 && !setHead.some((t) => /Свернуть/.test(t)) && escShut, JSON.stringify({ setHead, escShut }));
 
   // поиск: запрос → список → выбор → маркер и запись в историю
   await run(openSearch);
@@ -385,12 +409,13 @@ try {
     for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: xy[0], y: xy[1], button: "left", clickCount: 1 });
     await sleep(200);
   };
-  await run(`(() => { const i = document.querySelector(".search-box input"); i.value = ""; i.dispatchEvent(new Event("input")); document.querySelector(".search-box input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); return true; })()`);
+  await run(`(() => { const i = document.querySelector(".search-box input"); i.value = ""; i.dispatchEvent(new Event("input")); (document.querySelector(".search-results").hidden || document.querySelector(".search-box input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))); return true; })()`);
   await tapInput();
   const sug = await run(`({ open: !document.querySelector(".search-results").hidden, rows: document.querySelectorAll(".search-results .search-history-row").length })`);
   await run(`(() => { const i = document.querySelector(".search-box input"); i.value = "zzzq"; i.dispatchEvent(new Event("input")); return true; })()`);
-  const none = await run(`document.querySelector(".search-results").hidden`);
-  await run(`(() => { const i = document.querySelector(".search-box input"); i.value = "Tall"; i.dispatchEvent(new Event("input")); return true; })()`);
+  // нет подходящих — только строка «Искать «…» везде»
+  const none = await run(`!document.querySelector(".search-results .search-history-row") && !!document.querySelector(".search-results .search-everywhere")`);
+  await run(`(() => { const i = document.querySelector(".search-box input"); i.value = "Талл"; i.dispatchEvent(new Event("input")); return true; })()`);
   const typedS = await run(`document.querySelectorAll(".search-results .search-history-row").length`);
   await tapInput();
   const shutS = await run(`document.querySelector(".search-results").hidden`);
@@ -1410,7 +1435,7 @@ try {
     && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои треки", "Навигация", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико
   // крутит его, нажатие по кнопке не в центре докручивает её и открывает столбик
-  await run(`document.querySelector(".sub-layers").hidden || document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); true`);
+  await run(`document.querySelector(".sub-layers").hidden || document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })); true`);
   const drum = await run(`(() => { const cells = [...document.querySelectorAll(".wheel-layers .wheel-cell")].filter((c) => !c.hidden)
     .map((c) => { const r = c.getBoundingClientRect(); return { y: r.top + r.height / 2, b: parseFloat(c.style.filter.replace("brightness(", "")) }; })
     .sort((a, b) => a.y - b.y); const gaps = cells.slice(1).map((c, i) => Math.round(c.y - cells[i].y));
@@ -1485,4 +1510,7 @@ console.log(`Снимки экрана: ${path.relative(process.cwd(), OUT)}`);
 ws.close();
 chrome.kill();
 server.close();
+// профиль Chrome — временный: убрать (раньше оставался в Temp после каждого прогона — 56 ГБ за неделю)
+await new Promise((r) => (chrome.exitCode !== null ? r() : chrome.once("exit", r)));
+for (let i = 0; i < 10; i++) { try { fs.rmSync(profile, { recursive: true, force: true }); break; } catch { await sleep(500); } }
 process.exit(errors.length ? 1 : 0);

@@ -22,7 +22,7 @@
 import { register, modules, allowed } from "./modules.js";
 import { emit, on } from "./events.js";
 import * as settings from "./settings.js";
-import { uiLanguage, languageButton } from "./labels.js";
+import { uiLanguage } from "./labels.js";
 import { track } from "./popups.js";
 import { historyList, remember as rememberIn } from "./history.js";
 import { backable } from "./back.js";
@@ -84,7 +84,6 @@ export function initSearch({ map, maplibregl }) {
     </div>
     <div class="search-card menu" hidden></div>
     <div class="search-results menu" hidden></div>`;
-  bar.querySelector(".search-box").append(languageButton(map));
   document.body.append(bar);
   const input = bar.querySelector("input");
   const clearBtn = bar.querySelector(".search-clear");
@@ -199,19 +198,36 @@ export function initSearch({ map, maplibregl }) {
     return b;
   };
 
+  // набрано что-то — первой строкой «Искать «…» везде» (то же, что Enter; Грегори 2026-11-05): видно, что
+  // история — только найденное раньше, а настоящий поиск — по Enter или этой строке
+  const submit = () => { if (mode?.submit) { wantList = true; mode.submit(input.value.trim()); } else if (mode) mode.filter(input.value.trim()); else run(); };
+  const everywhere = (q) => {
+    const b = Object.assign(document.createElement("button"), { className: "search-item search-everywhere" });
+    b.dataset.key = " everywhere";
+    b.innerHTML = `<span class="search-item-title"></span><span class="search-item-sub">Enter — поиск по всей карте</span>`;
+    b.firstChild.textContent = `Искать «${q}» везде`;
+    b.addEventListener("click", submit);
+    return b;
+  };
   // подсказки: история, при наборе — то, что уже находили и в тексте есть набранное
   const suggest = () => {
     cursor = null;
-    const q = input.value.trim().toLowerCase();
-    if (mode?.list) { fill(...mode.list(q)); return; }
+    const raw = input.value.trim(), q = raw.toLowerCase();
+    if (mode?.list) {
+      const nodes = mode.list(q);
+      // найденное (строки прямо в списке) — без строки «искать везде»; история — с ней
+      fill(...(raw && mode.submit && !nodes.some((n) => n.classList?.contains("search-item")) ? [everywhere(raw)] : []), ...nodes);
+      return;
+    }
     if (mode) { close(); return; }
     const h = historyList({ key: HISTORY_KEY, id: (e) => e.display_name, match: q ? (e) => e.display_name.toLowerCase().includes(q) : null,
       label: (e) => { const [t, ...rest] = e.display_name.split(", "); return { title: t, sub: rest.join(", ") }; },
       pick: (e) => choose(e, e.display_name.split(", ")[0]), changed: suggest });
-    if (!h.childElementCount) { close(); return; }
     // строкам истории — как найденным: стрелки ↑↓ ходят по ним
     for (const b of h.querySelectorAll(".search-item")) b.dataset.key = b.closest(".search-history-row").entry.display_name;
-    fill(h);
+    const top = raw ? [everywhere(raw)] : [];
+    if (!h.childElementCount && !top.length) { close(); return; }
+    fill(...top, ...(h.childElementCount ? [h] : []));
   };
 
   const run = async () => {
@@ -267,8 +283,8 @@ export function initSearch({ map, maplibregl }) {
     else if (e.key === "ArrowUp" && i >= 0) { e.preventDefault(); cursor = i > 0 ? items[i - 1].dataset.key : null; mark(); }
     else if (e.key === "Enter") {
       if (i >= 0 && !list.hidden) { e.preventDefault(); items[i].click(); return; }
-      if (mode?.submit) { wantList = true; mode.submit(input.value.trim()); } else if (!mode) run();
-    } else if (e.key === "Escape") close();
+      if (mode?.submit || !mode) submit();
+    } else if (e.key === "Escape" && !list.hidden) { e.preventDefault(); close(); }
   });
   // набор — подсказки из уже найденного (в разделе — его поиск по буквам)
   input.addEventListener("input", () => {
@@ -286,9 +302,7 @@ export function initSearch({ map, maplibregl }) {
     else if (!mode || mode.list) { if (leftOpen) emit("panel-fold-request", { fold: true }); suggest(); }
     else if (folded) unfoldPanel();
   });
-  bar.querySelector(".search-go").addEventListener("click", () => {
-    if (mode?.submit) { wantList = true; mode.submit(input.value.trim()); } else if (mode) mode.filter(input.value.trim()); else run();
-  });
+  bar.querySelector(".search-go").addEventListener("click", submit);
   clearBtn.addEventListener("click", () => {
     input.value = "";
     clearBtn.hidden = true;

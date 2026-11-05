@@ -11,7 +11,7 @@ import { register } from "../core/modules.js";
 import { emit, on } from "../core/events.js";
 import { setSearchMode, searchMode, geocode, refreshSearchList, foldSearchList, foldSearchCard, setSearchCard } from "../core/search.js";
 import { historyList, remember } from "../core/history.js";
-import { WAYS, ARROW } from "../core/route.js";
+import { WAYS, ARROW, fitPath } from "../core/route.js";
 
 const HISTORY = "route.history";
 const ICON = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2 4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>';
@@ -60,14 +60,10 @@ function choose(t) {
   // выбрали — подсказки закрываются, карточка цели раскрыта
   foldSearchList();
   // на карте — и я, и точка
-  const map = ctx?.map;
-  if (map) {
-    const pts = [t.lngLat, ...(state.me && window.atlas?.geo?.state().position ? [window.atlas.geo.state().position] : [])];
-    if (pts.length > 1) map.fitBounds([[Math.min(pts[0][0], pts[1][0]), Math.min(pts[0][1], pts[1][1])], [Math.max(pts[0][0], pts[1][0]), Math.max(pts[0][1], pts[1][1])]],
-      { padding: innerWidth <= 600 ? { top: innerHeight * 0.5, bottom: 90, left: 40, right: 40 } : { top: 90, bottom: 110, left: 440, right: 90 }, maxZoom: 16, duration: 1500 });
-    else map.flyTo({ center: t.lngLat, zoom: Math.max(map.getZoom(), 14), duration: 1500 });
-  }
+  showPath(t);
 }
+// на карте — и я, и точка
+const showPath = (t) => fitPath(ctx?.map || window.atlas?.map, [t.lngLat, state.me && window.atlas?.geo?.state().position]);
 
 // цель: стрелка, расстояние, сторона, способы передвижения, путь
 function targetCard() {
@@ -154,6 +150,7 @@ on("search-mode", (m) => { if (!m && navOn) setTimeout(() => navOn && !searchMod
 on("route-open", (t) => {
   remember(HISTORY, t, id);
   openPanel();
+  showPath(t); // первое «Сюда» — весь путь на экране
 }, { replay: false });
 
 register({

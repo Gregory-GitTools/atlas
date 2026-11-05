@@ -581,10 +581,9 @@ async function startMusic() {
 }
 music.addEventListener("ended", () => { track = (track + 1) % tracks; startMusic(); });
 
-function start({ full = false } = {}) {
+function start() {
   if (playing || photos.length < 2) return;
   playing = true;
-  if (full && !document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
   syncPlayer();
   if (music.getAttribute("src")) music.play().catch(() => {}); else startMusic();
   // ролик стоит на паузе — пусть доиграет
@@ -601,7 +600,9 @@ function stop() {
   syncPlayer();
 }
 
-playBtn.addEventListener("click", () => (playing ? stop() : start({ full: true })));
+// показ — в окне альбома (его можно унести на другой монитор или телевизор), во весь экран — своей кнопкой
+// (Грегори 2026-11-05: «два режима: альбом и полный экран»)
+playBtn.addEventListener("click", () => (playing ? stop() : start()));
 // стоп (как в travel-earth): показ остановлен, полный экран закрыт, музыка с начала нового трека
 stopBtn.addEventListener("click", () => {
   stop();
@@ -610,11 +611,8 @@ stopBtn.addEventListener("click", () => {
   if (document.fullscreenElement) document.exitFullscreen();
 });
 fullBtn.addEventListener("click", () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.().catch(() => {})));
-// Esc выходит из полного экрана — показ останавливается (как в Albom)
-let wasFull = false;
+// вышли из полного экрана — показ идёт дальше в окне (Грегори 2026-11-05)
 document.addEventListener("fullscreenchange", () => {
-  if (wasFull && !document.fullscreenElement && playing) stop();
-  wasFull = !!document.fullscreenElement;
   syncPlayer();
   wake();
 });

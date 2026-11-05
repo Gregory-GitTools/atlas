@@ -26,6 +26,9 @@ strip.addEventListener("wheel", (e) => {
   e.preventDefault();
 }, { passive: false });
 
+// телефон и планшет: наведения нет, двойной щелчок — неудобный жест
+export const touchUI = () => matchMedia("(hover: none)").matches || innerWidth <= 600;
+
 export function setStripItems(source, items) {
   sources.set(source, items);
   if (map) update();
@@ -62,9 +65,11 @@ function update() {
       if (!el) {
         el = Object.assign(document.createElement("button"), { className: "photo-strip-item", title: p.title || "" });
         el.append(Object.assign(document.createElement("img"), { src: p.thumb, alt: "", loading: "lazy" }));
-        el.addEventListener("click", () => { selectStripItem(p.id); byId(p.id)?.select?.(); });
         // у источника может быть своя галерея (альбом целиком — «Мои альбомы»)
-        el.addEventListener("dblclick", () => { const x = byId(p.id); if (x?.gallery) x.gallery(); else openGallery(p.id); });
+        const toGallery = () => { const x = byId(p.id); if (x?.gallery) x.gallery(); else openGallery(p.id); };
+        // на телефоне двойное касание не угадать (Грегори 2026-11-05) — касание уже выбранного снимка — галерея
+        el.addEventListener("click", () => { if (touchUI() && selected === p.id) { toGallery(); return; } selectStripItem(p.id); byId(p.id)?.select?.(); });
+        el.addEventListener("dblclick", toGallery);
         buttons.set(p.id, el);
       }
       el.classList.toggle("active", p.id === selected);

@@ -211,7 +211,7 @@ export function initLayersPanel(ctx) {
       if (!e.target.isConnected) return;
       if (openKey && !sub.contains(e.target) && !wheel.contains(e.target) && !controls.some((c) => c.contains(e.target))) show(null);
     });
-    document.addEventListener("keydown", (e) => e.key === "Escape" && isOpen && (openKey ? show(null) : setShown(null)));
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && isOpen && !e.defaultPrevented) { e.preventDefault(); openKey ? show(null) : setShown(null); } });
 
     // ---------- столбик кнопки ----------
     let openKey = null;

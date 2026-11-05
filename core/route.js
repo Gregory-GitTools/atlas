@@ -22,6 +22,27 @@ const self = () => modules("service").find((m) => m.id === "core/route");
 
 const OSRM = "https://routing.openstreetmap.de";
 const ROUTE_COLOR = "#0a5cff"; // ярко-синий: красный терялся среди дорог (Грегори 2026-11-04)
+// цель на карте — синий флажок финиша, цвета навигации (Грегори 2026-11-05: «не мельчи со значком»);
+// древко внизу слева — ровно в точке
+const FLAG = `<svg viewBox="0 0 44 52" width="44" height="52"><defs><pattern id="go-chk" width="12" height="12" patternUnits="userSpaceOnUse" x="7" y="3">
+<rect width="12" height="12" fill="#fff"/><rect width="6" height="6" fill="${"#0a5cff"}"/><rect x="6" y="6" width="6" height="6" fill="${"#0a5cff"}"/></pattern></defs>
+<path d="M7 4 Q19 0 25 4 T42 4 V26 Q36 30 25 26 T7 26 Z" fill="url(#go-chk)" stroke="#0a3fb0" stroke-width="2" stroke-linejoin="round"/>
+<rect x="3" y="2" width="5" height="49" rx="2.5" fill="#0a3fb0" stroke="#fff" stroke-width="1.5"/></svg>`;
+const flagMarker = (ml) => {
+  const el = document.createElement("div");
+  el.className = "go-flag";
+  el.innerHTML = FLAG;
+  return new ml.Marker({ element: el, anchor: "bottom-left", offset: [-5, 0] });
+};
+// показать весь путь: я, точка и линия по дорогам (Грегори 2026-11-05: «при первом „Сюда“ покажи весь путь»)
+export const fitPath = (map, pts) => {
+  pts = pts.filter(Boolean);
+  if (!map || !pts.length) return;
+  const pad = innerWidth <= 600 ? { top: Math.round(innerHeight * 0.45), bottom: 90, left: 40, right: 40 } : { top: 110, bottom: 110, left: 440, right: 90 };
+  if (pts.length < 2) { map.flyTo({ center: pts[0], zoom: Math.max(map.getZoom(), 14), duration: 1500 }, { navFollow: true }); return; }
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: pad, maxZoom: 16, duration: 1500 }, { navFollow: true });
+};
 const svg = (d) => `<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="${d}"/></svg>`;
 // значки — те же, что у видов активности треков (Pictogrammers MDI)
 export const WAYS = [
@@ -113,7 +134,7 @@ export function initRoute({ map, maplibregl, status }) {
     asked++;
     settings.set("route.target", t);
     marker?.remove();
-    marker = t ? new maplibregl.Marker({ color: "#e53935" }).setLngLat(t.lngLat).addTo(map) : null;
+    marker = t ? flagMarker(maplibregl).setLngLat(t.lngLat).addTo(map) : null;
     draw();
     show();
   };
@@ -133,6 +154,7 @@ export function initRoute({ map, maplibregl, status }) {
       busy = null;
       if (!r) { status("Путь не найден"); setTimeout(() => status(""), 4000); show(); return; }
       route = { way: way.id, coords: r.geometry.coordinates, distance: r.distance, duration: r.duration };
+      fitPath(map, [me, ...route.coords, target.lngLat]); // путь пришёл — весь на экран
     } catch {
       if (n !== asked) return;
       busy = null;
@@ -146,7 +168,10 @@ export function initRoute({ map, maplibregl, status }) {
   on("me", (p) => { me = p?.lngLat || null; if (!me && route) { route = null; asked++; } draw(); show(); });
   map.on("rotate", show);
 
-  // в каждом окне на карте — «Сюда»
+  // «Сюда» в окне на карте — только при включённой навигации (Грегори 2026-11-05: «нашёл что-то на слоях,
+  // перешёл в навигацию и „Сюда“; в других режимах окно — только сведения об объекте»)
+  let navOn = false;
+  on("nav", (n) => { navOn = !!n?.on; document.querySelectorAll(".go-here").forEach((b) => (b.hidden = !navOn)); });
   decoratePopups((popup) => {
     const content = popup.getElement()?.querySelector(".maplibregl-popup-content");
     if (!content || content.querySelector(".go-here")) return;
@@ -166,6 +191,7 @@ export function initRoute({ map, maplibregl, status }) {
       setTarget({ lngLat: [lng, lat], title });
       emit("route-open", { lngLat: [lng, lat], title, address: address || (title === coords ? "" : coords) });
     });
+    btn.hidden = !navOn;
     content.append(btn);
     // окно стало выше — пусть MapLibre заново выберет, куда его повернуть, чтобы не ушло за край экрана
     // (Грегори 2026-11-04: на телефоне окно «Сюда» уходило за край)

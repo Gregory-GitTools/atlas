@@ -20,7 +20,7 @@ import { emit } from "../core/events.js";
 import { setSearchMode, searchMode } from "../core/search.js";
 import { cacheGet, cacheSet, cacheDelete } from "../core/storage.js";
 import { track, claimLayers } from "../core/popups.js";
-import { setStripItems, selectStripItem, openGalleryWith } from "../core/photo-strip.js";
+import { setStripItems, selectStripItem, openGalleryWith, touchUI } from "../core/photo-strip.js";
 import { PLAYER } from "../core/player.js";
 
 const svg = (d, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor"><path d="${d}"/></svg>`;
@@ -508,8 +508,10 @@ function showOnMap(on) {
 }
 
 // окно снимка на карте
+let tappedCell = null, popupPhoto = null; // выбранный снимок в альбоме и на карте — касание по нему открывает галерею
 function showPhoto(p) {
   if (!p.rec?.lat) return;
+  popupPhoto = p.id;
   const box = h("div", "");
   const img = Object.assign(document.createElement("img"), { className: "popup-photo", alt: "", src: p.thumb || "" });
   img.style.height = "200px";
@@ -521,7 +523,7 @@ function showPhoto(p) {
   box.append(img, h("div", "popup-row", p.album.title), h("div", "popup-sub", [photoDate(p), p.name].filter(Boolean).join(" · ")),
     h("div", "popup-sub", p.video ? "Ролик — щелчок откроет его в галерее" : p.live ? "Живое фото — щелчок оживит его в галерее" : "Щелчок по снимку — альбом в галерее"));
   track(new ctx.maplibregl.Popup({ offset: p.img && ctx.map.getZoom() >= THUMB_ZOOM ? 26 : 8, maxWidth: "300px" }))
-    .setLngLat(pt(p)).setDOMContent(box).addTo(ctx.map).on("close", () => selectStripItem(null, p.id));
+    .setLngLat(pt(p)).setDOMContent(box).addTo(ctx.map).on("close", () => { selectStripItem(null, p.id); if (popupPhoto === p.id) popupPhoto = null; });
   if (p.thumb) selectStripItem(p.id);
 }
 
@@ -788,9 +790,11 @@ function renderAlbum() {
     if (p.video || p.live) cell.append(h("span", "al-badge", p.video ? "▶" : "LIVE"));
     if (p.noFrame) requestAnimationFrame(() => noFrame(img, p));
     if (!p.rec?.lat) cell.classList.add("no-place");
-    // щелчок — снимок на карте (если у него есть место), двойной — галерея с него
+    // щелчок — снимок на карте (если у него есть место), двойной — галерея с него; на телефоне вместо
+    // двойного — касание уже выбранного снимка (Грегори 2026-11-05)
     cell.addEventListener("click", () => {
-      if (!p.rec?.lat) { gallery(a, id); return; }
+      if (!p.rec?.lat || (touchUI() && tappedCell === id)) { gallery(a, id); return; }
+      tappedCell = id;
       ctx.map.flyTo({ center: pt(p), zoom: Math.max(ctx.map.getZoom(), 15), offset: innerWidth <= 600 ? [0, Math.round(innerHeight * 0.22)] : [210, 0], duration: 1500 });
       ctx.map.once("moveend", () => showPhoto(p));
     });
@@ -946,6 +950,8 @@ function wire() {
       return;
     }
     const p = photos.get(f.properties.photo);
+    // на телефоне касание снимка, чьё окно уже открыто, — галерея (окно ещё не закрылось: этот обработчик раньше)
+    if (p && touchUI() && popupPhoto === p.id) { gallery(p.album, p.id); return; }
     if (p) showPhoto(p);
   });
   // двойной щелчок по снимку — его альбом в галерее, карта не приближается
