@@ -22,7 +22,8 @@ let navOn = false, state = {}, results = null, note = "", ctx = null;
 
 // строка поиска «Куда»: подсказки — история точек (при наборе — подходящие), Enter — найти место;
 // цель — своя карточка над подсказками
-const FOLD = '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M7.41 15.41 12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>';
+const CLOSE = '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
+const FOLD = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg>';
 const MODE = { icon: ICON, title: "Навигация", placeholder: "Куда", tone: "nav",
   filter: (text) => { if (!text && results) { results = null; note = ""; } },
   submit: (text) => find(text),
@@ -79,8 +80,8 @@ function targetCard() {
   const fold = h("button", "go-close");
   Object.assign(fold, { type: "button", title: "Свернуть — в строке останется стрелка", innerHTML: FOLD });
   fold.addEventListener("click", (e) => { e.stopPropagation(); foldSearchCard(); });
-  const close = h("button", "go-close", "×");
-  Object.assign(close, { type: "button", title: "Убрать точку" });
+  const close = h("button", "go-close");
+  Object.assign(close, { type: "button", title: "Убрать точку", innerHTML: CLOSE });
   close.addEventListener("click", (e) => { e.stopPropagation(); emit("route-target", null); });
   top.append(arrow, text, fold, close);
   const ways = h("div", "go-ways");
@@ -114,7 +115,8 @@ function suggestions(q) {
     return out;
   }
   const hist = historyList({ key: HISTORY, id, match: q ? (e) => `${e.title} ${e.address || ""}`.toLowerCase().includes(q) : null,
-    label: (e) => ({ title: e.title, sub: e.address || `${e.lngLat[1].toFixed(5)}, ${e.lngLat[0].toFixed(5)}` }),
+    // подпись — адрес; координаты — только если название не они же (старые записи)
+    label: (e) => { const c = `${e.lngLat[1].toFixed(5)}, ${e.lngLat[0].toFixed(5)}`; return { title: e.title, sub: e.address || (e.title === c ? "" : c) }; },
     pick: choose, changed: render });
   if (hist.childElementCount) out.push(hist);
   else if (!q) out.push(h("div", "search-note", "Наберите место и нажмите Enter — или «Сюда» в окне любого места на карте"));

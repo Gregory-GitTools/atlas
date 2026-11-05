@@ -52,9 +52,26 @@
   --top-inset: env(titlebar-area-height, 0px);
 }
 
+/* ПРАВИЛО (Грегори 2026-11-05: «всё начинается с еле видных значков — делать их максимально большими»):
+   значок занимает почти всю кнопку, размер самой кнопки при этом не меняется. Одно правило на все
+   маленькие кнопки окон, списков и карточек — значки в разметке могут быть любого размера */
+.panel-btn > svg,
+.pb-btn > svg,
+.search-delete > svg,
+.search-box > button > svg,
+.search-card-btn svg,
+.go-way > svg,
+.go-close > svg {
+  width: calc(100% - 4px);
+  height: calc(100% - 4px);
+}
+
 html, body {
   margin: 0;
   height: 100%;
+  /* страница сама не прокручивается никогда (на телефоне прокрутка списка уводила вверх всё окно) */
+  overflow: hidden;
+  overscroll-behavior: none;
   font-family: var(--font);
   color: var(--text);
   background: #000;
@@ -528,8 +545,27 @@ html, body {
 }
 
 .search-results {
+  display: flex;
+  flex-direction: column;
   margin-top: 6px;
-  max-height: calc(100vh - 200px);
+  /* над клавиатурой: --vvh — видимая высота экрана (search.js) */
+  max-height: calc(var(--vvh, 100vh) - var(--top-inset) - 70px);
+  overflow: hidden;
+}
+
+.search-results[hidden] {
+  display: none;
+}
+
+.search-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.search-results > .search-grip {
+  flex: none;
 }
 
 .search-item {

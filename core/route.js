@@ -155,10 +155,16 @@ export function initRoute({ map, maplibregl, status }) {
     btn.title = "Показать, куда идти к этой точке";
     btn.addEventListener("click", () => {
       const { lng, lat } = popup.getLngLat();
-      const title = content.querySelector(".popup-title")?.textContent?.trim() || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      // пустое место на карте: названия нет — первая часть адреса, адрес — подписью (Грегори 2026-11-05:
+      // в истории было «59.42599, 24.80124» дважды); адреса нет — координаты один раз
+      const named = content.querySelector(".popup-title")?.textContent?.trim();
+      const addr = content.querySelector(".popup-sub")?.textContent?.trim() || "";
+      const coords = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      const title = named || addr.split(", ").slice(0, 2).join(", ") || coords;
+      const address = named ? addr : addr || "";
       closeAll();
       setTarget({ lngLat: [lng, lat], title });
-      emit("route-open", { lngLat: [lng, lat], title });
+      emit("route-open", { lngLat: [lng, lat], title, address: address || (title === coords ? "" : coords) });
     });
     content.append(btn);
     // окно стало выше — пусть MapLibre заново выберет, куда его повернуть, чтобы не ушло за край экрана

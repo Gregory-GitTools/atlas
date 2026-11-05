@@ -28,7 +28,7 @@ const HISTORY_KEY = "search.history";
 const HISTORY_SIZE = 20;
 
 const SEARCH_ICON = `<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>`;
-const CLEAR_ICON = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+const CLEAR_ICON = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
 
 register({
   id: "core/search",
@@ -134,7 +134,16 @@ export function initSearch({ map, maplibregl }) {
   grip.addEventListener("dblclick", () => setH(null));
   grip.addEventListener("click", (e) => e.stopPropagation());
   // в списке ползунок всегда последним; пустой список — закрыт
-  const fill = (...nodes) => { list.replaceChildren(...nodes, ...(nodes.length ? [grip] : [])); list.hidden = !nodes.length; };
+  // прокручивается только середина списка (Грегори 2026-11-05: на телефоне при прокрутке уезжал ползунок или
+  // всё окно вверх): ползунок — снаружи прокрутки, всегда внизу; прокрутка не передаётся странице
+  const scroller = Object.assign(document.createElement("div"), { className: "search-scroll" });
+  const fill = (...nodes) => { scroller.replaceChildren(...nodes); scroller.scrollTop = 0; list.replaceChildren(...(nodes.length ? [scroller, grip] : [])); list.hidden = !nodes.length; };
+  // высота — по видимой части экрана: открылась клавиатура — список над ней, не под ней
+  const vv = window.visualViewport;
+  const fit = () => document.documentElement.style.setProperty("--vvh", `${Math.round(vv ? vv.height : innerHeight)}px`);
+  vv?.addEventListener("resize", fit);
+  addEventListener("resize", fit);
+  fit();
   const note = (text) => fill(Object.assign(document.createElement("div"), { className: "search-note", textContent: text }));
 
   const item = (r) => {
@@ -202,7 +211,7 @@ export function initSearch({ map, maplibregl }) {
   };
 
   const mark = () => {
-    for (const it of list.querySelectorAll(".search-item")) {
+    for (const it of scroller.querySelectorAll(".search-item")) {
       const on = it.dataset.key === cursor;
       it.classList.toggle("active", on);
       if (on) it.scrollIntoView({ block: "nearest" });

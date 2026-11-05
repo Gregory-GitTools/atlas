@@ -219,9 +219,9 @@ try {
   check("навигация: кнопка в барабане включает навигацию", relit.geo && relit.on, JSON.stringify(relit));
   // поиск места в окне навигации (Enter) — точка; история точек: свернуть, удалить
   await run(`(() => { const i = document.querySelector(".search-box input"); i.value = "Kadriorg"; i.dispatchEvent(new Event("input")); i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return true; })()`);
-  for (let i = 0; i < 20 && !(await run(`${navList}.querySelectorAll(":scope > .search-item").length`)); i++) await sleep(500);
-  const found = await run(`${navList}.querySelectorAll(":scope > .search-item").length`);
-  await run(`${navList}.querySelector(":scope > .search-item").click(); true`);
+  for (let i = 0; i < 20 && !(await run(`${navList}.querySelectorAll(".search-scroll > .search-item").length`)); i++) await sleep(500);
+  const found = await run(`${navList}.querySelectorAll(".search-scroll > .search-item").length`);
+  await run(`${navList}.querySelector(".search-scroll > .search-item").click(); true`);
   await sleep(500);
   // выбрали точку — подсказки закрылись, карточка цели раскрыта; строка — «Куда»
   const picked = await run(`({ target: atlas.route.state().target?.title, history: JSON.parse(localStorage.getItem("atlas.route.history") || "[]").map((e) => e.title),
@@ -384,6 +384,16 @@ try {
   const typedS = await run(`document.querySelectorAll(".search-results .search-history-row").length`);
   await tapInput();
   const shutS = await run(`document.querySelector(".search-results").hidden`);
+  // длинная история: прокручивается только середина списка, ползунок виден внизу, окно поиска на месте
+  const longList = await run(`(async () => { const key = "atlas.search.history", keep = localStorage.getItem(key);
+    localStorage.setItem(key, JSON.stringify(Array.from({ length: 20 }, (_, i) => ({ display_name: "Место " + i + ", Таллин", lat: "59.4", lon: "24.7", boundingbox: ["59.4", "59.5", "24.7", "24.8"] }))));
+    const i = document.querySelector(".search-box input"); i.value = ""; i.dispatchEvent(new Event("input")); if (document.querySelector(".search-results").hidden) i.click(); await new Promise((r) => setTimeout(r, 200));
+    const sc = document.querySelector(".search-scroll"), bar0 = document.querySelector(".search").getBoundingClientRect().top;
+    sc.scrollTop = 99999; await new Promise((r) => setTimeout(r, 200));
+    const g = document.querySelector(".search-grip").getBoundingClientRect(), L = document.querySelector(".search-results").getBoundingClientRect();
+    const r = { scrolled: sc.scrollTop > 0, grip: g.bottom <= innerHeight && g.top > 0, inside: L.bottom <= innerHeight, page: document.scrollingElement.scrollTop, bar: document.querySelector(".search").getBoundingClientRect().top === bar0 };
+    i.click(); localStorage.setItem(key, keep); return r; })()`);
+  check("поиск: длинный список прокручивается внутри, ползунок внизу на виду, окно поиска не уезжает", longList.scrolled && longList.grip && longList.inside && longList.page === 0 && longList.bar, JSON.stringify(longList));
   check("поиск: щелчок по строке — история, набор — подходящие из найденного, второй щелчок — закрыть", sug.open && sug.rows === 1 && none && typedS === 1 && shutS, JSON.stringify({ sug, none, typedS, shutS }));
   await sleep(2800);
   await idle();
