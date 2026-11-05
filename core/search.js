@@ -22,6 +22,7 @@ import * as settings from "./settings.js";
 import { uiLanguage, languageButton } from "./labels.js";
 import { track } from "./popups.js";
 import { historyList, remember as rememberIn } from "./history.js";
+import { backable } from "./back.js";
 
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
 const HISTORY_KEY = "search.history";
@@ -106,18 +107,26 @@ export function initSearch({ map, maplibregl }) {
   refresh = (withList = true) => {
     const card = mode?.card?.() || null;
     cardBox.replaceChildren(...(card ? [card] : []));
-    cardBox.hidden = !card || !cardOpen;
-    cardBtn.hidden = !card || cardOpen;
+    // подсказки и карточка вместе — никогда (Грегори 2026-11-05): открыты подсказки — карточки нет
+    cardBox.hidden = !card || !cardOpen || !list.hidden;
+    cardBtn.hidden = !card || (cardOpen && list.hidden);
     if (card && !cardOpen) { cardBtn.innerHTML = mode.cardIcon?.() || ""; cardBtn.title = mode.cardTitle?.() || "Показать"; }
     if (withList && (!list.hidden || wantList)) suggest();
   };
   picked = () => { close(); cardOpen = true; refresh(); input.blur(); };
-  cardBtn.addEventListener("click", (e) => { e.stopPropagation(); cardOpen = true; refresh(); });
+  cardBtn.addEventListener("click", (e) => { e.stopPropagation(); close(); input.blur(); cardOpen = true; refresh(false); });
   // карточка сворачивается своей кнопкой (раздел зовёт foldCard)
   foldCard = () => { cardOpen = false; refresh(); };
 
   let wantList = false; // нажали Enter в разделе — его найденное покажется, когда придёт
-  const close = () => { list.hidden = true; cursor = null; wantList = false; };
+  // подсказки — шаг для «Назад» телефона; закрылись — снова карточка раздела
+  let listBack = null;
+  const close = () => {
+    const was = !list.hidden;
+    list.hidden = true; cursor = null; wantList = false;
+    if (listBack) { const d = listBack; listBack = null; d(); }
+    if (was) refresh(false);
+  };
   // ползунок внизу списка (как у окон, Грегори 2026-11-04: «история поиска должна иметь движок внизу»):
   // потянуть — список выше или ниже, высота помнится; двойное нажатие — снова по содержимому
   const grip = Object.assign(document.createElement("div"), { className: "panel-grip search-grip", title: "Потяните — список выше или ниже" });
@@ -137,7 +146,16 @@ export function initSearch({ map, maplibregl }) {
   // прокручивается только середина списка (Грегори 2026-11-05: на телефоне при прокрутке уезжал ползунок или
   // всё окно вверх): ползунок — снаружи прокрутки, всегда внизу; прокрутка не передаётся странице
   const scroller = Object.assign(document.createElement("div"), { className: "search-scroll" });
-  const fill = (...nodes) => { scroller.replaceChildren(...nodes); scroller.scrollTop = 0; list.replaceChildren(...(nodes.length ? [scroller, grip] : [])); list.hidden = !nodes.length; };
+  const fill = (...nodes) => {
+    scroller.replaceChildren(...nodes);
+    scroller.scrollTop = 0;
+    if (!nodes.length) { close(); return; }
+    list.replaceChildren(scroller, grip);
+    const was = list.hidden;
+    list.hidden = false;
+    if (!listBack) listBack = backable(() => { listBack = null; close(); });
+    if (was) refresh(false);
+  };
   // высота — по видимой части экрана: открылась клавиатура — список над ней, не под ней
   const vv = window.visualViewport;
   const fit = () => document.documentElement.style.setProperty("--vvh", `${Math.round(vv ? vv.height : innerHeight)}px`);
@@ -235,9 +253,11 @@ export function initSearch({ map, maplibregl }) {
     mode?.filter(input.value.trim());
     suggest();
   });
-  // щелчок по строке — подсказки, следующий — закрыть (без щелчка список сам не открывается)
+  // щелчок по строке — подсказки (и клавиатура), следующий — подсказки закрыть и клавиатуру спрятать
+  // (Грегори 2026-11-05: «остаётся только окно без клавиатуры»); «Назад» на телефоне прячет клавиатуру,
+  // подсказки остаются; без щелчка список сам не открывается
   input.addEventListener("click", () => {
-    if (!list.hidden) close();
+    if (!list.hidden) { close(); input.blur(); }
     else if (!mode || mode.list) suggest();
   });
   bar.querySelector(".search-go").addEventListener("click", () => {

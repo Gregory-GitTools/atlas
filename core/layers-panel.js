@@ -32,6 +32,7 @@
 // Включённые слои, какой барабан открыт и спрятан ли поиск — помнятся. Открылась панель настроек —
 // барабан уступает место, и наоборот
 import { closeOpen, homeList } from "./panel.js";
+import { backable } from "./back.js";
 import { modules, toggle, available, allowed, onRegister, MODULES } from "./modules.js";
 import { on, emit } from "./events.js";
 import { BASEMAPS, currentBasemap, setBasemap, thumbOf } from "./basemaps.js";
@@ -53,7 +54,6 @@ const groupOf = (m) => (m.group === MAPS_GROUP ? MAPS_GROUP : GROUPS.some((g) =>
 const BLOCKED = "Выключено в настройках: обращается в интернет";
 const CLEAR_ICON = '<svg viewBox="0 0 24 24" width="12" height="12"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
 const ARROW = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M15.5 5v14L6 12z"/></svg>';
-const LENS = '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>';
 
 // барабан: промежуток между кнопками в центре — GAP (Грегори, 2026-10-30: «расстояние между кнопками
 // поменьше»), притормаживание у центра
@@ -148,14 +148,22 @@ export function initLayersPanel(ctx) {
     arrowBtn.title = shown === "layers" ? "Спрятать слои карты" : "Слои карты";
     // кнопка — ещё и индикатор режима строки поиска (Грегори 2026-11-04): режим есть — его значок, даже
     // при закрытом поиске (навигация включена — значок навигации)
-    lensBtn.classList.toggle("open", searchOn && !mode);
+    // поиск открыт — значок на цветном фоне; закрыт — сам значок цвета раздела на прозрачном (Грегори
+    // 2026-11-05: «только цветной значок в пустом окне карты»); без раздела — логотип
+    lensBtn.classList.toggle("open", !mode);
     lensBtn.classList.toggle("mode", !!mode);
-    lensBtn.style.background = mode ? `var(--tone-${mode.tone})` : "";
-    lensBtn.innerHTML = mode ? mode.icon : !searchOn ? LENS : '<img src="icons/logo.png" alt="">';
+    lensBtn.classList.toggle("idle", !searchOn);
+    lensBtn.style.background = mode && searchOn ? `var(--tone-${mode.tone})` : "";
+    lensBtn.style.color = mode && !searchOn ? `var(--tone-${mode.tone})` : "";
+    lensBtn.innerHTML = mode ? mode.icon : '<img src="icons/logo.png" alt="">';
     lensBtn.title = !searchOn ? "Поиск и разделы: экскурсии, языки, треки, фото"
-      : shown === "content" ? `Закрыть ${mode ? `«${mode.title}» и ` : ""}поиск` : "Поиск и разделы";
+      : shown ? "Спрятать барабан" : "Закрыть поиск";
   };
+  // открытый поиск — шаг для «Назад» телефона
+  let searchBack = null;
   const setShown = (which, search = searchOn) => {
+    if (search && !searchOn) searchBack = backable(() => { searchBack = null; setShown(null, false); });
+    if (!search && searchBack) { const d = searchBack; searchBack = null; d(); }
     searchOn = search;
     document.body.classList.toggle("search-hidden", !searchOn);
     settings.set("search.open", searchOn || null);
@@ -167,12 +175,13 @@ export function initLayersPanel(ctx) {
     }
     paint();
   };
-  // щелчок — свой барабан (вместо другого), второй щелчок — спрятать. Лупа (логотип, значок режима) —
-  // только открыть или закрыть строку поиска вместе с барабаном разделов и окном раздела, в любом режиме,
-  // и показать режим; ничего не сбрасывает (Грегори 2026-11-05: «выбор — только в барабане»): окно раздела
+  // щелчок — свой барабан (вместо другого), второй щелчок — спрятать. Кнопка справа вверху (логотип,
+  // значок режима) — три положения по кругу, ничего не сбрасывает (Грегори 2026-11-05: «выбор — только в
+  // барабане»; «пришёл и закрыл за собой дверь»): поиск с барабаном → щелчок прячет барабан → щелчок
+  // прячет поиск (значок — цветной на прозрачном) → щелчок — снова поиск с барабаном. Окно раздела
   // прячется вместе со строкой и возвращается с ней (body.search-hidden)
   arrowBtn.addEventListener("click", () => setShown(shown === "layers" ? null : "layers"));
-  lensBtn.addEventListener("click", () => setShown(searchOn ? null : "content", !searchOn));
+  lensBtn.addEventListener("click", () => (!searchOn ? setShown("content", true) : shown ? setShown(null, true) : setShown(null, false)));
   on("search-mode", (m) => { mode = m; paint(); });
   // раздел живёт в самой строке поиска (навигация) — строка нужна; на телефоне барабан уступает место
   on("search-show", () => setShown(innerWidth <= 600 ? null : shown || "content", true), { replay: false });

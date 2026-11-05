@@ -141,6 +141,8 @@ on("nav", ({ on: v }) => {
   navOn = v;
   if (v && (!searchMode() || searchMode() === MODE)) setSearchMode(MODE);
   if (!v && searchMode() === MODE) setSearchMode(null);
+  // навигацию выключили — и точка снимается (Грегори 2026-11-05: «сбросил маршрут — обязательно сбросить точку»)
+  if (!v && state.target) emit("route-target", null);
   emit("module", { id: "content/navigation", on: v }); // барабан перерисует кнопку
 });
 // другой раздел ушёл из строки поиска, а навигация включена — снова режим навигации

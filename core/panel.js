@@ -8,6 +8,7 @@
 // нажатие — снова по содержимому. Своя кнопка раздела в шапке (перед «свернуть») — addButton
 import { emit } from "./events.js";
 import * as settings from "./settings.js";
+import { backable } from "./back.js";
 
 const MIN_ICON = `<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19 13H5v-2h14v2z"/></svg>`;
 const MAX_ICON = `<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19 19H5V5h14v14zM5 3a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H5z"/></svg>`;
@@ -79,6 +80,8 @@ export function open(id) {
   const p = panels.get(id);
   p.el.hidden = false;
   openId = id;
+  // окно — шаг для «Назад» телефона
+  if (!p.back) p.back = backable(() => { p.back = null; close(id); });
   emit("panel", { id, side: p.side });
 }
 
@@ -86,6 +89,7 @@ export function close(id, replaced = false) {
   const p = panels.get(id);
   if (!p || p.el.hidden) return;
   p.el.hidden = true;
+  if (p.back) { const d = p.back; p.back = null; d(); }
   if (openId === id) {
     openId = null;
     for (const fn of p.closers) fn();

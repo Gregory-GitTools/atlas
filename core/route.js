@@ -176,7 +176,10 @@ export function initRoute({ map, maplibregl, status }) {
   on("route-target", (t) => setTarget(t), { replay: false });
   on("route-way", ({ way }) => { const w = WAYS.find((x) => x.id === way); if (w) ask(w); }, { replay: false });
 
-  if (target) setTarget(target); else show();
+  // при запуске точки нет (Грегори 2026-11-05): навигация не включается, точка — в истории окна навигации
+  target = null;
+  settings.set("route.target", null);
+  show();
   // для проверки
   return { state: () => ({ target, me, route: route && { way: route.way, distance: route.distance, points: route.coords.length } }), setTarget };
 }

@@ -1214,8 +1214,20 @@ body.has-photo-strip .status {
 }
 
 .search-toggle.mode svg {
-  width: calc(var(--button) - 12px);
-  height: calc(var(--button) - 12px);
+  width: calc(var(--button) - 8px);
+  height: calc(var(--button) - 8px);
+}
+
+/* поиск закрыт — только значок цвета раздела, без своего фона и тени (как треугольник); с белым кантом,
+   чтобы читался на любой карте */
+.search-toggle.mode.idle {
+  box-shadow: none;
+  filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff);
+}
+
+/* логотип при закрытом поиске — без тени, просто шар на карте */
+.search-toggle.open.idle {
+  box-shadow: none;
 }
 
 /* кнопки барабана — цвет группы (Грегори, 2026-10-29: «наоборот»): выключено — яркая заливка, значок белый;
