@@ -2,7 +2,7 @@
 // и переключатель), режим «без сети», загруженные данные и модели. Список модулей строится из
 // реестра — новый модуль появляется здесь сам
 import { createPanel } from "./panel.js";
-import { addMapButton } from "./controls.js";
+import { addDockButton } from "./dock.js";
 import { modules, available, toggle, onRegister, isBlocked, setBlocked, offline, setOffline } from "./modules.js";
 import * as settings from "./settings.js";
 import { usage, models, removeModel, formatBytes, persist, viewCache, clearViewCache } from "./storage.js";
@@ -18,8 +18,8 @@ const CORE_SENDS = [{ title: "Карта", sends: "район карты (без
 export function initSettingsPanel(ctx) {
   const panel = createPanel({ id: "settings", title: "Настройки", icon: GEAR_ICON });
 
-  // кнопка-шестерёнка — в столбике кнопок карты слева внизу
-  addMapButton(ctx.map, { title: "Настройки", html: GEAR_ICON })
+  // кнопка-шестерёнка — в столбике справа под логотипом (core/dock.js)
+  addDockButton({ title: "Настройки", html: GEAR_ICON })
     .addEventListener("click", () => { panel.toggle(); if (!panel.el.hidden) render(); });
 
   async function render() {

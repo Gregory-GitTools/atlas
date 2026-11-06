@@ -45,7 +45,9 @@ const GEO_ZOOM = 16;
 const FAR_ZOOM = 10; // дальше — при включении перелёт ко мне
 const NAV_MIN_STEP = 8; // м — сдвиг, по которому видно направление
 const NAV_TURN = 4; // ° — поворот меньше не трогает карту (GPS дрожит)
-const NAV_BACK = 10000; // мс — сдвинул карту рукой: через столько она вернётся ко мне
+// мс — сдвинул карту рукой: через столько она вернётся ко мне (Грегори 2026-11-06: «задержка нужна, когда я
+// потерялся и смотрю карту; 10 с маловато — 15»)
+const NAV_BACK = 15000;
 const NAV_LOW = 0.25; // я — на четверть экрана ниже середины
 
 const metersBetween = (a, b) => {
@@ -64,6 +66,9 @@ const CHEVRON = `<svg class="geo-chevron" viewBox="0 0 40 40" width="40" height=
 export function addGeolocate(map, maplibregl, status) {
   let watch = null, follow = false, position = null, shownPos = null, marker = null, btn;
   let heading = null, moveHeading = null, anchor = null, lastFix = 0, lastSpeed = 0, first = true, anim = 0, back = null;
+  // открыта карточка пути — карта за мной не ходит: на экране весь путь (Грегори 2026-11-06: «не
+  // позиционируем моё положение при открытой карточке; закрыли — сразу ко мне, без задержки»)
+  let hold = false;
 
   const courseUp = () => compassMode === "3d";
   const low = () => compassMode === "3d";
@@ -82,7 +87,7 @@ export function addGeolocate(map, maplibregl, status) {
   };
   // карта ко мне: только центр (и поворот по ходу в 3D) — масштаб и наклон не трогаем
   const center = (duration = 800) => {
-    if (!position || compassTurning) return;
+    if (!position || compassTurning || hold) return;
     const offset = [0, low() ? Math.round(innerHeight * NAV_LOW) : 0];
     const bearing = compassMode === "north" ? { bearing: 0 } : courseUp() && moveHeading !== null ? { bearing: moveHeading } : {};
     // navFollow — окна на карте от этого не закрываются (Грегори 2026-11-04: «окно Сюда постоянно сбрасывается»)
@@ -149,9 +154,9 @@ export function addGeolocate(map, maplibregl, status) {
       update();
       if (follow) center(gap || 800);
     }, (err) => {
-      // запрет — выключить совсем, иначе спрашивали бы при каждом запуске
+      // запрет — выключить совсем, иначе спрашивали бы при каждом запуске; остальное (ещё ищет спутники,
+      // замер не успел) — молча: при начале навигации сообщений не надо (Грегори 2026-11-06)
       if (err.code === err.PERMISSION_DENIED) { stop(); status("Нет доступа к местоположению — разрешите его браузеру"); }
-      else status("Не удаётся определить местоположение");
     }, { enableHighAccuracy: true, maximumAge: 1000 });
     update();
   };
@@ -181,14 +186,21 @@ export function addGeolocate(map, maplibregl, status) {
     back = setTimeout(() => { back = null; if (watch !== null && !follow) { follow = true; update(); center(); } }, NAV_BACK);
   };
   const userMove = (e) => {
-    if (!e.originalEvent || watch === null) return;
+    if (!e.originalEvent || watch === null || hold) return;
     if (follow || back) comeBack();
     if (follow) { follow = false; update(); }
   };
   map.on("dragstart", userMove);
   map.on("rotatestart", userMove);
   map.on("pitchstart", userMove);
-  map.on("zoomstart", (e) => { if (e.originalEvent && back) comeBack(); });
+  map.on("zoomstart", (e) => { if (e.originalEvent && back && !hold) comeBack(); });
+  on("nav-hold", ({ hold: h }) => {
+    if (hold === !!h) return;
+    hold = !!h;
+    clearTimeout(back); back = null;
+    // карточку закрыли — сразу ко мне
+    if (!hold && watch !== null) { follow = true; update(); center(); }
+  }, { replay: false });
   // сменили режим компаса — я в центре или внизу; ждём, пока компас докрутит карту
   modeWatchers.add(() => {
     update();
@@ -201,7 +213,7 @@ export function addGeolocate(map, maplibregl, status) {
   settings.set("geolocate", null);
   update();
   // для проверки
-  return { state: () => ({ on: watch !== null, follow, mode: compassMode, heading, position }) };
+  return { state: () => ({ on: watch !== null, follow, hold, mode: compassMode, heading, position }) };
 }
 
 // ---------- наклон: тонкая полоска космоса, на 100 км — 2D ----------

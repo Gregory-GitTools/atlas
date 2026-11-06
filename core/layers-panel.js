@@ -32,6 +32,8 @@
 // Включённые слои, какой барабан открыт и спрятан ли поиск — помнятся. Открылась панель настроек —
 // барабан уступает место, и наоборот
 import { closeOpen, homeList } from "./panel.js";
+import { dockModes, setDockShown } from "./dock.js";
+import { ARROW as ROUTE_ARROW } from "./route.js";
 import { backable } from "./back.js";
 import { modules, toggle, available, allowed, onRegister, MODULES } from "./modules.js";
 import { on, emit } from "./events.js";
@@ -54,6 +56,8 @@ const groupOf = (m) => (m.group === MAPS_GROUP ? MAPS_GROUP : GROUPS.some((g) =>
 const BLOCKED = "Выключено в настройках: обращается в интернет";
 const CLEAR_ICON = '<svg viewBox="0 0 24 24" width="12" height="12"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
 const ARROW = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M15.5 5v14L6 12z"/></svg>';
+// всё закрыто — на кнопке справа вверху только капля-метка из логотипа, крупно (Грегори 2026-11-06)
+const DROP = '<svg viewBox="0 0 24 24" width="36" height="36"><path d="M12 1.6C7.7 1.6 4.3 5 4.3 9.3c0 5.8 7.7 13.1 7.7 13.1s7.7-7.3 7.7-13.1c0-4.3-3.4-7.7-7.7-7.7z" fill="#e53935" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="9.3" r="3" fill="#fff"/></svg>';
 
 // барабан: промежуток между кнопками в центре — GAP (Грегори, 2026-10-30: «расстояние между кнопками
 // поменьше»), притормаживание у центра
@@ -63,7 +67,7 @@ export function initLayersPanel(ctx) {
   // ---------- слои ----------
   const active = new Set(settings.get("layers.on", []));
   const save = () => settings.set("layers.on", [...active]);
-  const renderAll = () => drums.forEach((d) => d.render());
+  const renderAll = () => { drums.forEach((d) => d.render()); renderModes(); };
 
   const switchTo = async (m, turnOn) => {
     // exclusive — в своей группе одновременно включён один (у «Мест» такого нет: Грегори, 2026-10-28)
@@ -155,10 +159,14 @@ export function initLayersPanel(ctx) {
     lensBtn.classList.toggle("idle", !searchOn);
     lensBtn.style.background = mode && searchOn ? `var(--tone-${mode.tone})` : "";
     lensBtn.style.color = mode && !searchOn ? `var(--tone-${mode.tone})` : "";
-    lensBtn.innerHTML = mode ? mode.icon : '<img src="icons/logo.png" alt="">';
-    lensBtn.title = !searchOn ? "Поиск и разделы: экскурсии, языки, треки, фото"
-      : shown ? "Спрятать барабан" : "Закрыть поиск";
+    lensBtn.classList.toggle("drop", !mode && !searchOn && !shown);
+    lensBtn.innerHTML = mode ? mode.icon : !searchOn && !shown ? DROP : '<img src="icons/logo.png" alt="">';
+    lensBtn.title = searchOn && shown ? "Спрятать строку поиска" : !searchOn && shown === "content" ? "Спрятать барабан" : "Поиск и разделы: экскурсии, языки, треки, фото";
+    // столбик справа под логотипом — пока открыт поиск или любой барабан, и не открыто окно справа (настройки)
+    setDockShown((searchOn || !!shown) && !rightOpen);
   };
+  let rightOpen = false;
+  on("panel", (p) => { rightOpen = p?.side === "right"; paint(); }, { replay: false });
   // открытый поиск — шаг для «Назад» телефона
   let searchBack = null;
   const setShown = (which, search = searchOn) => {
@@ -166,6 +174,7 @@ export function initLayersPanel(ctx) {
     if (!search && searchBack) { const d = searchBack; searchBack = null; d(); }
     searchOn = search;
     document.body.classList.toggle("search-hidden", !searchOn);
+    emit("search-shown", searchOn);
     settings.set("search.open", searchOn || null);
     if (which !== shown) {
       shown = which;
@@ -176,12 +185,12 @@ export function initLayersPanel(ctx) {
     paint();
   };
   // щелчок — свой барабан (вместо другого), второй щелчок — спрятать. Кнопка справа вверху (логотип,
-  // значок режима) — три положения по кругу, ничего не сбрасывает (Грегори 2026-11-05: «выбор — только в
-  // барабане»; «пришёл и закрыл за собой дверь»): поиск с барабаном → щелчок прячет барабан → щелчок
-  // прячет поиск (значок — цветной на прозрачном) → щелчок — снова поиск с барабаном. Окно раздела
-  // прячется вместе со строкой и возвращается с ней (body.search-hidden)
+  // значок режима) — три положения по кругу, ничего не сбрасывает (Грегори 2026-11-06: «сначала показать
+  // всё, затем убрать окно поиска и в последнюю очередь закрыть барабан»): всё (поиск с барабаном) →
+  // щелчок прячет поиск → щелчок прячет барабан (значок режима — цветной на прозрачном, без режима —
+  // капля) → щелчок — снова всё. Окно раздела прячется вместе со строкой (body.search-hidden)
   arrowBtn.addEventListener("click", () => setShown(shown === "layers" ? null : "layers"));
-  lensBtn.addEventListener("click", () => (!searchOn ? setShown("content", true) : shown ? setShown(null, true) : setShown(null, false)));
+  lensBtn.addEventListener("click", () => (searchOn && shown ? setShown(shown, false) : !searchOn && shown === "content" ? setShown(null, false) : setShown("content", true)));
   on("search-mode", (m) => { mode = m; paint(); });
   // раздел живёт в самой строке поиска (навигация) — строка нужна; на телефоне барабан уступает место
   on("search-show", () => setShown(innerWidth <= 600 ? null : shown || "content", true), { replay: false });
@@ -440,6 +449,45 @@ export function initLayersPanel(ctx) {
   }
 
   const drums = [makeDrum("layers", layerEntries), makeDrum("content", contentEntries)];
+
+  // ---------- значки включённых режимов в столбике под логотипом ----------
+  // навигация (есть цель — стрелка к ней: щелчок показывает или прячет карточку пути) и открытые разделы
+  // (щелчок — окно раздела показать или свернуть в строку)
+  let folded = null, routeNow = null;
+  on("panel-fold", (f) => { folded = f; renderModes(); }, { replay: false });
+  on("route", (r) => {
+    const same = routeNow?.target === r?.target && routeNow?.me === r?.me;
+    routeNow = r;
+    // стрелка крутится с картой и со мной — только повернуть её, не перерисовывая столбик
+    const a = same && dockModes.querySelector(".dock-route .search-card-arrow");
+    if (a) a.style.transform = `rotate(${r.me ? r.arrow || 0 : 0}deg)`; else renderModes();
+  });
+  function renderModes() {
+    const on_ = contentEntries().filter((e) => e.content.column.isOpen() || (e.content.id === "content/navigation" && routeNow?.target));
+    dockModes.replaceChildren(...on_.map((e) => {
+      const m = e.content, nav = m.id === "content/navigation";
+      const b = Object.assign(document.createElement("button"), { type: "button", className: `btn layers-circle tone-${e.tone} on dock-mode` });
+      b.dataset.key = m.id;
+      const target = nav && routeNow?.target;
+      if (target) {
+        b.classList.add("dock-route");
+        b.innerHTML = `<span class="search-card-arrow" style="transform: rotate(${routeNow.me ? routeNow.arrow || 0 : 0}deg)">${ROUTE_ARROW}</span>`;
+        b.title = `${routeNow.me ? routeNow.main : target.title} — показать или спрятать путь`;
+      } else {
+        b.innerHTML = m.icon;
+        b.title = nav ? "Навигация — строка «Куда»" : `${m.title} — показать или спрятать окно`;
+      }
+      b.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        if (target) { if (!searchOn) setShown(shown, true); emit("route-card-toggle"); return; }
+        if (nav) { openHome(m); return; }
+        // окно раздела: спрятано со строкой или свёрнуто — показать; видно — свернуть в строку
+        if (!searchOn) { setShown(shown, true); if (folded) emit("panel-fold-request", { fold: false }); return; }
+        emit("panel-fold-request", { fold: !folded });
+      });
+      return b;
+    }));
+  }
   document.body.append(arrowBtn, lensBtn);
 
   // слой включился не отсюда (сам по себе, по событию другого модуля) — кнопки обновить

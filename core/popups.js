@@ -8,9 +8,28 @@ export const decoratePopups = (fn) => decorators.add(fn);
 
 export function track(popup) {
   open.add(popup);
-  popup.on("close", () => open.delete(popup));
-  popup.on("open", () => decorators.forEach((fn) => fn(popup)));
+  let watch = null;
+  popup.on("close", () => { open.delete(popup); watch?.disconnect(); });
+  popup.on("open", () => {
+    decorators.forEach((fn) => fn(popup));
+    // окно целиком на экране (Грегори 2026-11-06: «„Сюда“ иногда убегает за край телефона»): выросло
+    // (пришёл адрес, добавилась кнопка) и не влезает — карта чуть сдвигается, окно от этого не закрывается
+    const el = popup.getElement();
+    if (!el || !popup._map) return;
+    watch = new ResizeObserver(() => requestAnimationFrame(() => keepOnScreen(popup)));
+    watch.observe(el);
+  });
   return popup;
+}
+
+const EDGE = 8;
+function keepOnScreen(popup) {
+  const map = popup._map, el = popup.getElement();
+  if (!map || !el?.isConnected) return;
+  const r = el.getBoundingClientRect(), c = map.getContainer().getBoundingClientRect();
+  const dx = r.left < c.left + EDGE ? r.left - c.left - EDGE : r.right > c.right - EDGE ? Math.min(r.right - c.right + EDGE, r.left - c.left - EDGE) : 0;
+  const dy = r.top < c.top + EDGE ? r.top - c.top - EDGE : r.bottom > c.bottom - EDGE ? Math.min(r.bottom - c.bottom + EDGE, r.top - c.top - EDGE) : 0;
+  if (Math.abs(dx) > 1 || Math.abs(dy) > 1) map.panBy([dx, dy], { duration: 250 }, { navFollow: true });
 }
 
 export const anyOpen = () => [...open].some((p) => p.isOpen());

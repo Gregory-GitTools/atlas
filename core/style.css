@@ -856,7 +856,7 @@ html, body {
 /* окна на карте — скруглённые */
 .maplibregl-popup-content {
   border-radius: var(--radius);
-  padding: 10px 14px;
+  padding: 10px 34px 10px 14px; /* справа — место крупному крестику */
   font-family: var(--font);
   color: var(--text);
 }
@@ -2696,9 +2696,36 @@ body.search-hidden .panel-left {
   cursor: default;
 }
 
+/* «Сюда» — с той стороны окна, где объект (Грегори 2026-11-06: окно указывало вправо, а кнопка пряталась
+   слева за краем) */
 .go-here {
   display: block;
   margin-top: 8px;
+}
+
+.maplibregl-popup-anchor-right .go-here,
+.maplibregl-popup-anchor-top-right .go-here,
+.maplibregl-popup-anchor-bottom-right .go-here {
+  margin-left: auto;
+}
+
+.maplibregl-popup-anchor-top .go-here,
+.maplibregl-popup-anchor-bottom .go-here {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* крестик окна на карте — крупный, толстой линией (правило больших значков) */
+.maplibregl-popup-close-button {
+  width: 32px;
+  height: 32px;
+  font-size: 0;
+  border-radius: 50%;
+  background: no-repeat center / 20px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 5l14 14M19 5L5 19' stroke='%233c4043' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+
+.maplibregl-popup-close-button:hover {
+  background-color: var(--panel-hover);
 }
 
 /* подпись кнопки по долгому нажатию на телефоне (core/touch-tip.js) */
@@ -2714,4 +2741,73 @@ body.search-hidden .panel-left {
   font-size: 14px;
   line-height: 1.3;
   pointer-events: none;
+}
+
+
+/* ---------- столбик справа под логотипом (core/dock.js, Грегори 2026-11-06) ----------
+   шестерёнка, язык подписей, значки включённых режимов; виден, пока открыт поиск или барабан;
+   барабан, доходя сюда, уходит под него */
+.dock {
+  position: fixed;
+  right: var(--side-r);
+  top: calc(var(--top-inset) + 2 * var(--gap) + var(--button));
+  z-index: 24;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap);
+}
+
+body.dock-on .dock {
+  display: flex;
+}
+
+.dock-fixed,
+.dock-modes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.dock-modes:empty {
+  display: none;
+}
+
+/* значок режима — как включённая кнопка барабана, без галочки (здесь всё включено) */
+.dock-mode.layers-circle.on::after {
+  display: none;
+}
+
+.dock-mode .search-card-arrow {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+}
+
+.dock-mode .search-card-arrow svg {
+  width: calc(var(--button) - 6px);
+  height: calc(var(--button) - 6px);
+}
+
+/* всё закрыто — на кнопке справа вверху только капля, крупно */
+.search-toggle.drop,
+.search-toggle.drop:hover {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+}
+
+.search-toggle.drop svg {
+  width: calc(var(--button) + 4px);
+  height: calc(var(--button) + 4px);
+}
+
+/* компьютер: строка поиска — шириной с окно раздела и вровень с ним (Грегори 2026-11-06) */
+@media (min-width: 601px) {
+  .search {
+    left: var(--gap);
+    width: 400px;
+  }
 }

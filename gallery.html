@@ -68,6 +68,12 @@
   .meta { margin-top: 2px; font-size: 0.78rem; color: #9a9aa5; }
   .meta a { color: #4da3ff; }
   .count { font-size: 0.85rem; white-space: nowrap; }
+  /* описание снимка — за кнопкой ⓘ (Грегори 2026-11-06: «снимок заполнен описанием»): каждый снимок
+     открывается чистым, ⓘ показывает подпись на плашке */
+  .caption { visibility: hidden; }
+  body.info .caption { visibility: visible; }
+  body.info .caption:not(:empty) { padding: 6px 10px; border-radius: 10px; background: rgba(27, 27, 31, 0.78); }
+  .title { white-space: normal; }
   .nav {
     position: absolute;
     top: 50%;
@@ -327,6 +333,7 @@
   <video class="clip" playsinline hidden></video>
   <button class="live-btn" title="Живое фото — ещё раз (пробел)" hidden>LIVE</button>
   <div class="bar"><div class="caption"><div class="title"></div><div class="meta"></div></div><div class="count"></div>
+    <button class="bar-btn info-btn" title="Описание снимка"><svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="9.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 10.5v6.5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="7.2" r="1.6" fill="currentColor"/></svg></button>
     <button class="bar-btn edit-btn" title="Править снимок" disabled><svg viewBox="0 0 24 24" width="20" height="20"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="currentColor"/></svg></button></div>
   <button class="nav prev" title="Назад (←)">‹</button>
   <button class="nav next" title="Дальше (→)">›</button>
@@ -386,11 +393,17 @@ const thumbs = photos.map((p, i) => {
   return b;
 });
 
+const infoBtn = $(".info-btn");
+infoBtn.addEventListener("click", () => { infoBtn.classList.toggle("on", document.body.classList.toggle("info")); });
 function show(i) {
   if (!photos.length) { $(".title").textContent = "Снимков нет"; return; }
   index = Math.max(0, Math.min(photos.length - 1, i));
   const p = photos[index];
   $(".title").textContent = p.title || "";
+  // новый снимок — описание снова спрятано; описания нет — ⓘ неактивна
+  document.body.classList.remove("info");
+  infoBtn.classList.remove("on");
+  infoBtn.disabled = !p.title && !p.credit && !p.link;
   const meta = $(".meta");
   meta.textContent = p.credit || "";
   if (p.link && p.credit) meta.append(" · ");

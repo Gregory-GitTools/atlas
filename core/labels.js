@@ -4,7 +4,7 @@
 // Выбор помнится; событие "label-language" — для поиска и окон мест (язык ответов)
 import * as settings from "./settings.js";
 import { emit } from "./events.js";
-import { addMapButton } from "./controls.js";
+import { addDockButton } from "./dock.js";
 
 export const LANGUAGES = [
   { code: "none", short: "—", name: "Без подписей" },
@@ -49,10 +49,10 @@ export function setLabelLanguage(map, lang) {
   emit("label-language", { code: lang.code, ui: uiLanguage() });
 }
 
-// язык подписей — кнопка столбика слева внизу (Грегори 2026-11-05: «убирай в столбик» — была в строке
-// поиска), меню — справа от неё
+// язык подписей — кнопка столбика справа под логотипом (Грегори 2026-11-06; до того — слева внизу, ещё
+// раньше — в строке поиска), меню — сбоку от неё, в сторону середины экрана
 export function languageButton(map) {
-  const btn = addMapButton(map, { title: "Язык подписей на карте", className: "lang-btn", html: "<span></span>" });
+  const btn = addDockButton({ title: "Язык подписей на карте", className: "lang-btn", html: "<span></span>" });
   const menu = Object.assign(document.createElement("div"), { className: "lang-menu menu", hidden: true });
   document.body.append(menu);
   const render = () => {
@@ -68,8 +68,9 @@ export function languageButton(map) {
     menu.hidden = !menu.hidden;
     if (menu.hidden) return;
     const r = btn.getBoundingClientRect();
-    menu.style.left = `${Math.round(r.right + 8)}px`;
-    menu.style.bottom = `${Math.round(innerHeight - r.bottom)}px`;
+    const right = r.left > innerWidth / 2;
+    Object.assign(menu.style, right ? { left: "", right: `${Math.round(innerWidth - r.left + 8)}px` } : { right: "", left: `${Math.round(r.right + 8)}px` });
+    menu.style.top = `${Math.round(Math.max(8, Math.min(r.top, innerHeight - menu.offsetHeight - 8)))}px`;
   });
   document.addEventListener("click", (e) => !menu.contains(e.target) && (menu.hidden = true));
   render();

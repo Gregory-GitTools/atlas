@@ -119,8 +119,8 @@ try {
     zoom: !!document.querySelector(".maplibregl-ctrl-zoom-in, .maplibregl-ctrl-compass"),
     glass: [...document.querySelectorAll(".map-btn button, .wheel-toggle, .search-toggle")].every((b) => b.classList.contains("glass")) })`);
   check("звёзды, шкала, навигация", extras.stars && /км|м$/.test(extras.scale || "") && extras.geo, JSON.stringify(extras));
-  check("слева внизу: навигация, компас, язык подписей, настройки — полупрозрачные, без «+ −»",
-    JSON.stringify(extras.order) === '["geo-btn","compass-btn","lang-btn","glass"]' && !extras.zoom && extras.glass, JSON.stringify(extras));
+  check("слева внизу: навигация и компас — полупрозрачные, без «+ −»",
+    JSON.stringify(extras.order) === '["geo-btn","compass-btn"]' && !extras.zoom && extras.glass, JSON.stringify(extras));
   const tilt = async () => { await run(`document.querySelector(".compass-btn").click(); true`); await sleep(1300);
     return run(`({ pitch: Math.round(atlas.map.getPitch()), bearing: Math.round(atlas.map.getBearing()), label: document.querySelector(".compass-mode").textContent })`); };
   const view0 = await run(`({ center: atlas.map.getCenter().toArray(), zoom: atlas.map.getZoom() })`);
@@ -137,7 +137,7 @@ try {
   check("наклон: вблизи 70°, при отдалении меньше, на 100 км — 2D", far.near === 70 && far.mid > 0 && far.mid < 70 && far.far === 0 && far.label === "2D", JSON.stringify(far));
   // навигация (подставные координаты): включаю в 2D у Таллина — масштаб и наклон не меняются, я в центре,
   // карта не крутится; 3D — я внизу, карта по ходу движения (на восток, потом на север), метка — стрелка;
-  // сдвинул карту — через 10 секунд снова ко мне; выровнял рукой — через 10 секунд в центр 2D;
+  // сдвинул карту — через 15 секунд снова ко мне; выровнял рукой — через 15 секунд в центр 2D;
   // С — я в центре, север вверху; «Куда идти» — точка из окна, расстояние, сторона, путь пешком
   await send("Browser.grantPermissions", { permissions: ["geolocation"], origin: url.replace(/\/$/, "") });
   const goTo = (lat, lon) => send("Emulation.setGeolocationOverride", { latitude: lat, longitude: lon, accuracy: 5 });
@@ -162,18 +162,18 @@ try {
   const near = (a, b) => Math.abs(((a - b + 540) % 360) - 180) <= 5;
   check("навигация: 3D — я внизу, карта по ходу движения, метка — стрелка, масштаб прежний", navE.mode === "3d" && navE.pitch >= 55 && near(navE.heading, 90) && near(navE.bearing, 90)
     && navE.chevron && navE.zoom === 14.3 && Math.abs(navE.me.y - 200) <= 8 && near(navN.heading, 0) && near(navN.bearing, 0) && navN.zoom === 14.3, JSON.stringify([navE, navN]));
-  // сдвинул карту рукой — через 10 секунд она сама возвращается ко мне
+  // сдвинул карту рукой — через 15 секунд она сама возвращается ко мне
   await run(`atlas.map.fire("dragstart", { originalEvent: new MouseEvent("mousedown") }); atlas.map.panBy([200, 0], { duration: 0 }); true`);
   const away = await run(`atlas.geo.state().follow`);
-  await sleep(11500);
+  await sleep(16500);
   const backHome = await nav();
-  check("навигация: сдвинул карту — через 10 секунд снова ко мне", away === false && backHome.follow && Math.abs(backHome.me.x) <= 3, JSON.stringify({ away, backHome }));
-  // выровнял карту рукой — 2D, через 10 секунд я в центре
+  check("навигация: сдвинул карту — через 15 секунд снова ко мне", away === false && backHome.follow && Math.abs(backHome.me.x) <= 3, JSON.stringify({ away, backHome }));
+  // выровнял карту рукой — 2D, через 15 секунд я в центре
   await run(`atlas.map.fire("pitchstart", { originalEvent: new MouseEvent("mousedown") }); atlas.map.jumpTo({ pitch: 0 }); true`);
   const flat = await run(`({ ...atlas.geo.state() })`);
-  await sleep(11500);
+  await sleep(16500);
   const flatBack = await nav();
-  check("навигация: выровнял рукой — 2D, через 10 секунд я в центре", flat.mode === "2d" && !flat.follow && flatBack.follow && flatBack.mode === "2d"
+  check("навигация: выровнял рукой — 2D, через 15 секунд я в центре", flat.mode === "2d" && !flat.follow && flatBack.follow && flatBack.mode === "2d"
     && Math.abs(flatBack.me.x) <= 3 && Math.abs(flatBack.me.y) <= 3 && flatBack.chevron, JSON.stringify({ flat, flatBack }));
   // компас по кругу до «С» (из 2D — через 3D; если наклон на этом масштабе недоступен — сразу «С»)
   for (let k = 0; k < 3 && (await run(`document.querySelector(".compass-mode").textContent`)) !== "С"; k++) {
@@ -186,7 +186,7 @@ try {
   // «Куда идти» — в самом окне поиска (Грегори 2026-11-04: «не под строкой поиска, а в окне поиска»): «Сюда»
   // в окне на карте — точка, строка поиска «Куда», в её списке стрелка, расстояние и сторона; путь пешком
   const navPanel = `document.querySelector(".search-card")`, navList = `document.querySelector(".search-results")`;
-  const exitModeNav = `(() => { for (let k = 0; k < 2 && !document.body.classList.contains("search-hidden"); k++) document.querySelector(".search-toggle").click(); return true; })()`;
+  const exitModeNav = `(() => { for (let k = 0; k < 3 && (!document.body.classList.contains("search-hidden") || !document.querySelector(".wheel-content").classList.contains("closed")); k++) document.querySelector(".search-toggle").click(); return true; })()`;
   const navStats = `atlas.modules().find((m) => m.id === "content/navigation").stats()`;
   const here = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
     const p = track(new atlas.ctx.maplibregl.Popup()).setLngLat([24.76, 59.43]).setHTML('<div class="popup-title">Проба</div>').addTo(atlas.map);
@@ -262,11 +262,15 @@ try {
     && hist.rows === 2 && hist.open && hist.clear && hist.grip && !hist.card && JSON.stringify(typed) === '["Проба"]' && shut && left === 1, JSON.stringify({ found, picked, hist, typed, shut, left }));
   // «Свернуть» карточку — в строке стрелка; щелчок по ней — карточка снова
   await run(`(() => { (document.querySelector(".search-results").hidden || document.querySelector(".search-box input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))); return true; })()`);
+  const held = await run(`atlas.geo.state().hold`);
   await run(`[...${navPanel}.querySelectorAll(".go-close")].find((b) => /Свернуть/.test(b.title)).click(); true`);
-  const folded = await run(`({ card: !${navPanel}.hidden, btn: !document.querySelector(".search-card-btn").hidden, arrow: !!document.querySelector(".search-card-btn .search-card-arrow") })`);
-  await run(`document.querySelector(".search-card-btn").click(); true`);
-  const unfolded = await run(`({ card: !${navPanel}.hidden, btn: !document.querySelector(".search-card-btn").hidden })`);
-  check("навигация: «Свернуть» — карточка уходит в стрелку в строке, щелчок по стрелке — снова карточка", !folded.card && folded.btn && folded.arrow && unfolded.card && !unfolded.btn, JSON.stringify({ folded, unfolded }));
+  await sleep(1500);
+  const freed = await nav();
+  check("навигация: карточка пути открыта — карта за мной не ходит; свернули — сразу ко мне", held === true && !freed.hold && freed.follow && Math.abs(freed.me.x) <= 3, JSON.stringify({ held, freed }));
+  const folded = await run(`({ card: !${navPanel}.hidden, btn: !!document.querySelector(".dock .dock-route"), arrow: !!document.querySelector(".dock .dock-route .search-card-arrow") })`);
+  await run(`document.querySelector(".dock .dock-route").click(); true`);
+  const unfolded = await run(`({ card: !${navPanel}.hidden, btn: !!document.querySelector(".dock .dock-route") })`);
+  check("навигация: «Свернуть» — карточка уходит в стрелку в столбике под логотипом, щелчок по стрелке — снова карточка", !folded.card && folded.btn && folded.arrow && unfolded.card, JSON.stringify({ folded, unfolded }));
   await run(`[...${navPanel}.querySelectorAll(".go-close")].find((b) => b.title === "Убрать точку").click(); true`);
   await sleep(200);
   check("куда идти: крестик убирает точку", !(await run(`atlas.route.state().target`)) && !(await run(`!!${navPanel}.querySelector(".nav-card")`)));
@@ -346,9 +350,9 @@ try {
   // выйти из раздела — крестиком его окна (кнопка справа вверху теперь ничего не сбрасывает), потом закрыть поиск
   const exitMode = `(async () => { document.querySelector(".panel-left:not([hidden]) .panel-head .panel-btn[title=Закрыть]")?.click();
     await new Promise((r) => setTimeout(r, 200));
-    for (let k = 0; k < 2 && !document.body.classList.contains("search-hidden"); k++) document.querySelector(".search-toggle").click(); return true; })()`;
+    for (let k = 0; k < 3 && (!document.body.classList.contains("search-hidden") || !document.querySelector(".wheel-content").classList.contains("closed")); k++) document.querySelector(".search-toggle").click(); return true; })()`;
   // открыть строку поиска (при первом запуске её нет) — лупой справа вверху
-  const openSearch = `(async () => { if (document.body.classList.contains("search-hidden")) { document.querySelector(".search-toggle").click(); await new Promise((r) => setTimeout(r, 300)); } return true; })()`;
+  const openSearch = `(async () => { for (let k = 0; k < 3 && document.body.classList.contains("search-hidden"); k++) { document.querySelector(".search-toggle").click(); await new Promise((r) => setTimeout(r, 300)); } return true; })()`;
   // кнопка в столбике слоёв или строка списка в панели раздела — по названию
   const itemFor = (title) => `[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].find((c) => c.firstChild.textContent === ${JSON.stringify(title)})`;
 
@@ -378,13 +382,13 @@ try {
     b.click(); [...document.querySelectorAll(".lang-menu .menu-item")].find((i) => i.textContent === "Русский").click();
     return { en, label: b.textContent }; })()`);
   check("язык подписей переключается", lang.en && lang.label === "Ру", JSON.stringify(lang));
-  // ревизия 2026-11-05: язык — в столбике слева внизу; ⓘ при запуске свёрнута; пустая строка состояния не видна
-  const misc = await run(`({ lang: !!document.querySelector(".maplibregl-ctrl-bottom-left .lang-btn"), inSearch: !!document.querySelector(".search-box .lang-btn"),
+  // ревизия 2026-11-05/06: язык и шестерёнка — в столбике справа под логотипом; ⓘ при запуске свёрнута; пустая строка состояния не видна
+  const misc = await run(`({ lang: !!document.querySelector(".dock .lang-btn") && !!document.querySelector(".dock button[title=Настройки]") && !document.querySelector(".maplibregl-ctrl-bottom-left .lang-btn"), inSearch: !!document.querySelector(".search-box .lang-btn"),
     attrib: document.querySelector(".maplibregl-ctrl-attrib")?.classList.contains("maplibregl-compact-show"),
     status: (() => { const s = document.getElementById("status"); return s.textContent ? "text" : getComputedStyle(s).display; })() })`);
-  check("язык подписей — в столбике слева; ⓘ свёрнута; пустая строка состояния спрятана", misc.lang && !misc.inSearch && !misc.attrib && (misc.status === "none" || misc.status === "text"), JSON.stringify(misc));
+  check("язык подписей и шестерёнка — в столбике под логотипом; ⓘ свёрнута; пустая строка состояния спрятана", misc.lang && !misc.inSearch && !misc.attrib && (misc.status === "none" || misc.status === "text"), JSON.stringify(misc));
   // окно настроек: только «закрыть», без «свернуть»; Esc закрывает его, как «Назад» на телефоне
-  await run(`document.querySelector(".maplibregl-ctrl-bottom-left button[title=Настройки]").click(); true`);
+  await run(`document.querySelector(".dock button[title=Настройки]").click(); true`);
   await sleep(300);
   const setHead = await run(`[...document.querySelectorAll(".panel-right:not([hidden]) .panel-head .panel-btn")].map((b) => b.title)`);
   await run(`document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); true`);
@@ -656,22 +660,22 @@ try {
     // строке — окно снова (Грегори 2026-11-05); висящий маршрут — стрелкой, одно окно за раз
     const tp = `document.querySelector('[data-panel="tours"]')`;
     await run(`${tp}.querySelector(".panel-btn[title^='Свернуть']").click(); true`);
-    const fold1 = await run(`({ shown: getComputedStyle(${tp}).display !== "none", chip: !document.querySelector(".search-panel-btn").hidden && !!document.querySelector(".search-panel-btn svg") })`);
-    await run(`document.querySelector(".search-panel-btn").click(); true`);
-    const fold2 = await run(`getComputedStyle(${tp}).display !== "none" && document.querySelector(".search-panel-btn").hidden`);
+    const fold1 = await run(`({ shown: getComputedStyle(${tp}).display !== "none", chip: !!document.querySelector('.dock .dock-mode[data-key="content/tours"]')?.querySelector("svg") })`);
+    await run(`document.querySelector('.dock .dock-mode[data-key="content/tours"]').click(); true`);
+    const fold2 = await run(`getComputedStyle(${tp}).display !== "none"`);
     await run(`${tp}.querySelector(".panel-btn[title^='Свернуть']").click(); true`);
     await run(`(() => { const i = document.querySelector(".search-box input"); i.click(); return true; })()`);
     const fold3 = await run(`getComputedStyle(${tp}).display !== "none"`);
     await run(`atlas.route.setTarget({ lngLat: [12.33, 45.44], title: "Проба пути" }); true`);
     await sleep(200);
-    const arrow1 = await run(`({ card: !document.querySelector(".search-card").hidden, arrow: !document.querySelector(".search-card-btn").hidden, w: Math.round(document.querySelector(".search-card-btn svg")?.getBoundingClientRect().width || 0) })`);
-    await run(`document.querySelector(".search-card-btn").click(); true`);
+    const arrow1 = await run(`({ card: !document.querySelector(".search-card").hidden, arrow: !!document.querySelector(".dock .dock-route"), w: Math.round(document.querySelector(".dock .dock-route svg")?.getBoundingClientRect().width || 0) })`);
+    await run(`document.querySelector(".dock .dock-route").click(); true`);
     await sleep(200);
-    const arrow2 = await run(`({ card: !document.querySelector(".search-card").hidden, panel: getComputedStyle(${tp}).display !== "none", chip: !document.querySelector(".search-panel-btn").hidden })`);
-    await run(`document.querySelector(".search-panel-btn").click(); true`);
-    const arrow3 = await run(`({ card: !document.querySelector(".search-card").hidden, panel: getComputedStyle(${tp}).display !== "none", arrow: !document.querySelector(".search-card-btn").hidden })`);
+    const arrow2 = await run(`({ card: !document.querySelector(".search-card").hidden, panel: getComputedStyle(${tp}).display !== "none", chip: !!document.querySelector('.dock .dock-mode[data-key="content/tours"]') })`);
+    await run(`document.querySelector('.dock .dock-mode[data-key="content/tours"]').click(); true`);
+    const arrow3 = await run(`({ card: !document.querySelector(".search-card").hidden, panel: getComputedStyle(${tp}).display !== "none", arrow: !!document.querySelector(".dock .dock-route") })`);
     await run(`atlas.route.setTarget(null); true`);
-    check("окна: «Свернуть» — значком в строку поиска, значок или строка — снова; маршрут — стрелкой, одно окно за раз",
+    check("окна: «Свернуть» — окно уходит, его значок в столбике под логотипом или строка — снова; маршрут — стрелкой в столбике, одно окно за раз",
       !fold1.shown && fold1.chip && fold2 && fold3 && !arrow1.card && arrow1.arrow && arrow1.w >= 24 && arrow2.card && !arrow2.panel && arrow2.chip
       && !arrow3.card && arrow3.panel && arrow3.arrow, JSON.stringify({ fold1, fold2, fold3, arrow1, arrow2, arrow3 }));
     await run(`(([...document.querySelectorAll(".tr-row")].find((r) => /Венеция/.test(r.textContent))) || document.querySelector(".tr-row")).click(); true`);
@@ -777,7 +781,7 @@ try {
     // внутри — «Избранное» (-Albom) первым, дни по порядку папок, снимки самой папки поездки — последними, «[Originals]» пропущены; назад — в поездку.
     // В «Риге» — живое фото (r.jpg + r.mov) и ролик v.mp4 (tools/test-clip.mp4: 1 с, 64×48, внутри дата 1.01.2024; место из ролика проверено на настоящих роликах iPhone — здесь оно увело бы «Ригу» в другую страну)
     if (!PHONE) {
-      const gear = `document.querySelector(".maplibregl-ctrl-bottom-left button[title=Настройки]")`;
+      const gear = `document.querySelector(".dock button[title=Настройки]")`;
       const setBtn = (text) => `[...document.querySelectorAll(".panel:not([hidden]) .text-btn")].find((b) => b.textContent === ${JSON.stringify(text)})`;
       await run(`(async () => {
         const jpg = await new Promise((r) => { const c = Object.assign(document.createElement("canvas"), { width: 8, height: 8 }); c.toBlob(r, "image/jpeg"); });
@@ -920,6 +924,11 @@ try {
             sws.send(JSON.stringify({ id, method: "Page.captureScreenshot", params: { format: "png" } })); });
           await srun(`document.querySelector(".play-btn").click(); true`);
           const s2 = await srun(ss);
+          // описание снимка — за кнопкой ⓘ: спрятано, щелчок показывает, следующий снимок — снова спрятано
+          const info = await srun(`(async () => { const vis = () => getComputedStyle(document.querySelector(".caption")).visibility === "visible";
+            const a = vis(); document.querySelector(".info-btn").click(); const b = vis();
+            document.querySelector(".thumb:not(.active)").click(); await new Promise((r) => setTimeout(r, 200)); return { a, b, c: vis() }; })()`);
+          check("галерея: описание снимка — за кнопкой ⓘ", info && !info.a && info.b && !info.c, JSON.stringify(info));
           check("слайд-шоу: «Слайд-шоу альбома» — показ сразу, плеер (во весь экран, назад, дальше, стоп, плей), по кругу через живое фото и ролик, музыка из «Music», кнопка останавливает",
             s0?.on && s1.on && s1.full && s1.btns === "full-btn back-btn fwd-btn stop-btn play-btn" && seen.has("1 / 2") && seen.has("2 / 2") && s1.music && !s2.on, JSON.stringify({ s0, s1, s2, seen: [...seen] }));
           // правка снимка (tools/editor.js): r.jpg своей папки — карандаш активен; поворот на 3° —
@@ -1411,27 +1420,27 @@ try {
   const lens = await run(`(async () => { const wait = () => new Promise((r) => setTimeout(r, 450));
     const L = document.querySelector(".search-toggle"), A = document.querySelector(".wheel-toggle");
     const st = () => ({ layers: !document.querySelector(".wheel-layers").classList.contains("closed"), content: !document.querySelector(".wheel-content").classList.contains("closed"),
-      search: getComputedStyle(document.querySelector(".search")).display !== "none", logo: !!L.querySelector("img"),
+      search: getComputedStyle(document.querySelector(".search")).display !== "none", logo: !!L.querySelector("img"), drop: L.classList.contains("drop"), dock: getComputedStyle(document.querySelector(".dock")).display !== "none",
       lenses: [L, document.querySelector(".search-go")].filter((b) => b.getClientRects().length && b.querySelector("svg path")?.getAttribute("d").startsWith("M15.5 14")).length });
     // поиск открыт — щелчок закрывает
-    for (let k = 0; k < 2 && !document.body.classList.contains("search-hidden"); k++) { L.click(); await wait(); }
+    for (let k = 0; k < 3 && (!document.body.classList.contains("search-hidden") || st().content); k++) { L.click(); await wait(); }
     if (st().layers) { A.click(); await wait(); }
     const s0 = st();
     L.click(); await wait(); const s1 = st();
     const keys = [...document.querySelectorAll(".wheel-content .wheel-cell:not([hidden]) .layers-circle")].map((c) => c.ariaLabel).sort();
     A.click(); await wait(); const s2 = st();
     A.click(); await wait(); const s3 = st();
-    // поиск открыт без барабана — щелчок закрывает поиск
+    // поиск открыт без барабана — щелчок показывает всё
     L.click(); await wait(); const s4 = st();
-    // три положения по кругу (Грегори 2026-11-05): поиск с барабаном → без барабана → закрыто
+    // три положения по кругу (Грегори 2026-11-06): всё → без строки поиска (барабан) → закрыто (капля) → всё
     L.click(); await wait(); const c1 = st(); L.click(); await wait(); const c2 = st(); L.click(); await wait(); const c3 = st();
     const lr = L.getBoundingClientRect();
     A.click(); await wait();
     return { s0, s1, s2, s3, s4, c1, c2, c3, keys, corner: innerWidth - lr.right >= 18 && innerWidth - lr.right <= 24 && lr.top < 20 }; })()`);
-  check("кнопка справа вверху: всегда логотип; три положения — поиск с барабаном, без барабана, закрыто; треугольник — слои",
-    !lens.s0.search && !lens.s0.content && lens.s0.logo && lens.s1.content && lens.s1.search && lens.s1.logo && lens.s1.lenses === 1
-    && lens.s2.layers && !lens.s2.content && lens.s2.search && !lens.s3.layers && !lens.s4.search && !lens.s4.content && lens.s4.logo
-    && lens.c1.search && lens.c1.content && lens.c2.search && !lens.c2.content && !lens.c3.search && !lens.c3.content
+  check("кнопка справа вверху: закрыто — капля; три положения — всё, без строки поиска, закрыто; столбик под логотипом — пока что-то открыто; треугольник — слои",
+    !lens.s0.search && !lens.s0.content && lens.s0.drop && !lens.s0.dock && lens.s1.content && lens.s1.search && lens.s1.logo && lens.s1.dock && lens.s1.lenses === 1
+    && lens.s2.layers && !lens.s2.content && lens.s2.search && !lens.s3.layers && lens.s4.search && lens.s4.content
+    && !lens.c1.search && lens.c1.content && lens.c1.dock && !lens.c2.search && !lens.c2.content && lens.c2.drop && !lens.c2.dock && lens.c3.search && lens.c3.content
     && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои треки", "Навигация", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико
   // крутит его, нажатие по кнопке не в центре докручивает её и открывает столбик
@@ -1464,7 +1473,7 @@ try {
   check("«Карты»: виды карт, под чертой тени и 3D и высоты", relief.includes("Высоты") && relief.includes("Тени и 3D") && relief.length === 7
     && (await run(`!!document.querySelector(".layers-sub .layers-sep")`)), JSON.stringify(relief));
   await run(`atlas.toggle("layers/railways", false).then(() => true)`);
-  await run(`document.querySelector(".maplibregl-ctrl-bottom-left button[title=Настройки]").click(); true`);
+  await run(`document.querySelector(".dock button[title=Настройки]").click(); true`);
   await sleep(800);
   check("настройки прячут колесо", await run(`document.querySelector(".wheel-layers").classList.contains("closed") && document.querySelector(".sub-layers").hidden && document.querySelectorAll(".panel:not([hidden])").length === 1`));
   await shot("96-panel-settings");
@@ -1474,7 +1483,7 @@ try {
   check("настройки: первой строкой «Поделиться», ссылка на сайт", share.first && share.link === "https://gregory-gittools.github.io/atlas/", JSON.stringify(share));
   // «Очистить историю просмотра» — запомненное при просмотре уходит, треки остаются
   const vc = await run(`(async () => { const st = await import("./core/storage.js"); await st.cacheSet("tracks/zz-test", { keep: 1 }); await st.cacheSet("commons/zz-test", { t: 1 });
-    const before = await st.viewCache(); const gear = document.querySelector(".maplibregl-ctrl-bottom-left button[title=Настройки]");
+    const before = await st.viewCache(); const gear = document.querySelector(".dock button[title=Настройки]");
     gear.click(); await new Promise((r) => setTimeout(r, 300)); gear.click(); await new Promise((r) => setTimeout(r, 800)); // окно заново — кнопка знает, что есть что очищать
     const b = [...document.querySelectorAll(".panel:not([hidden]) .text-btn")].find((x) => x.textContent === "Очистить историю просмотра");
     b?.click(); for (let i = 0; i < 20 && await st.cacheGet("commons/zz-test"); i++) await new Promise((r) => setTimeout(r, 200));
@@ -1489,13 +1498,13 @@ try {
   // верх колеса — под лупой справа вверху (на компьютере)
   await run(openSearch);
   const lay = await run(`(() => { const mid = (el) => { const r = el.getBoundingClientRect(); return Math.round(r.top + r.height / 2); };
-    const gear = document.querySelector(".maplibregl-ctrl-bottom-left button[title=Настройки]");
+    const gear = document.querySelector(".compass-btn");
     const t = document.querySelector(".wheel-toggle").getBoundingClientRect(), w = document.querySelector(".wheel-layers").getBoundingClientRect();
     const sb = document.querySelector(".search-box").getBoundingClientRect();
     return { gear: mid(gear), info: mid(document.querySelector(".maplibregl-ctrl-attrib-button")), scale: mid(document.querySelector(".maplibregl-ctrl-scale")),
       corner: [Math.round(innerWidth - t.right), Math.round(innerHeight - t.bottom)], size: Math.round(t.width),
       logo: (() => { const i = document.querySelector(".search-toggle.open img"), b = i?.parentElement.getBoundingClientRect(); return !!i?.naturalWidth && i.getBoundingClientRect().width >= b.width; })(), wheelTop: Math.round(w.top), searchTop: Math.round(sb.top), phone: innerWidth <= 600 }; })()`);
-  check("раскладка: ⓘ и шкала в линию с шестерёнкой", Math.abs(lay.info - lay.gear) <= 2 && Math.abs(lay.scale - lay.gear) <= 2, JSON.stringify(lay));
+  check("раскладка: ⓘ и шкала в линию с нижней кнопкой слева (компас)", Math.abs(lay.info - lay.gear) <= 2 && Math.abs(lay.scale - lay.gear) <= 2, JSON.stringify(lay));
   check("раскладка: треугольник в правом нижнем углу, отодвинут от края, размером с кнопки", lay.corner[0] >= 18 && lay.corner[0] <= 24 && lay.corner[1] >= 6 && lay.corner[1] <= 14 && lay.size === 40, JSON.stringify(lay));
   check("раскладка: открыт поиск — на месте лупы логотип во весь кружок", lay.logo);
   if (!lay.phone) check("раскладка: верх колеса — под лупой", Math.abs(lay.wheelTop - (lay.searchTop + 50)) <= 2, JSON.stringify(lay));

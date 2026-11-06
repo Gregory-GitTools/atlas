@@ -11,7 +11,7 @@ import { register } from "../core/modules.js";
 import { emit, on } from "../core/events.js";
 import { setSearchMode, searchMode, geocode, refreshSearchList, foldSearchList, foldSearchCard, setSearchCard } from "../core/search.js";
 import { historyList, remember } from "../core/history.js";
-import { WAYS, ARROW, fitPath } from "../core/route.js";
+import { WAYS, ARROW } from "../core/route.js";
 
 const HISTORY = "route.history";
 const ICON = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2 4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>';
@@ -60,10 +60,7 @@ function choose(t) {
   // выбрали — подсказки закрываются, карточка цели раскрыта
   foldSearchList();
   // на карте — и я, и точка
-  showPath(t);
 }
-// на карте — и я, и точка
-const showPath = (t) => fitPath(ctx?.map || window.atlas?.map, [t.lngLat, state.me && window.atlas?.geo?.state().position]);
 
 // цель: стрелка, расстояние, сторона, способы передвижения, путь
 function targetCard() {
@@ -146,11 +143,20 @@ on("nav", ({ on: v }) => {
 });
 // другой раздел ушёл из строки поиска, а навигация включена — снова режим навигации
 on("search-mode", (m) => { if (!m && navOn) setTimeout(() => navOn && !searchMode() && setSearchMode(MODE)); }, { replay: false });
+// карточка пути видна — карта за мной не ходит, на экране весь оставшийся путь (route-show); спрятали —
+// сразу ко мне (Грегори 2026-11-06: «карточку закрыли — позиционируем без задержки; открыли — опять весь
+// маршрут»)
+let cardOpen = false;
+on("route-card", ({ open }) => {
+  if (open === cardOpen) return;
+  cardOpen = open;
+  emit("nav-hold", { hold: open });
+  if (open) emit("route-show");
+}, { replay: false });
 // «Сюда» в окне места — в историю и окно навигации
 on("route-open", (t) => {
   remember(HISTORY, t, id);
   openPanel();
-  showPath(t); // первое «Сюда» — весь путь на экране
 }, { replay: false });
 
 register({

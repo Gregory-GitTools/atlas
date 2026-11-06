@@ -62,8 +62,8 @@ initBasemaps(ctx);
 initLayersPanel(ctx);
 // столбик слева внизу, снизу вверх: настройки, компас 2D/3D, «Где я» — полупрозрачные, как лупа и
 // треугольник (Грегори, 2026-11-02: «+ −» убраны); шкала и ⓘ — справа от столбика
-initSettingsPanel(ctx);
-languageButton(map); // язык подписей — над настройками
+initSettingsPanel(ctx); // шестерёнка — в столбике справа под логотипом
+languageButton(map); // язык подписей — под шестерёнкой
 addCompass(map);
 window.atlas.geo = addGeolocate(map, maplibregl, status);
 window.atlas.route = initRoute(ctx);

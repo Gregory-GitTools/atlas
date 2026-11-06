@@ -77,8 +77,6 @@ export function initSearch({ map, maplibregl }) {
   // слева — логотип Atlas (Грегори, 2026-10-29: строка поиска как у Google, логотип внутри слева)
   bar.innerHTML = `<div class="search-box">
       <input type="search" placeholder="Поиск места" autocomplete="off" enterkeyhint="search" aria-label="Поиск места">
-      <button class="search-panel-btn" hidden></button>
-      <button class="search-card-btn" title="Показать" hidden></button>
       <button class="search-clear" title="Очистить" hidden>${CLEAR_ICON}</button>
       <button class="search-go" title="Найти">${SEARCH_ICON}</button>
     </div>
@@ -87,13 +85,11 @@ export function initSearch({ map, maplibregl }) {
   document.body.append(bar);
   const input = bar.querySelector("input");
   const clearBtn = bar.querySelector(".search-clear");
-  const cardBtn = bar.querySelector(".search-card-btn");
   const cardBox = bar.querySelector(".search-card");
   const list = bar.querySelector(".search-results");
   let cursor = null; // display_name выделенной стрелками строки
   let marker = null;
   let cardOpen = true; // карточка пути развёрнута (свернули — стрелка в строке)
-  const panelBtn = bar.querySelector(".search-panel-btn");
   let folded = null, leftOpen = false; // свёрнутое окно раздела { id, icon, title }; открыто ли окно слева
   on("panel-fold", (f) => { folded = f; leftOpen = !!leftOpen && !f; refresh(false); }, { replay: false });
   on("panel", (p) => {
@@ -104,7 +100,9 @@ export function initSearch({ map, maplibregl }) {
     refresh(false);
   }, { replay: false });
   const unfoldPanel = () => { cardOpen = false; close(); emit("panel-fold-request", { fold: false }); };
-  panelBtn.addEventListener("click", (e) => { e.stopPropagation(); input.blur(); unfoldPanel(); });
+  // открыт ли поиск (кнопка справа вверху) — карточка пути видна только с ним
+  let searchOn = false, cardShown = false;
+  on("search-shown", (v) => { searchOn = v; refresh(false); });
 
   // ---------- режим раздела ----------
   setMode = (m) => {
@@ -124,19 +122,19 @@ export function initSearch({ map, maplibregl }) {
   refresh = (withList = true) => {
     const card = cardSrc?.card() || null;
     cardBox.replaceChildren(...(card ? [card] : []));
-    // одно окно за раз: открыты подсказки или окно раздела — карточки нет, в строке стрелка
+    // одно окно за раз: открыты подсказки или окно раздела — карточки нет (её стрелка — в столбике под
+    // логотипом, core/layers-panel.js); в строке поиска — только лупа (Грегори 2026-11-06)
     const shown = !!card && cardOpen && list.hidden && !leftOpen;
     cardBox.hidden = !shown;
-    cardBtn.hidden = !card || shown;
-    if (card && !shown) { cardBtn.innerHTML = cardSrc.icon?.() || ""; cardBtn.title = cardSrc.title?.() || "Показать путь"; }
-    panelBtn.hidden = !folded;
-    if (folded) { panelBtn.innerHTML = folded.icon; panelBtn.title = `${folded.title} — показать`; }
+    const open = shown && searchOn;
+    if (open !== cardShown) { cardShown = open; emit("route-card", { open }); }
     if (withList && (!list.hidden || wantList)) suggest();
   };
   // карточку пути открыли — окно раздела уходит в строку
   const showCard = () => { close(); input.blur(); cardOpen = true; if (leftOpen) emit("panel-fold-request", { fold: true }); refresh(false); };
   picked = showCard;
-  cardBtn.addEventListener("click", (e) => { e.stopPropagation(); showCard(); });
+  // стрелка пути в столбике: карточка видна — свернуть, нет — показать
+  on("route-card-toggle", () => (cardShown ? foldCard() : showCard()), { replay: false });
   // карточка сворачивается своей кнопкой (раздел зовёт foldCard)
   foldCard = () => { cardOpen = false; refresh(); };
 

@@ -100,9 +100,23 @@ export function initRoute({ map, maplibregl, status }) {
     });
   };
 
+  // пройденное стирается: путь — от ближайшей ко мне точки (Грегори 2026-11-06: «показывать только
+  // оставшийся путь»); ищем вперёд от прежней ближайшей — назад по пути не прыгает
+  let passed = 0, passedAt = null;
+  const ahead = () => {
+    if (!route) return null;
+    if (me && (!passedAt || distance(passedAt, me) > 5)) {
+      passedAt = me;
+      let best = passed, bd = Infinity;
+      for (let i = passed; i < route.coords.length; i++) { const d = distance(me, route.coords[i]); if (d < bd) { bd = d; best = i; } }
+      if (bd < 60) passed = best; // с пути не сошёл — пройденное до ближайшей точки
+    }
+    return route.coords.slice(passed);
+  };
   const draw = () => {
     map.getSource("go-line")?.setData(line(me && target ? arc(me, target.lngLat) : null));
-    map.getSource("go-route")?.setData(line(target && route?.coords));
+    const rest = target && ahead();
+    map.getSource("go-route")?.setData(line(rest && me ? [me, ...rest] : rest));
   };
   const addLayers = () => {
     if (map.getSource("go-line")) return;
@@ -135,14 +149,15 @@ export function initRoute({ map, maplibregl, status }) {
     settings.set("route.target", t);
     marker?.remove();
     marker = t ? flagMarker(maplibregl).setLngLat(t.lngLat).addTo(map) : null;
+    passed = 0; passedAt = null;
     draw();
     show();
   };
 
   // путь по дорогам: один запрос по нажатию; пока ждали — сменили точку или способ — ответ не нужен
-  const ask = async (way) => {
+  const ask = async (way, again = false) => {
     if (!me || !target || !allowed(self())) return;
-    if (route?.way === way.id) { route = null; draw(); show(); return; } // второе нажатие — убрать путь
+    if (route?.way === way.id && !again) { route = null; draw(); show(); return; } // второе нажатие — убрать путь
     const n = ++asked;
     busy = way.id;
     show();
@@ -154,6 +169,7 @@ export function initRoute({ map, maplibregl, status }) {
       busy = null;
       if (!r) { status("Путь не найден"); setTimeout(() => status(""), 4000); show(); return; }
       route = { way: way.id, coords: r.geometry.coordinates, distance: r.distance, duration: r.duration };
+      passed = 0; passedAt = null;
       fitPath(map, [me, ...route.coords, target.lngLat]); // путь пришёл — весь на экран
     } catch {
       if (n !== asked) return;
@@ -201,6 +217,14 @@ export function initRoute({ map, maplibregl, status }) {
   // окно навигации: выбрать точку (null — убрать) и проложить путь
   on("route-target", (t) => setTarget(t), { replay: false });
   on("route-way", ({ way }) => { const w = WAYS.find((x) => x.id === way); if (w) ask(w); }, { replay: false });
+  // карточку пути открыли — весь оставшийся путь на экран; есть сеть — путь заново от того места, где я
+  // (Грегори 2026-11-06: «что будет в середине маршрута? пересчитывать при открытии карточки»)
+  on("route-show", () => {
+    if (!target) return;
+    const w = route && WAYS.find((x) => x.id === route.way);
+    if (w && me && navigator.onLine && allowed(self())) { ask(w, true); return; }
+    fitPath(map, [me, ...(ahead() || []), target.lngLat]);
+  }, { replay: false });
 
   // при запуске точки нет (Грегори 2026-11-05): навигация не включается, точка — в истории окна навигации
   target = null;
