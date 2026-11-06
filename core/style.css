@@ -1436,10 +1436,14 @@ body.has-photo-strip .status {
   top: calc(var(--top-inset) + var(--gap));
 }
 
+/* телефон: окно раздела — шириной со строку поиска (Грегори 2026-11-06): справа столбик под логотипом
+   и барабан, окно под них не заходит */
 @media (max-width: 600px) {
   .panel.panel-left {
-    right: var(--gap);
+    left: var(--side-l);
+    right: calc(var(--side-r) + var(--gap) + var(--button));
     width: auto;
+    max-width: none;
     max-height: 55vh;
   }
 }
@@ -2771,7 +2775,6 @@ body.search-hidden .panel-left {
   pointer-events: none;
 }
 
-
 /* ---------- столбик справа под логотипом (core/dock.js, Грегори 2026-11-06) ----------
    шестерёнка, язык подписей, значки включённых режимов; виден, пока открыт поиск или барабан;
    барабан, доходя сюда, уходит под него */
@@ -2816,7 +2819,7 @@ body.dock-on .dock {
   height: calc(var(--button) - 10px);
 }
 
-/* всё закрыто — на кнопке справа вверху только капля, крупно */
+/* при старте — логотип (из travel-earth) во весь кружок, без фона; после первого щелчка его больше нет */
 .search-toggle.drop,
 .search-toggle.drop:hover {
   padding: 0;
@@ -2825,9 +2828,11 @@ body.dock-on .dock {
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
 }
 
-.search-toggle.drop svg {
+.search-toggle .start-logo {
   width: calc(var(--button) + 4px);
   height: calc(var(--button) + 4px);
+  object-fit: contain;
+  pointer-events: none;
 }
 
 /* компьютер: строка поиска — шириной с окно раздела и вровень с ним (Грегори 2026-11-06) */

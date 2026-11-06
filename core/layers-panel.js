@@ -56,14 +56,14 @@ const groupOf = (m) => (m.group === MAPS_GROUP ? MAPS_GROUP : GROUPS.some((g) =>
 const BLOCKED = "Выключено в настройках: обращается в интернет";
 const CLEAR_ICON = '<svg viewBox="0 0 24 24" width="12" height="12"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
 const ARROW = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M15.5 5v14L6 12z"/></svg>';
-// всё закрыто — на кнопке справа вверху только капля-метка из логотипа, крупно (Грегори 2026-11-06)
 // поиск места — лупа (Грегори 2026-11-06: «логотип на кнопке не используем, логично — лупа»)
 const LUPA = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>';
 // навигация с целью — в столбике флажок финиша (стрелка к цели — на кнопке справа вверху)
 const FINISH = '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M5 2.5v19" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>'
   + '<path d="M6 3.5h14v10H6z" fill="#fff" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>'
   + '<path fill="currentColor" d="M6 3.5h3.5V7H6zM13 3.5h3.5V7H13zM9.5 7H13v3.3H9.5zM16.5 7H20v3.3h-3.5zM6 10.3h3.5v3.2H6zM13 10.3h3.5v3.2H13z"/></svg>';
-const DROP = '<svg viewBox="0 0 24 24" width="36" height="36"><path d="M12 1.6C7.7 1.6 4.3 5 4.3 9.3c0 5.8 7.7 13.1 7.7 13.1s7.7-7.3 7.7-13.1c0-4.3-3.4-7.7-7.7-7.7z" fill="#e53935" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="9.3" r="3" fill="#fff"/></svg>';
+// логотип (из travel-earth) — только при старте, до первого щелчка по кнопке (Грегори 2026-11-06)
+const LOGO = '<img class="start-logo" src="icons/start-logo.png" alt="">';
 
 // барабан: промежуток между кнопками в центре — GAP (Грегори, 2026-10-30: «расстояние между кнопками
 // поменьше»), притормаживание у центра
@@ -156,7 +156,7 @@ export function initLayersPanel(ctx) {
   const arrowBtn = Object.assign(document.createElement("button"), { className: "btn glass wheel-toggle", innerHTML: ARROW });
   const lensBtn = Object.assign(document.createElement("button"), { className: "btn glass search-toggle" });
   const controls = [arrowBtn, lensBtn];
-  let shown = null, searchOn = false, mode = null, routeNow = null;
+  let shown = null, searchOn = false, mode = null, routeNow = null, started = false;
   const paint = () => {
     arrowBtn.classList.toggle("open", shown === "layers");
     arrowBtn.title = shown === "layers" ? "Спрятать слои карты" : "Слои карты";
@@ -173,10 +173,11 @@ export function initLayersPanel(ctx) {
     lensBtn.style.color = tone && !searchOn ? `var(--tone-${tone})` : "";
     lensBtn.classList.toggle("mode", !!mode && !target);
     lensBtn.classList.toggle("open", !mode || !!target);
-    lensBtn.classList.toggle("drop", !mode && !target && !searchOn && !shown);
+    const logo = !started && !mode && !target && !searchOn && !shown;
+    lensBtn.classList.toggle("drop", logo);
     lensBtn.innerHTML = target ? `<span class="search-card-arrow" style="transform: rotate(${routeNow.me ? routeNow.arrow || 0 : 0}deg)">${ROUTE_ARROW}</span>`
-      : mode ? mode.icon : !searchOn && !shown ? DROP : LUPA;
-    lensBtn.title = searchOn && shown ? "Спрятать строку поиска" : !searchOn && shown === "content" ? "Спрятать барабан" : "Поиск и разделы: экскурсии, языки, треки, фото";
+      : mode ? mode.icon : logo ? LOGO : LUPA;
+    lensBtn.title = searchOn || shown === "content" ? "Свернуть всё" : "Поиск и разделы";
     // столбик справа под логотипом — пока открыт поиск или любой барабан, и не открыто окно справа (настройки)
     setDockShown((searchOn || !!shown) && !rightOpen);
   };
@@ -199,13 +200,13 @@ export function initLayersPanel(ctx) {
     }
     paint();
   };
-  // щелчок — свой барабан (вместо другого), второй щелчок — спрятать. Кнопка справа вверху (логотип,
-  // значок режима) — три положения по кругу, ничего не сбрасывает (Грегори 2026-11-06: «сначала показать
-  // всё, затем убрать окно поиска и в последнюю очередь закрыть барабан»): всё (поиск с барабаном) →
-  // щелчок прячет поиск → щелчок прячет барабан (значок режима — цветной на прозрачном, без режима —
-  // капля) → щелчок — снова всё. Окно раздела прячется вместе со строкой (body.search-hidden)
+  // щелчок — свой барабан (вместо другого), второй щелчок — спрятать. Кнопка справа вверху — два
+  // положения, ничего не сбрасывает (Грегори 2026-11-06, вечер: «открыть панели / свернуть всё»): закрыто
+  // → поиск с барабаном разделов; открыто → спрятать всё (окно раздела прячется вместе со строкой,
+  // body.search-hidden; режим остаётся — его значок на кнопке, без режима — лупа). Логотип — только при
+  // старте, до первого щелчка
   arrowBtn.addEventListener("click", () => setShown(shown === "layers" ? null : "layers"));
-  lensBtn.addEventListener("click", () => (searchOn && shown ? setShown(shown, false) : !searchOn && shown === "content" ? setShown(null, false) : setShown("content", true)));
+  lensBtn.addEventListener("click", () => { started = true; searchOn || shown === "content" ? setShown(null, false) : setShown("content", true); });
   on("search-mode", (m) => { mode = m; paint(); });
   // раздел живёт в самой строке поиска (навигация) — строка нужна; на телефоне барабан уступает место
   on("search-show", () => setShown(innerWidth <= 600 ? null : shown || "content", true), { replay: false });
@@ -228,7 +229,9 @@ export function initLayersPanel(ctx) {
       if (open === isOpen) return;
       isOpen = open;
       wheel.classList.toggle("closed", !open);
-      if (open) { layout(); setTimeout(showTip, 300); } else { hideTip(); show(null); }
+      // подпись центральной кнопки — только при прокрутке и наведении, не сама после нажатия кнопок
+      // (Грегори 2026-11-06: «убирай после выбора кнопок»)
+      if (open) layout(); else { hideTip(); show(null); }
     };
     document.addEventListener("click", (e) => {
       // кнопку, по которой щёлкнули, могли уже перерисовать — это щелчок внутри, а не мимо
@@ -320,8 +323,8 @@ export function initLayersPanel(ctx) {
           raw = target;
           layout();
           const done = onArrive; onArrive = null;
-          done?.();
-          showTip();
+          // докрутили щелчком — кнопку выбрали, подпись не нужна; встали после прокрутки — подпись
+          if (done) done(); else showTip();
           return;
         }
         raw += d * 0.18;
@@ -511,9 +514,9 @@ export function initLayersPanel(ctx) {
   on("panel", () => renderAll(), { replay: false });
   onRegister(renderAll);
   renderAll();
-  // открытый барабан и поиск — с прошлого раза; при первом запуске — ничего (раньше было только «да» — слои)
-  const saved = settings.get("layers.panel");
-  setShown(saved === true ? "layers" : saved || null, !!settings.get("search.open") || saved === "content");
+  // при старте всё закрыто (Грегори 2026-11-06: «при старте все панели и барабаны закрыты»); барабан
+  // разделов — «Поиском места» в центре (первая кнопка)
+  setShown(null, false);
 
   // разрешили сеть снова — включить то, что было включено до запрета
   on("modules", async () => {

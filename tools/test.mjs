@@ -112,6 +112,15 @@ try {
   await run(`new Promise((r) => { const c = () => window.atlas?.map?.loaded() ? r(true) : setTimeout(c, 200); c(); })`);
   await idle();
   check("карта загрузилась", true, await run(`atlas.map.getProjection()?.type`));
+  // при старте всё закрыто, на кнопке справа вверху — логотип; барабан разделов — «Поиском места» в центре
+  const start = await run(`({ logo: !!document.querySelector(".search-toggle .start-logo"), search: document.body.classList.contains("search-hidden"),
+    wheels: [...document.querySelectorAll(".wheel")].every((w) => w.classList.contains("closed")), panels: [...document.querySelectorAll(".panel")].every((p) => p.hidden) })`);
+  // первый щелчок — поиск и барабан разделов, в центре «Поиск места»; логотипа больше нет; второй — всё закрыть
+  start.mid = await run(`(async () => { const L = document.querySelector(".search-toggle"); L.click(); await new Promise((r) => setTimeout(r, 500));
+    const m = [...document.querySelectorAll(".wheel-content .wheel-cell:not([hidden])")].sort((a, b) => b.style.zIndex - a.style.zIndex)[0]?.querySelector(".layers-circle").ariaLabel;
+    L.click(); await new Promise((r) => setTimeout(r, 300)); return m + (L.querySelector(".start-logo") ? " (логотип остался)" : ""); })()`);
+  check("старт: всё закрыто, на кнопке справа вверху — логотип; первый щелчок — «Поиск места» в центре барабана",
+    start.logo && start.search && start.wheels && start.panels && start.mid === "Поиск места", JSON.stringify(start));
   check("правка: EXIF исходника переносится — поворот 1, новый размер кадра, место съёмки остаётся",
     exifCheck.before.orientation === 6 && exifCheck.after.orientation === 1 && exifCheck.after.width === 1234 && exifCheck.after.height === 567 && exifCheck.after.gps, JSON.stringify(exifCheck));
   const extras = await run(`({ stars: document.querySelector("canvas.stars")?.width > 0, scale: document.querySelector(".maplibregl-ctrl-scale")?.textContent,
@@ -672,11 +681,11 @@ try {
     // «Свернуть» окна — оно уходит значком в строку поиска (места не занимает); щелчок по значку или по
     // строке — окно снова (Грегори 2026-11-05); висящий маршрут — стрелкой, одно окно за раз
     const tp = `document.querySelector('[data-panel="tours"]')`;
-    await run(`${tp}.querySelector(".panel-btn[title^='Свернуть']").click(); true`);
+    await run(`document.querySelector('.dock .dock-mode[data-key="content/tours"]').click(); true`); // «–» в шапке нет — сворачивает значок в столбике
     const fold1 = await run(`({ shown: getComputedStyle(${tp}).display !== "none", chip: !!document.querySelector('.dock .dock-mode[data-key="content/tours"]')?.querySelector("svg") })`);
     await run(`document.querySelector('.dock .dock-mode[data-key="content/tours"]').click(); true`);
     const fold2 = await run(`getComputedStyle(${tp}).display !== "none"`);
-    await run(`${tp}.querySelector(".panel-btn[title^='Свернуть']").click(); true`);
+    await run(`document.querySelector('.dock .dock-mode[data-key="content/tours"]').click(); true`); // «–» в шапке нет — сворачивает значок в столбике
     await run(`(() => { const i = document.querySelector(".search-box input"); i.click(); return true; })()`);
     const fold3 = await run(`getComputedStyle(${tp}).display !== "none"`);
     await run(`atlas.route.setTarget({ lngLat: [12.33, 45.44], title: "Проба пути" }); true`);
@@ -1443,17 +1452,17 @@ try {
     const keys = [...document.querySelectorAll(".wheel-content .wheel-cell:not([hidden]) .layers-circle")].map((c) => c.ariaLabel).sort();
     A.click(); await wait(); const s2 = st();
     A.click(); await wait(); const s3 = st();
-    // поиск открыт без барабана — щелчок показывает всё
+    // поиск открыт без барабана — щелчок прячет всё (Грегори 2026-11-06, вечер: «открыть / свернуть всё»)
     L.click(); await wait(); const s4 = st();
-    // три положения по кругу (Грегори 2026-11-06): всё → без строки поиска (барабан) → закрыто (капля) → всё
+    // два положения: закрыто → всё → закрыто (лупа, логотипа после старта нет) → всё
     L.click(); await wait(); const c1 = st(); L.click(); await wait(); const c2 = st(); L.click(); await wait(); const c3 = st();
     const lr = L.getBoundingClientRect();
     A.click(); await wait();
     return { s0, s1, s2, s3, s4, c1, c2, c3, keys, corner: innerWidth - lr.right >= 18 && innerWidth - lr.right <= 24 && lr.top < 20 }; })()`);
-  check("кнопка справа вверху: закрыто — капля; три положения — всё, без строки поиска, закрыто; столбик под логотипом — пока что-то открыто; треугольник — слои",
-    !lens.s0.search && !lens.s0.content && lens.s0.drop && !lens.s0.dock && lens.s1.content && lens.s1.search && lens.s1.logo && lens.s1.dock
-    && lens.s2.layers && !lens.s2.content && lens.s2.search && !lens.s3.layers && lens.s4.search && lens.s4.content
-    && !lens.c1.search && lens.c1.content && lens.c1.dock && !lens.c2.search && !lens.c2.content && lens.c2.drop && !lens.c2.dock && lens.c3.search && lens.c3.content
+  check("кнопка справа вверху: два положения — всё и закрыто (лупа, не логотип); столбик под логотипом — пока что-то открыто; треугольник — слои",
+    !lens.s0.search && !lens.s0.content && !lens.s0.drop && lens.s0.logo && !lens.s0.dock && lens.s1.content && lens.s1.search && lens.s1.logo && lens.s1.dock
+    && lens.s2.layers && !lens.s2.content && lens.s2.search && !lens.s3.layers && !lens.s4.search && !lens.s4.content && !lens.s4.dock
+    && lens.c1.search && lens.c1.content && lens.c1.dock && !lens.c2.search && !lens.c2.content && !lens.c2.drop && lens.c2.logo && !lens.c2.dock && lens.c3.search && lens.c3.content
     && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои треки", "Навигация", "Поиск места", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико
   // крутит его, нажатие по кнопке не в центре докручивает её и открывает столбик

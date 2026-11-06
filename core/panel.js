@@ -1,16 +1,15 @@
 // Окно-панель — один компонент на всё приложение (опыт travel-earth: окна экскурсий, языков и
 // альбомов делались по отдельности, и половина правок была про их несовпадения). Одновременно
-// открыта одна панель; шапка — название, «свернуть», «закрыть»; высота подстраивается под
+// открыта одна панель; шапка — название и «закрыть» (свернуть — значком в столбике); высота подстраивается под
 // содержимое; на узком экране — во всю ширину под верхней строкой. Свёрнута ли — помнится.
 // side: "right" (настройки — справа вверху) или "left" (Языки, Экскурсии, Альбомы — слева под строкой
 // поиска; колесо справа при ней остаётся открытым).
 // Внизу — ползунок (Грегори, 2026-10-30): потянуть — окно выше или ниже, высота помнится; двойное
-// нажатие — снова по содержимому. Своя кнопка раздела в шапке (перед «свернуть») — addButton
+// нажатие — снова по содержимому. Своя кнопка раздела в шапке (перед «закрыть») — addButton
 import { emit, on } from "./events.js";
 import * as settings from "./settings.js";
 import { backable } from "./back.js";
 
-const MIN_ICON = `<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19 13H5v-2h14v2z"/></svg>`;
 const CLOSE_ICON = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>`;
 
 const panels = new Map();
@@ -25,10 +24,10 @@ export function createPanel({ id, title, icon = "", side = "right" }) {
   const head = Object.assign(document.createElement("header"), { className: "panel-head" });
   const name = Object.assign(document.createElement("h2"), { className: "panel-title", innerHTML: `${icon}<span></span>` });
   name.querySelector("span").textContent = title;
-  const minBtn = iconButton(MIN_ICON, "Свернуть");
   const closeBtn = iconButton(CLOSE_ICON, "Закрыть");
-  // окно справа (настройки) не сворачивается — только закрыть (Грегори 2026-11-05: «нечего его сворачивать»)
-  head.append(name, ...(side === "left" ? [minBtn] : []), closeBtn);
+  // в шапке только «закрыть»: окно слева сворачивает и разворачивает его значок в столбике под
+  // логотипом, как карточку пути (Грегори 2026-11-06: «минуса свернуть окно у нас больше нет»)
+  head.append(name, closeBtn);
   const body = Object.assign(document.createElement("div"), { className: "panel-body" });
   const grip = Object.assign(document.createElement("div"), { className: "panel-grip", title: "Потяните — окно выше или ниже" });
   el.append(head, body, grip);
@@ -65,14 +64,12 @@ export function createPanel({ id, title, icon = "", side = "right" }) {
     emit("panel-fold", min ? { id, icon, title: name.querySelector("span").textContent } : null);
     if (!min) emit("panel", { id, side });
   };
-  minBtn.addEventListener("click", () => setMin(true));
-  minBtn.title = "Свернуть";
   closeBtn.addEventListener("click", () => close(id));
   const closers = [];
 
   const panel = { id, side, el, body, setMin, closers, open: () => open(id), close: () => close(id), toggle: () => (openId === id ? close(id) : open(id)),
     setTitle: (text) => { name.querySelector("span").textContent = text; },
-    addButton: (icon, title, fn) => { const b = iconButton(icon, title); b.addEventListener("click", fn); head.insertBefore(b, minBtn); return b; },
+    addButton: (icon, title, fn) => { const b = iconButton(icon, title); b.addEventListener("click", fn); head.insertBefore(b, closeBtn); return b; },
     onClose: (fn) => closers.push(fn) };
   panels.set(id, panel);
   return panel;
