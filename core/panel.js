@@ -66,7 +66,7 @@ export function createPanel({ id, title, icon = "", side = "right" }) {
     if (!min) emit("panel", { id, side });
   };
   minBtn.addEventListener("click", () => setMin(true));
-  minBtn.title = "Свернуть — в строку поиска";
+  minBtn.title = "Свернуть";
   closeBtn.addEventListener("click", () => close(id));
   const closers = [];
 

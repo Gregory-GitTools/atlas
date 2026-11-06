@@ -1197,21 +1197,49 @@ body.has-photo-strip .status {
   z-index: 26;
 }
 
-/* логотип — во весь кружок кнопки, без ободка: шар в картинке — во всю её ширину */
-.search-toggle.open,
-.search-toggle.open:hover {
+/* открыт поиск — лупа (или стрелка к цели) на белом кружке (Грегори 2026-11-06: «логотип не используем,
+   логично — лупа»); поиск спрятан — полупрозрачная, как треугольник */
+.search-toggle {
   padding: 0;
-  overflow: hidden;
-  background: none;
+}
+
+.search-toggle.open:not(.idle) {
+  background: var(--panel);
+  color: var(--text);
   box-shadow: var(--shadow);
   filter: none;
 }
 
-/* шар в картинке — во всю её ширину: картинка ровно с кнопку */
-.search-toggle.open img {
-  width: var(--button);
-  height: var(--button);
-  max-width: none;
+.search-toggle.open:not(.idle):hover {
+  background: var(--panel-hover);
+}
+
+.search-toggle.open > svg {
+  width: calc(var(--button) - 8px);
+  height: calc(var(--button) - 8px);
+}
+
+/* стрелка к цели — по центру кружка, поворачивается вокруг середины */
+/* у кнопки справа вверху position: fixed — она и так опора для стрелки */
+.dock-mode {
+  position: relative;
+}
+
+.search-toggle > .search-card-arrow,
+.dock-mode > .search-card-arrow {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+}
+
+.search-toggle > .search-card-arrow svg {
+  width: calc(var(--button) - 4px);
+  height: calc(var(--button) - 4px);
+}
+
+.search-toggle.idle > .search-card-arrow {
+  filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff);
 }
 
 .search-toggle.mode {
@@ -2755,7 +2783,7 @@ body.search-hidden .panel-left {
   display: none;
   flex-direction: column;
   align-items: center;
-  gap: var(--gap);
+  gap: 4px; /* плотнее (Грегори 2026-11-06: «очень широко, ближе друг к другу») */
 }
 
 body.dock-on .dock {
@@ -2766,7 +2794,7 @@ body.dock-on .dock {
 .dock-modes {
   display: flex;
   flex-direction: column;
-  gap: var(--gap);
+  gap: 4px;
 }
 
 .dock-modes:empty {
@@ -2778,16 +2806,14 @@ body.dock-on .dock {
   display: none;
 }
 
-.dock-mode .search-card-arrow {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
+/* значки столбика — ровно по центру кружка, почти во весь */
+.dock .btn {
+  padding: 0;
 }
 
-.dock-mode .search-card-arrow svg {
-  width: calc(var(--button) - 6px);
-  height: calc(var(--button) - 6px);
+.dock .btn > svg {
+  width: calc(var(--button) - 10px);
+  height: calc(var(--button) - 10px);
 }
 
 /* всё закрыто — на кнопке справа вверху только капля, крупно */
@@ -2810,4 +2836,21 @@ body.dock-on .dock {
     left: var(--gap);
     width: 400px;
   }
+}
+
+/* ⓘ раскрыта — шире вдвое (Грегори 2026-11-06: «получается очень высоким»), первой строкой — версия */
+.maplibregl-ctrl-attrib.maplibregl-compact-show {
+  width: min(320px, calc(100vw - var(--button) - var(--side-l) - 2 * var(--gap)));
+  max-width: none;
+  box-sizing: border-box;
+}
+
+.maplibregl-ctrl-attrib .attrib-version {
+  display: none;
+  font-weight: 600;
+}
+
+.maplibregl-ctrl-attrib.maplibregl-compact-show .attrib-version {
+  display: block;
+  padding: 2px 8px 2px 28px;
 }

@@ -50,6 +50,26 @@ map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-lef
   const keep = () => { if (!asked && attrib.classList.contains("maplibregl-compact-show")) attrib.classList.remove("maplibregl-compact-show"); };
   if (attrib) { keep(); new MutationObserver(keep).observe(attrib, { attributes: true, attributeFilter: ["class"] }); }
 }
+// первой строкой в ⓘ — версия: коммит и дата обновления (Грегори 2026-11-06: «буду ориентироваться по
+// дате»). Узнаётся у GitHub по первому нажатию на ⓘ (открытый репозиторий, ничего своего не уходит);
+// нет сети — дата файла страницы
+{
+  const attrib = document.querySelector(".maplibregl-ctrl-attrib");
+  const line = Object.assign(document.createElement("div"), { className: "attrib-version" });
+  const day = (d) => d.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+  line.textContent = `Обновлено ${day(new Date(document.lastModified))}`;
+  attrib?.prepend(line);
+  let asked = false;
+  attrib?.addEventListener("click", async () => {
+    if (asked) return;
+    asked = true;
+    try {
+      const r = await fetch("https://api.github.com/repos/Gregory-GitTools/atlas/commits?per_page=1");
+      const c = r.ok && (await r.json())[0];
+      if (c) line.textContent = `Версия ${c.sha.slice(0, 7)} · ${day(new Date(c.commit.committer.date))}`;
+    } catch { /* без сети — остаётся дата страницы */ }
+  });
+}
 
 const ctx = { map, status, maplibregl };
 window.atlas = { map, ctx, modules, toggle: (id, on) => toggle(id, ctx, on), strip: stripState }; // для отладки из консоли

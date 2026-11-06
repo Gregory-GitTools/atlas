@@ -74,7 +74,7 @@ function targetCard() {
   const text = h("div", "go-text");
   text.append(h("div", "go-main", state.me ? state.main : t.title), h("div", "go-sub", state.me ? t.title : "Включите навигацию — покажу, куда идти"));
   const fold = h("button", "go-close");
-  Object.assign(fold, { type: "button", title: "Свернуть — в строке останется стрелка", innerHTML: FOLD });
+  Object.assign(fold, { type: "button", title: "Свернуть", innerHTML: FOLD });
   fold.addEventListener("click", (e) => { e.stopPropagation(); foldSearchCard(); });
   const close = h("button", "go-close");
   Object.assign(close, { type: "button", title: "Убрать точку", innerHTML: CLOSE });
@@ -142,7 +142,11 @@ on("nav", ({ on: v }) => {
   emit("module", { id: "content/navigation", on: v }); // барабан перерисует кнопку
 });
 // другой раздел ушёл из строки поиска, а навигация включена — снова режим навигации
-on("search-mode", (m) => { if (!m && navOn) setTimeout(() => navOn && !searchMode() && setSearchMode(MODE)); }, { replay: false });
+// Выбрали «Поиск места» в барабане — строка остаётся обычным поиском (навигация при этом работает), пока
+// не нажмут «Навигация» снова
+let plain = false;
+on("search-plain", () => { plain = true; }, { replay: false });
+on("search-mode", (m) => { if (m) plain = false; if (!m && navOn && !plain) setTimeout(() => navOn && !plain && !searchMode() && setSearchMode(MODE)); }, { replay: false });
 // карточка пути видна — карта за мной не ходит, на экране весь оставшийся путь (route-show); спрятали —
 // сразу ко мне (Грегори 2026-11-06: «карточку закрыли — позиционируем без задержки; открыли — опять весь
 // маршрут»)
@@ -167,7 +171,7 @@ register({
   hint: "Где я, куда идти и как добраться",
   icon: ICON,
   column: {
-    home: (c) => openPanel(c),
+    home: (c) => { plain = false; openPanel(c); },
     // светится, пока навигация включена (Грегори: «нужна для индикации режима навигации»)
     isOpen: () => navOn,
     // крестик кнопки — выключить навигацию и закрыть окно

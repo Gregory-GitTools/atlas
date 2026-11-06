@@ -24,6 +24,7 @@ import { emit, on } from "./events.js";
 import * as settings from "./settings.js";
 import { uiLanguage } from "./labels.js";
 import { track } from "./popups.js";
+import { closeOpen } from "./panel.js";
 import { historyList, remember as rememberIn } from "./history.js";
 import { backable } from "./back.js";
 
@@ -100,6 +101,8 @@ export function initSearch({ map, maplibregl }) {
     refresh(false);
   }, { replay: false });
   const unfoldPanel = () => { cardOpen = false; close(); emit("panel-fold-request", { fold: false }); };
+  // «Поиск места» в барабане — из режима раздела в обычный поиск: окно раздела закрыть, режим снять
+  on("search-plain", () => { closeOpen("left"); setMode(null); input.value = ""; clearBtn.hidden = true; }, { replay: false });
   // открыт ли поиск (кнопка справа вверху) — карточка пути видна только с ним
   let searchOn = false, cardShown = false;
   on("search-shown", (v) => { searchOn = v; refresh(false); });

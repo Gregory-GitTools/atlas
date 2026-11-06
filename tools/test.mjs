@@ -267,7 +267,7 @@ try {
   await sleep(1500);
   const freed = await nav();
   check("навигация: карточка пути открыта — карта за мной не ходит; свернули — сразу ко мне", held === true && !freed.hold && freed.follow && Math.abs(freed.me.x) <= 3, JSON.stringify({ held, freed }));
-  const folded = await run(`({ card: !${navPanel}.hidden, btn: !!document.querySelector(".dock .dock-route"), arrow: !!document.querySelector(".dock .dock-route .search-card-arrow") })`);
+  const folded = await run(`({ card: !${navPanel}.hidden, btn: !!document.querySelector(".dock .dock-route"), arrow: !!document.querySelector(".dock .dock-route svg") && !!document.querySelector(".search-toggle .search-card-arrow") })`);
   await run(`document.querySelector(".dock .dock-route").click(); true`);
   const unfolded = await run(`({ card: !${navPanel}.hidden, btn: !!document.querySelector(".dock .dock-route") })`);
   check("навигация: «Свернуть» — карточка уходит в стрелку в столбике под логотипом, щелчок по стрелке — снова карточка", !folded.card && folded.btn && folded.arrow && unfolded.card, JSON.stringify({ folded, unfolded }));
@@ -296,6 +296,17 @@ try {
   check("«Назад» на телефоне: сначала подсказки, потом поиск", backList0 && !afterList.list && afterList.search && afterSearch, JSON.stringify({ backList0, afterList, afterSearch }));
   check("кнопка поиска: закрывает и открывает, ничего не сбрасывая (значок навигации, «Куда»); открытый поиск — без курсора и без списка",
     closedLens.hidden && closedLens.mode && closedLens.nav && !closedLens.wheel && reopened.placeholder === "Куда" && !reopened.focus && !reopened.list, JSON.stringify({ closedLens, reopened }));
+  // «Поиск места» в барабане — обычный поиск, навигация при этом включена
+  const plain = await run(`(async () => { const w = () => new Promise((r) => setTimeout(r, 400));
+    for (let k = 0; k < 3 && document.querySelector(".wheel-content").classList.contains("closed"); k++) { document.querySelector(".search-toggle").click(); await w(); }
+    document.querySelector('.wheel-content .layers-circle[data-key="search"]').click();
+    for (let k = 0; k < 15 && document.querySelector(".search-box input").placeholder !== "Поиск места"; k++) await w();
+    const r = { placeholder: document.querySelector(".search-box input").placeholder, nav: atlas.geo.state().on };
+    document.querySelector('.wheel-content .layers-circle[data-key="content/navigation"]').click();
+    for (let k = 0; k < 15 && document.querySelector(".search-box input").placeholder !== "Куда"; k++) await w();
+    r.mode = document.querySelector(".search-toggle").className;
+    r.back = document.querySelector(".search-box input").placeholder; return r; })()`);
+  check("барабан: «Поиск места» — обычный поиск (навигация работает), «Навигация» — снова «Куда»", plain.placeholder === "Поиск места" && plain.nav && plain.back === "Куда", JSON.stringify(plain));
   await run(`document.querySelector(".compass-btn").click(); true`); // снова 2D
   await run(`document.querySelector(".geo-btn").click(); true`); // слежение → выключить
   await send("Emulation.clearGeolocationOverride");
@@ -385,8 +396,10 @@ try {
   // ревизия 2026-11-05/06: язык и шестерёнка — в столбике справа под логотипом; ⓘ при запуске свёрнута; пустая строка состояния не видна
   const misc = await run(`({ lang: !!document.querySelector(".dock .lang-btn") && !!document.querySelector(".dock button[title=Настройки]") && !document.querySelector(".maplibregl-ctrl-bottom-left .lang-btn"), inSearch: !!document.querySelector(".search-box .lang-btn"),
     attrib: document.querySelector(".maplibregl-ctrl-attrib")?.classList.contains("maplibregl-compact-show"),
+    version: (() => { const b = document.querySelector(".maplibregl-ctrl-attrib-button"); b.click(); const a = document.querySelector(".maplibregl-ctrl-attrib");
+      const r = { open: a.classList.contains("maplibregl-compact-show"), w: Math.round(a.getBoundingClientRect().width), line: a.querySelector(".attrib-version")?.textContent || "" }; b.click(); return r; })(),
     status: (() => { const s = document.getElementById("status"); return s.textContent ? "text" : getComputedStyle(s).display; })() })`);
-  check("язык подписей и шестерёнка — в столбике под логотипом; ⓘ свёрнута; пустая строка состояния спрятана", misc.lang && !misc.inSearch && !misc.attrib && (misc.status === "none" || misc.status === "text"), JSON.stringify(misc));
+  check("язык подписей и шестерёнка — в столбике под логотипом; ⓘ свёрнута; пустая строка состояния спрятана", misc.lang && !misc.inSearch && !misc.attrib && misc.version.open && misc.version.w >= 260 && /^(Обновлено|Версия)/.test(misc.version.line) && (misc.status === "none" || misc.status === "text"), JSON.stringify(misc));
   // окно настроек: только «закрыть», без «свернуть»; Esc закрывает его, как «Назад» на телефоне
   await run(`document.querySelector(".dock button[title=Настройки]").click(); true`);
   await sleep(300);
@@ -1420,7 +1433,7 @@ try {
   const lens = await run(`(async () => { const wait = () => new Promise((r) => setTimeout(r, 450));
     const L = document.querySelector(".search-toggle"), A = document.querySelector(".wheel-toggle");
     const st = () => ({ layers: !document.querySelector(".wheel-layers").classList.contains("closed"), content: !document.querySelector(".wheel-content").classList.contains("closed"),
-      search: getComputedStyle(document.querySelector(".search")).display !== "none", logo: !!L.querySelector("img"), drop: L.classList.contains("drop"), dock: getComputedStyle(document.querySelector(".dock")).display !== "none",
+      search: getComputedStyle(document.querySelector(".search")).display !== "none", logo: !!L.querySelector("svg path")?.getAttribute("d").startsWith("M15.5 14"), drop: L.classList.contains("drop"), dock: getComputedStyle(document.querySelector(".dock")).display !== "none",
       lenses: [L, document.querySelector(".search-go")].filter((b) => b.getClientRects().length && b.querySelector("svg path")?.getAttribute("d").startsWith("M15.5 14")).length });
     // поиск открыт — щелчок закрывает
     for (let k = 0; k < 3 && (!document.body.classList.contains("search-hidden") || st().content); k++) { L.click(); await wait(); }
@@ -1438,10 +1451,10 @@ try {
     A.click(); await wait();
     return { s0, s1, s2, s3, s4, c1, c2, c3, keys, corner: innerWidth - lr.right >= 18 && innerWidth - lr.right <= 24 && lr.top < 20 }; })()`);
   check("кнопка справа вверху: закрыто — капля; три положения — всё, без строки поиска, закрыто; столбик под логотипом — пока что-то открыто; треугольник — слои",
-    !lens.s0.search && !lens.s0.content && lens.s0.drop && !lens.s0.dock && lens.s1.content && lens.s1.search && lens.s1.logo && lens.s1.dock && lens.s1.lenses === 1
+    !lens.s0.search && !lens.s0.content && lens.s0.drop && !lens.s0.dock && lens.s1.content && lens.s1.search && lens.s1.logo && lens.s1.dock
     && lens.s2.layers && !lens.s2.content && lens.s2.search && !lens.s3.layers && lens.s4.search && lens.s4.content
     && !lens.c1.search && lens.c1.content && lens.c1.dock && !lens.c2.search && !lens.c2.content && lens.c2.drop && !lens.c2.dock && lens.c3.search && lens.c3.content
-    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои треки", "Навигация", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
+    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои треки", "Навигация", "Поиск места", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико
   // крутит его, нажатие по кнопке не в центре докручивает её и открывает столбик
   await run(`document.querySelector(".sub-layers").hidden || document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })); true`);
@@ -1503,10 +1516,11 @@ try {
     const sb = document.querySelector(".search-box").getBoundingClientRect();
     return { gear: mid(gear), info: mid(document.querySelector(".maplibregl-ctrl-attrib-button")), scale: mid(document.querySelector(".maplibregl-ctrl-scale")),
       corner: [Math.round(innerWidth - t.right), Math.round(innerHeight - t.bottom)], size: Math.round(t.width),
-      logo: (() => { const i = document.querySelector(".search-toggle.open img"), b = i?.parentElement.getBoundingClientRect(); return !!i?.naturalWidth && i.getBoundingClientRect().width >= b.width; })(), wheelTop: Math.round(w.top), searchTop: Math.round(sb.top), phone: innerWidth <= 600 }; })()`);
+      logo: (() => { const L = document.querySelector(".search-toggle.open:not(.idle)"), i = L?.querySelector("svg"); if (!i) return false; const a = i.getBoundingClientRect(), b = L.getBoundingClientRect();
+        return a.width >= b.width - 10 && Math.abs((a.left + a.right) / 2 - (b.left + b.right) / 2) <= 1; })(), wheelTop: Math.round(w.top), searchTop: Math.round(sb.top), phone: innerWidth <= 600 }; })()`);
   check("раскладка: ⓘ и шкала в линию с нижней кнопкой слева (компас)", Math.abs(lay.info - lay.gear) <= 2 && Math.abs(lay.scale - lay.gear) <= 2, JSON.stringify(lay));
   check("раскладка: треугольник в правом нижнем углу, отодвинут от края, размером с кнопки", lay.corner[0] >= 18 && lay.corner[0] <= 24 && lay.corner[1] >= 6 && lay.corner[1] <= 14 && lay.size === 40, JSON.stringify(lay));
-  check("раскладка: открыт поиск — на месте лупы логотип во весь кружок", lay.logo);
+  check("раскладка: открыт поиск — на кнопке справа вверху лупа, крупно и по центру", lay.logo);
   if (!lay.phone) check("раскладка: верх колеса — под лупой", Math.abs(lay.wheelTop - (lay.searchTop + 50)) <= 2, JSON.stringify(lay));
 } catch (err) {
   errors.push("проверка прервалась: " + err.message);

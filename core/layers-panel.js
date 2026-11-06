@@ -57,6 +57,12 @@ const BLOCKED = "Выключено в настройках: обращаетс�
 const CLEAR_ICON = '<svg viewBox="0 0 24 24" width="12" height="12"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
 const ARROW = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M15.5 5v14L6 12z"/></svg>';
 // всё закрыто — на кнопке справа вверху только капля-метка из логотипа, крупно (Грегори 2026-11-06)
+// поиск места — лупа (Грегори 2026-11-06: «логотип на кнопке не используем, логично — лупа»)
+const LUPA = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>';
+// навигация с целью — в столбике флажок финиша (стрелка к цели — на кнопке справа вверху)
+const FINISH = '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M5 2.5v19" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>'
+  + '<path d="M6 3.5h14v10H6z" fill="#fff" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>'
+  + '<path fill="currentColor" d="M6 3.5h3.5V7H6zM13 3.5h3.5V7H13zM9.5 7H13v3.3H9.5zM16.5 7H20v3.3h-3.5zM6 10.3h3.5v3.2H6zM13 10.3h3.5v3.2H13z"/></svg>';
 const DROP = '<svg viewBox="0 0 24 24" width="36" height="36"><path d="M12 1.6C7.7 1.6 4.3 5 4.3 9.3c0 5.8 7.7 13.1 7.7 13.1s7.7-7.3 7.7-13.1c0-4.3-3.4-7.7-7.7-7.7z" fill="#e53935" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="9.3" r="3" fill="#fff"/></svg>';
 
 // барабан: промежуток между кнопками в центре — GAP (Грегори, 2026-10-30: «расстояние между кнопками
@@ -114,9 +120,13 @@ export function initLayersPanel(ctx) {
     })];
   };
   // кнопки барабана разделов — порядок как в MODULES (модули грузятся параллельно, регистрируются вразнобой)
-  const contentEntries = () => modules("content").filter(available)
+  // первой — «Поиск места» (Грегори 2026-11-06: «в верхнем барабане не хватает кнопки Лупа»): выйти из
+  // режима раздела в обычный поиск мест
+  const SEARCH_ENTRY = { key: "search", title: "Поиск места", icon: LUPA, tone: "maps", plain: [],
+    content: { id: "search", column: { home: () => { emit("search-plain"); setShown(shown, true); }, isOpen: () => false, close: () => {} } } };
+  const contentEntries = () => [SEARCH_ENTRY, ...modules("content").filter(available)
     .sort((a, b) => MODULES.findIndex((p) => p.includes(a.id)) - MODULES.findIndex((p) => p.includes(b.id)))
-    .map((m) => ({ key: m.id, title: m.title, icon: m.icon, tone: m.tone, content: m, plain: [] }));
+    .map((m) => ({ key: m.id, title: m.title, icon: m.icon, tone: m.tone, content: m, plain: [] }))];
 
   // раздел: своё home(ctx), иначе панель слева со списком column.items()
   const openHome = async (m) => {
@@ -146,7 +156,7 @@ export function initLayersPanel(ctx) {
   const arrowBtn = Object.assign(document.createElement("button"), { className: "btn glass wheel-toggle", innerHTML: ARROW });
   const lensBtn = Object.assign(document.createElement("button"), { className: "btn glass search-toggle" });
   const controls = [arrowBtn, lensBtn];
-  let shown = null, searchOn = false, mode = null;
+  let shown = null, searchOn = false, mode = null, routeNow = null;
   const paint = () => {
     arrowBtn.classList.toggle("open", shown === "layers");
     arrowBtn.title = shown === "layers" ? "Спрятать слои карты" : "Слои карты";
@@ -154,13 +164,18 @@ export function initLayersPanel(ctx) {
     // при закрытом поиске (навигация включена — значок навигации)
     // поиск открыт — значок на цветном фоне; закрыт — сам значок цвета раздела на прозрачном (Грегори
     // 2026-11-05: «только цветной значок в пустом окне карты»); без раздела — логотип
-    lensBtn.classList.toggle("open", !mode);
-    lensBtn.classList.toggle("mode", !!mode);
     lensBtn.classList.toggle("idle", !searchOn);
-    lensBtn.style.background = mode && searchOn ? `var(--tone-${mode.tone})` : "";
-    lensBtn.style.color = mode && !searchOn ? `var(--tone-${mode.tone})` : "";
-    lensBtn.classList.toggle("drop", !mode && !searchOn && !shown);
-    lensBtn.innerHTML = mode ? mode.icon : !searchOn && !shown ? DROP : '<img src="icons/logo.png" alt="">';
+    // есть цель пути — на кнопке крутящаяся стрелка к ней (Грегори 2026-11-06), цвета навигации
+    const target = routeNow?.target;
+    // стрелка — красная на белом (как была в карточке); режим — значок на цвете раздела; лупа — на белом
+    const tone = target ? null : mode?.tone;
+    lensBtn.style.background = tone && searchOn ? `var(--tone-${tone})` : "";
+    lensBtn.style.color = tone && !searchOn ? `var(--tone-${tone})` : "";
+    lensBtn.classList.toggle("mode", !!mode && !target);
+    lensBtn.classList.toggle("open", !mode || !!target);
+    lensBtn.classList.toggle("drop", !mode && !target && !searchOn && !shown);
+    lensBtn.innerHTML = target ? `<span class="search-card-arrow" style="transform: rotate(${routeNow.me ? routeNow.arrow || 0 : 0}deg)">${ROUTE_ARROW}</span>`
+      : mode ? mode.icon : !searchOn && !shown ? DROP : LUPA;
     lensBtn.title = searchOn && shown ? "Спрятать строку поиска" : !searchOn && shown === "content" ? "Спрятать барабан" : "Поиск и разделы: экскурсии, языки, треки, фото";
     // столбик справа под логотипом — пока открыт поиск или любой барабан, и не открыто окно справа (настройки)
     setDockShown((searchOn || !!shown) && !rightOpen);
@@ -453,17 +468,17 @@ export function initLayersPanel(ctx) {
   // ---------- значки включённых режимов в столбике под логотипом ----------
   // навигация (есть цель — стрелка к ней: щелчок показывает или прячет карточку пути) и открытые разделы
   // (щелчок — окно раздела показать или свернуть в строку)
-  let folded = null, routeNow = null;
+  let folded = null;
   on("panel-fold", (f) => { folded = f; renderModes(); }, { replay: false });
   on("route", (r) => {
     const same = routeNow?.target === r?.target && routeNow?.me === r?.me;
     routeNow = r;
     // стрелка крутится с картой и со мной — только повернуть её, не перерисовывая столбик
-    const a = same && dockModes.querySelector(".dock-route .search-card-arrow");
-    if (a) a.style.transform = `rotate(${r.me ? r.arrow || 0 : 0}deg)`; else renderModes();
+    const a = same && lensBtn.querySelector(".search-card-arrow");
+    if (a) a.style.transform = `rotate(${r.me ? r.arrow || 0 : 0}deg)`; else { renderModes(); paint(); }
   });
   function renderModes() {
-    const on_ = contentEntries().filter((e) => e.content.column.isOpen() || (e.content.id === "content/navigation" && routeNow?.target));
+    const on_ = contentEntries().filter((e) => e.key !== "search" && e.content.column.isOpen() || (e.content.id === "content/navigation" && routeNow?.target));
     dockModes.replaceChildren(...on_.map((e) => {
       const m = e.content, nav = m.id === "content/navigation";
       const b = Object.assign(document.createElement("button"), { type: "button", className: `btn layers-circle tone-${e.tone} on dock-mode` });
@@ -471,7 +486,7 @@ export function initLayersPanel(ctx) {
       const target = nav && routeNow?.target;
       if (target) {
         b.classList.add("dock-route");
-        b.innerHTML = `<span class="search-card-arrow" style="transform: rotate(${routeNow.me ? routeNow.arrow || 0 : 0}deg)">${ROUTE_ARROW}</span>`;
+        b.innerHTML = FINISH;
         b.title = `${routeNow.me ? routeNow.main : target.title} — показать или спрятать путь`;
       } else {
         b.innerHTML = m.icon;
