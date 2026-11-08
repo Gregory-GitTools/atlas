@@ -829,7 +829,7 @@ try {
         return true; })()`);
       await run(`${gear}.click(); true`);
       await sleep(600);
-      await run(`${setBtn("+ Добавить папку…")}.click(); true`);
+      await run(`atlas.modules().find((m) => m.id === "content/albums").pickFolder(); true`);
       for (let i = 0; i < 30 && !(await run(`${as}.groups === 1 && !${as}.busy`)); i++) await sleep(500);
       await run(`${gear}.click(); true`);
       await run(openLayers("content/albums"));
@@ -1280,7 +1280,7 @@ try {
       const before = await run(`${as}.albums`);
       await run(`${gear}.click(); true`);
       await sleep(600);
-      await run(`${setBtn("+ Добавить папку…")}.click(); true`);
+      await run(`atlas.modules().find((m) => m.id === "content/albums").pickFolder(); true`);
       for (let i = 0; i < 30 && !(await run(`${as}.albums === ${before + 2} && !${as}.busy`)); i++) await sleep(500);
       await run(`${gear}.click(); true`);
       await run(openLayers("content/albums"));
@@ -1334,13 +1334,13 @@ try {
       await run(closeLayers);
       await run(`${gear}.click(); true`);
       await sleep(600);
-      await run(`[...document.querySelectorAll(".set-row")].find((r) => r.textContent.includes("Диск D")).querySelector(".text-btn").click(); true`);
+      await run(`atlas.modules().find((m) => m.id === "content/albums").forgetFolder("Диск D"); true`);
       for (let i = 0; i < 20 && (await run(`${as}.busy || ${as}.albums !== ${before}`)); i++) await sleep(500);
       await run(`${gear}.click(); true`);
       await sleep(600);
       await run(`${gear}.click(); true`);
       await sleep(600);
-      await run(`${setBtn("Убрать")}.click(); true`);
+      await run(`atlas.modules().find((m) => m.id === "content/albums").forgetFolder(atlasGalleryRoots()[0].name); true`);
       for (let i = 0; i < 20 && (await run(`${as}.groups`)); i++) await sleep(500);
       await run(`${gear}.click(); true`);
       await sleep(300);
@@ -1357,7 +1357,7 @@ try {
           return true; })()`);
         await run(`${gear}.click(); true`);
         await sleep(600);
-        await run(`${setBtn("+ Добавить папку…")}.click(); true`);
+        await run(`atlas.modules().find((m) => m.id === "content/albums").pickFolder(); true`);
         for (let i = 0; i < 30 && !(await run(`${as}.tracks === 2 && !${as}.busy`)); i++) await sleep(500);
         await run(`${gear}.click(); true`);
         const am = `atlas.modules().find((m) => m.id === "content/albums")`, ts = `atlas.modules().find((m) => m.id === "content/tracks")`;
@@ -1409,7 +1409,7 @@ try {
         await run(closeLayers);
         await run(`${gear}.click(); true`);
         await sleep(600);
-        await run(`${setBtn("Убрать")}.click(); true`);
+        await run(`atlas.modules().find((m) => m.id === "content/albums").forgetFolder(atlasGalleryRoots()[0].name); true`);
         for (let i = 0; i < 20 && (await run(`${as}.tracks`)); i++) await sleep(500);
         await run(`${gear}.click(); true`);
         await sleep(300);
@@ -1464,7 +1464,7 @@ try {
     }
     const items = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((b) => b.firstChild.textContent)`);
     const tkHome = await run(`({ panel: !document.querySelector('[data-panel="tracks"]').hidden, open: document.querySelector('[data-panel="tracks"] .home-row')?.textContent })`);
-    check("треки: кнопка раздела — сразу панель со списком, первой строкой «+ Открыть трек…»", tkHome.panel && tkHome.open === "Открыть трек…", JSON.stringify({ items, tkHome }));
+    check("треки: кнопка раздела — сразу панель со списком, строки «Открыть трек…» нет", tkHome.panel && !tkHome.open && !items.includes("Открыть трек…"), JSON.stringify({ items, tkHome }));
     await run(`${itemFor("Все треки (0)")}?.click(); true`);
     await sleep(500);
     await run(`${ts}.addText("test.gpx", ${JSON.stringify(gpx)}).then(() => true)`);
@@ -1841,11 +1841,11 @@ try {
     b?.click(); for (let i = 0; i < 20 && await st.cacheGet("commons/zz-test"); i++) await new Promise((r) => setTimeout(r, 200));
     const r = { btn: !!b, before: before.n, after: (await st.viewCache()).n, track: !!(await st.cacheGet("tracks/zz-test")) }; await st.cacheDelete("tracks/zz-test"); return r; })()`);
   check("настройки: «Очистить историю просмотра» — запомненное ушло, треки остались", vc.btn && vc.before > 0 && vc.after === 0 && vc.track, JSON.stringify(vc));
-  // своя папка «Моих альбомов» — только на компьютере
+  // раздела своих папок «Моих альбомов» в настройках нет (Грегори 2026-11-09: «убираем из настроек»)
   // (эмуляция телефона здесь меняет только размер экрана — телефон узнаётся так же, как в программе)
   const albumsSet = await run(`(async () => { const m = await import("./core/modules.js");
     return { shown: [...document.querySelectorAll(".panel:not([hidden]) .set-title")].some((t) => t.textContent === "Мои альбомы"), phone: m.isMobile() }; })()`);
-  check("настройки: раздел «Мои альбомы» (папка) — только на компьютере", albumsSet.shown === !albumsSet.phone, JSON.stringify(albumsSet));
+  check("настройки: раздела «Мои альбомы» (папки) нет", !albumsSet.shown, JSON.stringify(albumsSet));
   // раскладка: ⓘ и шкала — в линию с шестерёнкой, треугольник — в правом нижнем углу, логотип в поиске,
   // верх колеса — под лупой справа вверху (на компьютере)
   await run(openSearch);

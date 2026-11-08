@@ -1344,9 +1344,13 @@ register({
     isOpen: () => isOpen("albums"),
     close: () => panel.close(),
   },
-  settings: settingsSection,
+  // раздел папок в настройках убран (Грегори 2026-11-09: «убираем из настроек… указания на папку»,
+  // «закомментируй»): папка добавляется первой строкой списка альбомов
+  // settings: settingsSection,
   // для проверки
   stats: () => ({ albums: albums.size, tracks: [...albums.values()].reduce((n, a) => n + a.tracks.length, 0), groups: groups.size, photos: photos.size, located: located().length, thumbs: [...photos.values()].filter((p) => p.thumb).length,
     countries: countries().map(([n, k]) => `${n}:${k}`), busy, shown, dups: dups && { busy: dups.busy, same: dups.same.length, like: dups.like.length, view: dupView }, open: openAlbum?.title || openGroup?.title || null, country: currentCountry }),
+  pickFolder: () => pickFolder(),
+  forgetFolder: (name) => forgetFolder(dirs.find((d) => d.name === name)),
   openFirst: (title) => { const a = [...albums.values()].find((x) => !title || x.title === title); if (!a) return false; openCountry(countryOf(a)); openAlbumById(a.id); return true; },
 });

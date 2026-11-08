@@ -422,10 +422,12 @@ function renderList(query = searchText) {
   const list = index.filter((x) => !q || [x.name, day(x.date), x.note].join(" ").toLowerCase().includes(q)).sort((a, b) => (b.date || 0) - (a.date || 0));
   panel.setTitle(q ? "Найденные треки" : "Мои треки");
   cameFrom = null;
-  const nodes = [openButton()];
+  // «Открыть трек…» убрана (Грегори 2026-11-09: «убираем… с меню треков указания на папку», «закомментируй»):
+  // треки — из папок со снимками; файл можно и перетащить на карту
+  const nodes = [/* openButton() */];
   const inAlbums = albumIndex.filter((e) => !q || [e.name, e.albumTitle, tracks.get(e.key)?.note].join(" ").toLowerCase().includes(q))
     .sort((a, b) => (tracks.get(b.key)?.date || 0) - (tracks.get(a.key)?.date || 0));
-  if (!index.length && !albumIndex.length) nodes.push(h("p", "pb-hint", "Треков пока нет. Выгрузите трек из программы на телефоне (Sports Tracker: тренировка → ⋯ → «Экспорт GPX») и откройте здесь или перетащите файл на карту. Треки хранятся только на этом устройстве."));
+  if (!index.length && !albumIndex.length) nodes.push(h("p", "pb-hint", "Треков пока нет. Выгрузите трек из программы на телефоне (Sports Tracker: тренировка → ⋯ → «Экспорт GPX») и перетащите файл на карту или положите его в папку со снимками. Треки хранятся только на этом устройстве."));
   else if (q && !list.length && !inAlbums.length) nodes.push(h("p", "pb-hint", "Ничего не нашлось"));
   for (const x of list) {
     const r = h("button", "tr-row");
@@ -1194,7 +1196,7 @@ register({
     home: (c) => { ctx = c; wire(); return load().then(openPanel); },
     load: (c) => { ctx = c; wire(); return load(); },
     // первой строкой — «Открыть файл…», потом треки, новые сверху
-    items: () => [{ id: "", title: "Открыть трек…", icon: OPEN_ICON, hint: "GPX или KML" },
+    items: () => [/* { id: "", title: "Открыть трек…", icon: OPEN_ICON, hint: "GPX или KML" }, */
       { id: "*", title: `Все треки (${index.length + albumIndex.length})`, icon: ICON, selected: isOpen("tracks") }],
     choose: (id, c) => {
       ctx = c;
