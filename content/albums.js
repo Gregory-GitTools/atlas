@@ -11,7 +11,7 @@
 // случайный снимок из него. Страна — по границам стран без сети (country-borders.json travel-earth).
 // Видео и живые фото (как в travel-earth, Грегори 2026-11-02): ролик (.mov/.mp4) — своей клеткой со
 // значком ▶; живое фото iPhone — снимок и ролик с одним именем (IMG_1234.JPG + IMG_1234.MOV) — одна
-// клетка со значком LIVE, ролик оживает в галерее. Повторы (2026-11-08) — одинаковые и похожие снимки в
+// клетка со значком LIVE, ролик оживает в галерее. Дубликаты (2026-11-08) — одинаковые и похожие снимки в
 // своих папках, лишние копии — в папку «[Повторы]»
 import { register, isMobile } from "../core/modules.js";
 import { createPanel, isOpen, homeList } from "../core/panel.js";
@@ -661,6 +661,7 @@ const foldBtn = panel.addButton(UNFOLD, "Раскрыть все папки", ()
 function setFold(items) {
   foldItems = items;
   dupBtn.hidden = dupView || ![...photos.values()].some((p) => p.handle);
+  panel.setIcon(dupView ? FIND_DUPS : undefined);
   const all = allFolders(items), open = all.length > 0 && all.every((g) => expanded.has(g.id));
   foldBtn.hidden = !all.length;
   foldBtn.innerHTML = open ? FOLD : UNFOLD;
@@ -844,7 +845,7 @@ const STASH = "[Повторы]";
 const FIND_DUPS = svg("M18 13v7H4V6h5.02c.05-.71.22-1.38.48-2H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-5l-2-2zm-1.5 5h-11l2.75-3.53 1.96 2.36 2.75-3.54zm2.8-9.11c.44-.7.7-1.51.7-2.39C20 4.01 17.99 2 15.5 2S11 4.01 11 6.5s2.01 4.5 4.49 4.5c.88 0 1.7-.26 2.39-.7L21 13.42 22.42 12 19.3 8.89zM15.5 9C14.12 9 13 7.88 13 6.5S14.12 4 15.5 4 18 5.12 18 6.5 16.88 9 15.5 9z", 18);
 const COPY = svg("M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z", 18);
 let dupView = false, dups = null, dupRun = 0;
-const dupBtn = panel.addButton(FIND_DUPS, "Найти повторы снимков", () => openDups());
+const dupBtn = panel.addButton(FIND_DUPS, "Найти дубликаты снимков", () => openDups());
 dupBtn.hidden = true;
 const mb = (n) => (n < 1048576 ? `${Math.max(1, Math.round(n / 1024))} КБ`
   : n < 1073741824 ? `${(n / 1048576).toLocaleString("ru", { maximumFractionDigits: n < 10485760 ? 1 : 0 })} МБ` : `${(n / 1073741824).toLocaleString("ru", { maximumFractionDigits: 1 })} ГБ`);
@@ -943,7 +944,7 @@ function openDups() {
 
 function renderDups() {
   if (!dupView || !dups) return;
-  panel.setTitle("Повторы");
+  panel.setTitle("Дубликаты");
   setFold([]);
   const bar = h("div", "pb-bar");
   bar.append(btn(BACK, "К альбомам", () => { renderList(currentCountry); panel.body.scrollTop = 0; }));

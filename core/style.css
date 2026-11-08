@@ -193,9 +193,18 @@ html, body {
   text-overflow: ellipsis;
 }
 
+/* значок окна — как значки в строках списка («Без страны») */
+.panel-title > svg {
+  flex: none;
+  width: 24px;
+  height: 24px;
+}
+
 .panel-btn {
   width: 32px;
   height: 32px;
+  /* без своего отступа кнопки, иначе значок «во всю кнопку» выходит 16 px (Грегори 2026-11-08: «в шапке значки мелкие») */
+  padding: 0;
   border: none;
   border-radius: 50%;
   background: transparent;

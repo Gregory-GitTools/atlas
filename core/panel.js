@@ -10,7 +10,7 @@ import { emit, on } from "./events.js";
 import * as settings from "./settings.js";
 import { backable } from "./back.js";
 
-const CLOSE_ICON = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>`;
+const CLOSE_ICON = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 5l14 14M19 5L5 19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>`;
 
 const panels = new Map();
 let openId = null;
@@ -19,6 +19,7 @@ const iconButton = (icon, title) =>
   Object.assign(document.createElement("button"), { className: "panel-btn", innerHTML: icon, title });
 
 export function createPanel({ id, title, icon = "", side = "right" }) {
+  const ownIcon = icon;
   const el = Object.assign(document.createElement("section"), { className: `panel panel-${side}`, hidden: true });
   el.dataset.panel = id;
   const head = Object.assign(document.createElement("header"), { className: "panel-head" });
@@ -69,6 +70,8 @@ export function createPanel({ id, title, icon = "", side = "right" }) {
 
   const panel = { id, side, el, body, setMin, closers, open: () => open(id), close: () => close(id), toggle: () => (openId === id ? close(id) : open(id)),
     setTitle: (text) => { name.querySelector("span").textContent = text; },
+    // свой значок для части окна (Дубликаты в «Моих альбомах»); без аргумента — снова значок окна
+    setIcon: (svg = ownIcon) => { if (svg === icon) return; icon = svg; name.querySelector("svg")?.remove(); name.insertAdjacentHTML("afterbegin", svg); },
     addButton: (icon, title, fn) => { const b = iconButton(icon, title); b.addEventListener("click", fn); head.insertBefore(b, closeBtn); return b; },
     onClose: (fn) => closers.push(fn) };
   panels.set(id, panel);
