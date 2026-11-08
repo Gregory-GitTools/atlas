@@ -963,7 +963,7 @@ try {
           const e0 = await srun(`({ enabled: !document.querySelector(".edit-btn").disabled, meta: document.querySelector(".meta").textContent })`);
           await srun(`document.querySelector(".edit-btn").click(); true`);
           for (let i = 0; i < 20 && !(await srun(`window.galleryEditor?.state().open`)); i++) await sleep(300);
-          const e1 = await srun(`({ ...galleryEditor.state(), bar: !document.querySelector(".edit-bar").hidden, tools: document.querySelectorAll(".edit-tool").length,
+          const e1 = await srun(`({ ...galleryEditor.state(), bar: !document.querySelector(".edit-bar").hidden, tools: [...document.querySelectorAll(".edit-tool")].filter((b) => !b.closest(".edit-info")).length,
             save: document.querySelector(".edit-save").disabled, nav: getComputedStyle(document.querySelector(".nav")).pointerEvents })`);
           // «Горизонт» (OpenCV, грузится по нажатию): линия на выдуманном снимке завалена на 2° — угол −2°
           await srun(`[...document.querySelectorAll(".edit-tool")].find((b) => b.title === "Выровнять по горизонту").click(); true`);
@@ -982,7 +982,7 @@ try {
               fav: riga.items.find((i) => /-Albom$/.test(i.name))?.items.map((i) => i.name) || null }; })()`;
           const saved = await run(fsState);
           check("правка: карандаш у своего снимка, поворот на 3° — сохранено: исходник в «[Originals]», снимок обрезан по рамке, копия в «…-Albom»",
-            e0.enabled && e1.open && e1.bar && e1.tools === 13 && e1.save && e1.nav === "none" && e2.dirty && !e2.save && e2.label === "3,0°"
+            e0.enabled && e1.open && e1.bar && e1.tools === 15 && e1.save && e1.nav === "none" && e2.dirty && !e2.save && e2.label === "3,0°"
             && saved.orig && saved.size[0] < 400 && saved.size[0] > 340 && JSON.stringify(saved.fav) === '["r.jpg"]', JSON.stringify({ e0, e1, e2, saved }));
           await srun(`document.querySelector(".edit-btn").click(); true`);
           for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
@@ -1073,8 +1073,77 @@ try {
           await srun(`document.querySelectorAll(".thumb")[1].click(); true`);
           await sleep(500);
           check("правка: у ролика карандаш неактивен", await srun(`document.querySelector(".edit-btn").disabled && document.querySelector(".edit-btn").title === "Ролики не правятся"`));
+          // сведения о снимке (tools/info.js): дата, камера, место правятся — «Сохранить» пишет только EXIF,
+          // сжатые точки те же; поля после этого показывают записанное; «Место» не разобрать — красная рамка
+          await srun(`document.querySelectorAll(".thumb")[0].click(); true`);
+          await sleep(500);
+          const rigaFile = `atlasGalleryRoots()[0].items.find((i) => i.name === "20240101 Рига").items.find((i) => i.name === "r.jpg").data`;
+          const scan = (b) => `(async () => { const u = [...new Uint8Array(await ${b}.arrayBuffer())]; return u.slice(u.findIndex((x, i) => x === 0xff && u[i + 1] === 0xda)).join(); })()`;
+          const tail0 = await run(scan(rigaFile));
+          await srun(`document.querySelector(".edit-btn").click(); true`);
+          for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          await tool("Сведения о снимке — дата, камера, место; в Избранное, удалить");
+          for (let i = 0; i < 20 && !(await srun(`/r\\.jpg · .* · \\d+ × \\d+/.test(document.querySelector(".edit-info-file").textContent)`)); i++) await sleep(300);
+          const typeIn = (n, v) => srun(`(() => { const i = document.querySelectorAll(".edit-info input")[${n}]; i.value = ${JSON.stringify(v)}; i.dispatchEvent(new Event("input")); return true; })()`);
+          await typeIn(2, "где-то");
+          const bad = await srun(`document.querySelectorAll(".edit-info input")[2].classList.contains("bad")`);
+          await typeIn(0, "2022-03-04T05:06:07");
+          await typeIn(1, "Тест Камера");
+          await typeIn(2, "59,437 24,7536");
+          const mi = await srun(`({ ...galleryEditor.state(), row: !document.querySelector(".edit-info").hidden, head: document.querySelector(".edit-info-file").textContent,
+            bad: document.querySelectorAll(".edit-info input")[2].classList.contains("bad"), save: document.querySelector(".edit-save").disabled })`);
+          await gsend("Page.captureScreenshot", { format: "png" }).then((res) => fs.writeFileSync(path.join(OUT, "00-info.png"), Buffer.from(res.data, "base64")));
+          await srun(`document.querySelector(".edit-save").click(); true`);
+          for (let i = 0; i < 30 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          const ms = await run(`(async () => { const { readMeta } = await import("./tools/jpeg.js"); const b = ${rigaFile};
+            return { meta: await readMeta(b), size: b.size }; })()`);
+          ms.tail = (await run(scan(rigaFile))) === tail0;
+          await srun(`document.querySelector(".edit-btn").click(); true`);
+          for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          for (let i = 0; i < 20 && !(await srun(`document.querySelectorAll(".edit-info input")[1].value`)); i++) await sleep(300);
+          const mf = await srun(`[...document.querySelectorAll(".edit-info input")].map((i) => i.value)`);
+          check("сведения: дата, камера, место правятся — записан только EXIF (сжатые точки те же), поля показывают записанное, неразборчивое место — красным",
+            bad && !mi.bad && mi.row && /^r\.jpg · /.test(mi.head) && mi.dirty && !mi.save && mi.meta.date === "2022:03:04 05:06:07" && mi.meta.camera === "Тест Камера"
+            && ms.tail && ms.meta.date === "2022:03:04 05:06:07" && ms.meta.camera === "Тест Камера" && Math.abs(ms.meta.gps?.[0] - 59.437) < 1e-5 && Math.abs(ms.meta.gps?.[1] - 24.7536) < 1e-5
+            && mf[0] === "2022-03-04T05:06:07" && mf[1] === "Тест Камера" && mf[2] === "59.437000, 24.753600", JSON.stringify({ bad, mi, ms, mf }));
+          // «В Избранное»: снимок там (копия от правки) — звезда жёлтая; щелчок убирает, ещё щелчок — снова там
+          const favs = `(atlasGalleryRoots()[0].items.find((i) => i.name === "20240101 Рига").items.find((i) => /-Albom$/.test(i.name))?.items.map((i) => i.name) || [])`;
+          const starOn = `document.querySelector(".edit-info-acts .edit-tool").classList.contains("on")`;
+          const f0 = { on: await srun(starOn), fav: await run(favs) };
+          await srun(`document.querySelector(".edit-info-acts .edit-tool").click(); true`);
+          for (let i = 0; i < 20 && (await srun(starOn)); i++) await sleep(300);
+          const f1 = { on: await srun(starOn), fav: await run(favs) };
+          await srun(`document.querySelector(".edit-info-acts .edit-tool").click(); true`);
+          for (let i = 0; i < 20 && !(await srun(starOn)); i++) await sleep(300);
+          const f2 = { on: await srun(starOn), fav: await run(favs) };
+          check("сведения: звезда — в Избранное и обратно", f0.on && f0.fav.includes("r.jpg") && !f1.on && !f1.fav.includes("r.jpg") && f2.on && f2.fav.includes("r.jpg"), JSON.stringify({ f0, f1, f2 }));
+          // «Удалить»: живое фото (снимок и ролик) — в «[Удалённые]» тем же путём, из ленты галереи и из альбома
+          const n0 = { thumbs: await srun(`document.querySelectorAll(".thumb").length`), photos: (await run(as)).photos };
+          await srun(`document.querySelectorAll(".edit-info-acts .edit-tool")[1].click(); true`);
+          for (let i = 0; i < 20 && (await srun(`document.querySelectorAll(".thumb").length`)) === n0.thumbs; i++) await sleep(300);
+          const del = await run(`(() => { const root = atlasGalleryRoots()[0], names = (d) => d?.items.map((i) => i.name) || null;
+            const bin = root.items.find((i) => i.name === "[Удалённые]");
+            return { riga: names(root.items.find((i) => i.name === "20240101 Рига")).filter((n) => !n.startsWith("[") && !/-Albom$/.test(n)), bin: names(bin?.items.find((i) => i.name === "20240101 Рига")),
+              photos: ${as}.photos }; })()`);
+          const g = await srun(`({ thumbs: document.querySelectorAll(".thumb").length, open: galleryEditor.state().open })`);
+          check("сведения: «Удалить» — снимок и ролик живого фото в «[Удалённые]», из галереи и альбома убран",
+            JSON.stringify(del.riga) === '["v.mp4"]' && JSON.stringify(del.bin?.slice().sort()) === '["r.jpg","r.mov"]' && del.photos === n0.photos - 1 && g.thumbs === n0.thumbs - 1 && !g.open, JSON.stringify({ n0, del, g }));
+          // вернуть как было — для проверок дальше (папки обойдутся заново, когда галерею закроют)
+          await run(`(() => { const root = atlasGalleryRoots()[0], riga = root.items.find((i) => i.name === "20240101 Рига"), bin = root.items.findIndex((i) => i.name === "[Удалённые]");
+            riga.items.unshift(...root.items[bin].items[0].items); root.items.splice(bin, 1); atlasGalleryRescan(); return true; })()`);
+          // ×2 (tools/upscale.js, нейросеть с CDN): полоса 300×30 — два куска по ширине → 600×60, цвет тот же
+          const up = await srun(`(async () => { try { const { upscale } = await import("./tools/upscale.js");
+            const c = Object.assign(document.createElement("canvas"), { width: 300, height: 30 }), x = c.getContext("2d"); x.fillStyle = "#c63"; x.fillRect(0, 0, 300, 30);
+            const o = await upscale(c), px = [...o.getContext("2d").getImageData(400, 30, 1, 1).data];
+            return { size: [o.width, o.height], px }; } catch (e) { return { err: e.message }; } })()`);
+          if (up.err && /интернет/.test(up.err)) console.log("  ! ×2: нейросеть не загрузилась (нет сети) — не проверено");
+          else check("×2: нейросеть увеличивает снимок вдвое кусками (300×30 → 600×60, цвет тот же)",
+            up.size?.[0] === 600 && up.size[1] === 60 && Math.abs(up.px[0] - 0xcc) < 30 && Math.abs(up.px[1] - 0x66) < 30 && Math.abs(up.px[2] - 0x33) < 30, JSON.stringify(up));
           await srun(`window.close(); true`);
           sws.close();
+          // галерея закрыта — папки обходятся заново (вернули r.jpg и r.mov)
+          await sleep(1000);
+          for (let i = 0; i < 40 && ((await run(`${as}.busy`)) || (await run(`${as}.photos`)) < n0.photos); i++) await sleep(500);
         }
       }
       await run(exitMode);

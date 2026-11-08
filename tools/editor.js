@@ -23,9 +23,9 @@
 // нажатию «Сохранить» (браузер спрашивает один раз за сеанс)
 import { cacheGet } from "../core/storage.js";
 import * as settings from "../core/settings.js";
-import { keepExif } from "./jpeg.js";
+import { keepExif, setMeta } from "./jpeg.js";
 
-const TOOLS = ["./rotate.js", "./perspective.js", "./crop.js", "./noise.js", "./color.js"]; // новый инструмент — файл в tools/ и строка здесь
+const TOOLS = ["./rotate.js", "./perspective.js", "./crop.js", "./noise.js", "./color.js", "./upscale.js", "./info.js"]; // новый инструмент — файл в tools/ и строка здесь
 const PREVIEW_MAX = 2400; // как в photo-editor (было 1000 — при увеличении снимок размывался)
 const ORIGINALS = "[Originals]";
 const QUALITY = 0.92;
@@ -202,11 +202,15 @@ const kept = () => (ed.cropOn ? ed.crop : biggest(ed.pv.width / ed.pv.height));
 // cropOn — рамка открыта, crop — рамка, aspect — пропорции (помнятся), touched — рамку двигали рукой
 const ed = { p: null, file: null, src: null, pv: null, q: 0, flip: false, angle: 0, grid: false, dragging: false, hasOriginal: false,
   cropOn: false, crop: null, aspect: settings.get("edit.aspect", "photo"), touched: false, quad: null, persp: false,
-  panel: null, shown: null, values: {} };
+  panel: null, shown: null, values: {}, meta: {}, size: null };
 // обработка пикселей от инструментов: { key, order, off, apply(canvas, value) } — по порядку order
 const filters = [];
 const active = (v = ed.values) => filters.filter((f) => v[f.key] !== undefined && v[f.key] !== f.off);
-const dirty = () => !!ed.p && (ed.angle !== 0 || ed.q % 4 !== 0 || ed.flip || warped() || active().length > 0 || (ed.cropOn && !same(ed.crop, biggest(ed.pv.width / ed.pv.height))));
+// meta — поправленные сведения (tools/info.js): только они — снимок не пересчитывается
+const dirty = () => edited() || (!!ed.p && Object.keys(ed.meta).length > 0);
+// finishers — что делают с готовым кадром при сохранении (увеличение ×2); edited — есть ли им работа
+const finishers = [];
+const edited = () => !!ed.p && (finishers.some((f) => f.on()) || ed.angle !== 0 || ed.q % 4 !== 0 || ed.flip || warped() || active().length > 0 || (ed.cropOn && !same(ed.crop, biggest(ed.pv.width / ed.pv.height))));
 const say = (text) => { note.textContent = text || ""; note.classList.toggle("show", !!text); };
 
 // доступ к своей папке: из IndexedDB этого окна (так браузер даёт просить запись из него),
@@ -436,6 +440,13 @@ const api = {
   },
   // копия превью без поворота — для поиска горизонта
   preview: () => ed.pv,
+  // сведения о снимке: поправки к EXIF ({ date, camera, gps }; ключа нет — не трогали)
+  setMeta(m) { ed.meta = m; sync(); },
+  // обработка готового кадра при сохранении: { on() — включена, run(canvas) → canvas }
+  finish(f) { finishers.push(f); },
+  // своя папка снимка, «Избранное» поездки, запись файла, выйти из правки — для «Сведений»
+  locate: (p, w) => locate(p, w), curated: (trip, create) => curated(trip, create), write: (fh, data) => write(fh, data),
+  close: (force) => close(force), done: (p, blob, text) => done(p, blob, text),
 };
 const refit = () => { ed.touched = false; ed.crop = biggest(); };
 // k — во сколько раз холст меньше превью (у плиток): шумодаву — меньше окрестность
@@ -497,9 +508,10 @@ async function open(p) {
     const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
     const k = Math.min(1, PREVIEW_MAX / Math.max(bmp.width, bmp.height));
     const src = k < 1 ? downsample(bmp, Math.round(bmp.width * k), Math.round(bmp.height * k)) : turned(bmp, 0, false);
+    const size = [bmp.width, bmp.height];
     bmp.close?.();
     if (g.current() !== p) return;
-    Object.assign(ed, { p, file, src, pv: src, shown: null, q: 0, flip: false, angle: 0, cropOn: false, persp: false, panel: null, hasOriginal: !!(await originalOf(where)) });
+    Object.assign(ed, { p, file, src, pv: src, shown: null, q: 0, flip: false, angle: 0, cropOn: false, persp: false, panel: null, meta: {}, size, hasOriginal: !!(await originalOf(where)) });
     for (const f of filters) ed.values[f.key] = f.off; // как в photo-editor: «Оригинал», шум выключен
     ed.quad = rectQuad();
     refit();
@@ -518,13 +530,14 @@ async function open(p) {
 function close(force = false) {
   if (!ed.p) return true;
   if (!force && dirty() && !confirm("Выйти без сохранения? Правка пропадёт.")) return false;
-  Object.assign(ed, { p: null, file: null, src: null, pv: null, angle: 0, q: 0, flip: false, dragging: false, cropOn: false, crop: null, quad: null, persp: false, shown: null, panel: null });
+  Object.assign(ed, { p: null, file: null, src: null, pv: null, angle: 0, q: 0, flip: false, dragging: false, cropOn: false, crop: null, quad: null, persp: false, shown: null, panel: null, meta: {} });
   drag = null;
   document.body.classList.remove("editing");
   canvas.hidden = bar.hidden = sub.hidden = true;
   editBtn.classList.remove("on");
   editBtn.title = "Править снимок";
   say("");
+  for (const f of syncers) f(ed); // инструменты узнают, что правка закрыта
   return true;
 }
 g.onShow?.(() => close(true));
@@ -557,35 +570,9 @@ async function save() {
   say("Сохраняю…");
   try {
     const where = await locate(p, true);
-    // полный размер: исходник → повороты на 90° и зеркало → точный угол и рамка
-    const bmp = await createImageBitmap(ed.file, { imageOrientation: "from-image" });
-    let base = ed.q || ed.flip ? turned(bmp, ed.q, ed.flip) : bmp;
-    // шум и цвет — по всему кадру в полный размер, до поворота и рамки
-    if (active().length) {
-      say("Сохраняю: шум и цвет…");
-      if (!(base instanceof HTMLCanvasElement)) base = turned(base, 0, false);
-      await new Promise((res) => setTimeout(res, 30));
-      await runFilters(base, ed.values, base.width / ed.pv.width);
-    }
-    // рамка — в точках превью: в полный размер — во столько раз, во сколько снимок больше превью
-    const W = base.width, H = base.height, f = W / ed.pv.width, r = kept();
-    let out;
-    if (warped()) {
-      say("Сохраняю: выправляю перспективу…");
-      await new Promise((res) => setTimeout(res, 30)); // надпись успевает показаться
-      out = warpOut(base, r, f);
-    } else {
-      out = Object.assign(document.createElement("canvas"), { width: Math.max(1, Math.round(r.w * f)), height: Math.max(1, Math.round(r.h * f)) });
-      const x = out.getContext("2d");
-      x.imageSmoothingQuality = "high";
-      x.translate(-r.x * f, -r.y * f);
-      x.rotate((ed.angle * Math.PI) / 180);
-      x.drawImage(base, -W / 2, -H / 2);
-    }
-    bmp.close?.();
-    const type = /\.png$/i.test(where.name) ? "image/png" : /\.webp$/i.test(where.name) ? "image/webp" : "image/jpeg";
-    let blob = await new Promise((r) => out.toBlob(r, type, QUALITY));
-    if (type === "image/jpeg") blob = await keepExif(blob, ed.file, out.width, out.height);
+    const jpeg = !/\.(png|webp)$/i.test(where.name), meta = jpeg && Object.keys(ed.meta).length ? ed.meta : null;
+    // поправили только сведения — тот же снимок с новым EXIF, без пересжатия
+    const blob = edited() ? await render(where, meta) : await setMeta(ed.file, meta || {});
     // исходник — в «[Originals]», только при первой правке (дальше там уже настоящий оригинал)
     if (!(await originalOf(where))) {
       const backup = await (await where.dir.getDirectoryHandle(ORIGINALS, { create: true })).getFileHandle(where.name, { create: true });
@@ -604,6 +591,41 @@ async function save() {
     busy = false;
     document.body.classList.remove("busy");
   }
+}
+
+// снимок в полный размер со всей правкой
+async function render(where, meta) {
+  // полный размер: исходник → повороты на 90° и зеркало → точный угол и рамка
+  const bmp = await createImageBitmap(ed.file, { imageOrientation: "from-image" });
+  let base = ed.q || ed.flip ? turned(bmp, ed.q, ed.flip) : bmp;
+  // шум и цвет — по всему кадру в полный размер, до поворота и рамки
+  if (active().length) {
+    say("Сохраняю: шум и цвет…");
+    if (!(base instanceof HTMLCanvasElement)) base = turned(base, 0, false);
+    await new Promise((res) => setTimeout(res, 30));
+    await runFilters(base, ed.values, base.width / ed.pv.width);
+  }
+  // рамка — в точках превью: в полный размер — во столько раз, во сколько снимок больше превью
+  const W = base.width, H = base.height, f = W / ed.pv.width, r = kept();
+  let out;
+  if (warped()) {
+    say("Сохраняю: выправляю перспективу…");
+    await new Promise((res) => setTimeout(res, 30)); // надпись успевает показаться
+    out = warpOut(base, r, f);
+  } else {
+    out = Object.assign(document.createElement("canvas"), { width: Math.max(1, Math.round(r.w * f)), height: Math.max(1, Math.round(r.h * f)) });
+    const x = out.getContext("2d");
+    x.imageSmoothingQuality = "high";
+    x.translate(-r.x * f, -r.y * f);
+    x.rotate((ed.angle * Math.PI) / 180);
+    x.drawImage(base, -W / 2, -H / 2);
+  }
+  bmp.close?.();
+  for (const fin of finishers) if (fin.on()) out = await fin.run(out);
+  const type = /\.png$/i.test(where.name) ? "image/png" : /\.webp$/i.test(where.name) ? "image/webp" : "image/jpeg";
+  const blob = await new Promise((r) => out.toBlob(r, type, QUALITY));
+  if (!blob) throw new Error("снимок слишком большой для браузера");
+  return type === "image/jpeg" ? keepExif(blob, ed.file, out.width, out.height, meta) : blob;
 }
 
 async function restore() {
@@ -651,7 +673,7 @@ addEventListener("beforeunload", (e) => { if (dirty()) e.preventDefault(); });
 // для проверки
 window.galleryEditor = { state: () => ({ open: !!ed.p, angle: ed.angle, q: ed.q, flip: ed.flip, dirty: dirty(), hasOriginal: ed.hasOriginal, pv: ed.pv && [ed.pv.width, ed.pv.height], note: note.textContent,
   cropOn: ed.cropOn, aspect: ed.aspect, crop: ed.crop && Object.fromEntries(Object.entries(ed.crop).map(([k, v]) => [k, Math.round(v * 10) / 10])), fits: !!ed.crop && fits(ed.crop),
-  persp: ed.persp, warped: !!ed.quad && warped(), panel: ed.panel, values: { ...ed.values }, shown: !!ed.shown, quad: ed.quad && ed.quad.map((c) => c.map((v) => Math.round(v))) }),
+  persp: ed.persp, warped: !!ed.quad && warped(), panel: ed.panel, values: { ...ed.values }, shown: !!ed.shown, meta: { ...ed.meta }, size: ed.size, quad: ed.quad && ed.quad.map((c) => c.map((v) => Math.round(v))) }),
   // угол снимка (с перспективой и поворотом) → точка экрана
   cornerOnScreen: (i) => { const [x, y] = outline()[i], b = canvas.getBoundingClientRect(); return [b.left + (view.cx + x * view.s) / view.dpr, b.top + (view.cy + y * view.s) / view.dpr]; },
   // точка рамки (в точках превью от середины снимка) → точка экрана — проверка тянет за уголки

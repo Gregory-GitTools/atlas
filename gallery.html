@@ -262,6 +262,20 @@
   }
   .edit-chip:hover { background: rgba(232, 232, 236, 0.12); }
   .edit-chip.on { background: rgba(77, 163, 255, 0.25); color: #4da3ff; }
+  /* сведения о снимке: файл, дата, камера, место, «В Избранное», «Удалить» */
+  .edit-info { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 14px; max-width: 100%; padding: 6px 10px; border-radius: 16px; background: rgba(38, 38, 44, 0.85); color: #e8e8ec; font-size: 0.82rem; }
+  .edit-info[hidden] { display: none; }
+  .edit-info-file { flex-basis: 100%; text-align: center; color: #a0a0a8; overflow-wrap: anywhere; }
+  .edit-info-field { display: flex; align-items: center; gap: 4px; }
+  .edit-info-label { color: #a0a0a8; }
+  .edit-info input { padding: 4px 8px; border: 1px solid transparent; border-radius: 8px; background: rgba(232, 232, 236, 0.1); color: inherit; font: inherit; color-scheme: dark; }
+  .edit-info input[type="text"] { width: 11em; }
+  .edit-info input.bad { border-color: #ff6b6b; }
+  .edit-info input:disabled { opacity: 0.55; }
+  .edit-info .edit-tool { width: 34px; height: 34px; }
+  .edit-info-copy.done { color: #4da3ff; }
+  .edit-info-acts { display: flex; gap: 4px; }
+  .edit-info-acts .on { background: none; color: #ffc107; }
   /* плитки вариантов (шум, цвет): маленький снимок и подпись */
   .edit-tiles { display: flex; gap: 6px; padding: 6px; border-radius: 14px; background: rgba(38, 38, 44, 0.85); overflow-x: auto; max-width: 100%; }
   .edit-tiles[hidden] { display: none; }
@@ -434,7 +448,18 @@ function show(i) {
 const onShow = new Set();
 // для правки (tools/editor.js)
 window.gallery = { current: () => photos[index], stop: () => playing && stop(), onShow: (f) => onShow.add(f),
-  refresh: (p) => { const i = photos.indexOf(p); if (i < 0) return; const img = thumbs[i].querySelector("img"); if (p.thumb) img.src = p.thumb; if (i === index) show(i); } };
+  refresh: (p) => { const i = photos.indexOf(p); if (i < 0) return; const img = thumbs[i].querySelector("img"); if (p.thumb) img.src = p.thumb; if (i === index) show(i); },
+  // снимок убран («Удалить» в сведениях) — из ленты; последний — окно закрывается
+  remove: (p) => {
+    const i = photos.indexOf(p);
+    if (i < 0) return;
+    photos.splice(i, 1);
+    thumbs.splice(i, 1)[0].remove();
+    thumbs.forEach((b, k) => { b.dataset.i = k; });
+    if (!photos.length) { window.close(); return; }
+    index = -1;
+    show(Math.min(i, photos.length - 1));
+  } };
 
 // ---------- ролики и живые фото ----------
 function stopClip() {

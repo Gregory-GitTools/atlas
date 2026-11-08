@@ -62,8 +62,10 @@ const photoDate = (p) => (p.rec?.date ? new Date(p.rec.date).toLocaleDateString(
 // ---------- данные ----------
 const albums = new Map(); // путь папки → { id, name, title, local, parent, photos, point, country, cover, from, to, done }
 const groups = new Map(); // путь папки-поездки → { id, name, title, local, parent, group: true }
-const photos = new Map(); // "album/12" → { id, album, name, path, url | handle, key, rec, thumb, img, video, live: файл ролика }
-let seq = 0, scan = 0, ctx = null, loading = null;
+// номер снимка — по пути к файлу (своя папка — по её месту в списке): после нового обхода папок он тот
+// же, и открытая галерея не теряет свои снимки
+const photos = new Map(); // "album/0:Фото/Рига/r.jpg" → { id, album, name, path, url | handle, key, rec, thumb, img, video, live: файл ролика }
+let scan = 0, ctx = null, loading = null;
 // свои папки со снимками (Грегори 2026-11-03: «+ Добавить папку») — доступ к каждой в IndexedDB albums/dirs
 let dirs = [], needsAccess = false, busy = false, checked = 0;
 const canFolders = () => "showDirectoryPicker" in window && !isMobile();
@@ -76,7 +78,7 @@ function addAlbum(path, name, local, files) {
   const live = new Map(files.filter((f) => !VIDEO_RE.test(f.name) && clips.has(stem(f))).map((f) => [f, clips.get(stem(f))]));
   const paired = new Set(live.values());
   for (const f of files.filter((f) => !paired.has(f)).sort((x, y) => x.name.localeCompare(y.name, undefined, { numeric: true }))) {
-    const p = { id: `album/${++seq}`, album: a, rec: null, thumb: "", img: "", video: VIDEO_RE.test(f.name), live: live.get(f) || null, ...f };
+    const p = { id: `album/${f.root ? dirs.indexOf(f.root) : "r"}:${f.path}`, album: a, rec: null, thumb: "", img: "", video: VIDEO_RE.test(f.name), live: live.get(f) || null, ...f };
     photos.set(p.id, p);
     a.photos.push(p.id);
   }
@@ -545,8 +547,27 @@ window.atlasGallerySaved = (id) => {
   if (i >= 0) URL.revokeObjectURL(fulls.splice(i, 1)[0].url);
   if (p.thumb) URL.revokeObjectURL(p.thumb);
   p.thumb = ""; p.thumbing = null; p.noFrame = false;
-  thumbOf(p).then(() => { refresh(); if (openAlbum === p.album) renderAlbum(); });
+  // дату и место могли поправить (сведения о снимке) — EXIF заново
+  p.rec = null;
+  Promise.all([thumbOf(p), exifOf(p)]).then(() => { refresh(); if (openAlbum === p.album) renderAlbum(); });
 };
+// окно галереи убрало снимок в «[Удалённые]» — из альбома
+window.atlasGalleryRemoved = (id) => {
+  const p = photos.get(id);
+  if (!p) return;
+  forget(p);
+  refresh();
+  if (openAlbum === p.album) renderAlbum();
+};
+// в «Избранное» добавили или убрали снимок — папки заново, когда окно галереи закроют (обход большой
+// папки — не мгновение, а пока галерея открыта, её снимки лучше не трогать)
+let rescanLater = false;
+window.atlasGalleryRescan = () => { rescanLater = true; };
+addEventListener("message", (e) => {
+  if (e.origin !== location.origin || e.data?.gallery !== "closed" || !rescanLater) return;
+  rescanLater = false;
+  rescan().then(() => refresh()).catch(() => {});
+});
 // для проверки (снимки выдуманной папки в тесте не уходят в IndexedDB) — доступ к своим папкам
 window.atlasGalleryRoots = () => dirs;
 
@@ -1087,7 +1108,7 @@ function forget(p) {
   const a = p.album;
   a.photos = a.photos.filter((id) => id !== p.id);
   if (a.cover === p.id) a.cover = a.photos[0] || null;
-  for (const k of ["same", "like"]) dups[k] = dups[k].map((g) => {
+  if (dups) for (const k of ["same", "like"]) dups[k] = dups[k].map((g) => {
     const rest = g.filter((x) => x !== p), kept = dups.keep.get(g);
     if (kept && kept !== p) dups.keep.set(rest, kept);
     return rest;
