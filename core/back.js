@@ -3,19 +3,28 @@
 // backable(close) кладёт шаг в историю браузера; «Назад» снимает его и зовёт close. Закрыли рукой —
 // done() убирает свой шаг (history.back), чтобы следующее «Назад» не пропало впустую
 const stack = [];
-let skip = 0;
+let skip = 0, owed = 0;
 
+// закрытое окно сразу сменилось другим (одна панель уступила место другой) — его шаг истории занимает
+// новое окно (replaceState): history.back и тут же pushState сдвигали историю на шаг вниз при каждой
+// смене, и после нескольких «альбом → трек → альбом» закрытие уводило со страницы
 export function backable(close) {
   const entry = { close };
   stack.push(entry);
-  history.pushState({ atlas: stack.length }, "");
+  if (owed) { owed--; history.replaceState({ atlas: stack.length }, ""); }
+  else history.pushState({ atlas: stack.length }, "");
   return () => {
     const i = stack.indexOf(entry);
     if (i < 0) return;
     stack.splice(i, 1);
-    skip++;
-    history.back();
+    if (!owed++) queueMicrotask(settle);
   };
+}
+function settle() {
+  if (!owed) return;
+  skip++;
+  history.go(-owed);
+  owed = 0;
 }
 
 addEventListener("popstate", () => {

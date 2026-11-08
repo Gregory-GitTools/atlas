@@ -17,7 +17,8 @@ import { register, isMobile } from "../core/modules.js";
 import { createPanel, isOpen, homeList } from "../core/panel.js";
 import { repoFiles, repoUrl, repoSite } from "../core/repo.js";
 import { flagUrl } from "../core/flags.js";
-import { emit } from "../core/events.js";
+import { emit, on } from "../core/events.js";
+import { parseFile } from "./tracks.js";
 import { setSearchMode, searchMode } from "../core/search.js";
 import { cacheGet, cacheSet, cacheDelete } from "../core/storage.js";
 import { track, claimLayers } from "../core/popups.js";
@@ -34,6 +35,12 @@ const BACK = svg("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z",
 const COLOR = "#7c4dff"; // --tone-my
 const VIDEO_RE = /\.(mov|mp4|m4v)$/i;
 const MEDIA_RE = /\.(jpe?g|webp|png|mov|mp4|m4v)$/i;
+// трек поездки лежит с её снимками (Грегори 2026-11-08: «сканировать папку с фото на наличие .GPX и
+// хранить их с фотографиями»; папка может быть и только с треком) — на карте линией, в шапке альбома —
+// «Просмотр трека» (открывает «Мои треки», стрелка оттуда — назад в альбом)
+const TRACK_RE = /\.gpx$/i;
+const TRACK_D = "M6 3a3 3 0 0 0-1 5.83V12a4 4 0 0 0 4 4h6a2 2 0 0 1 2 2v.17A3 3 0 1 0 19 18a4 4 0 0 0-4-4H9a2 2 0 0 1-2-2V8.83A3 3 0 0 0 6 3zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm12 12a1 1 0 1 1 0 2 1 1 0 0 1 0-2z";
+const TRACK_COLOR = "#3949ab"; // --tone-track
 const PROBE = 25; // сколько снимков альбома пробовать в поисках координат на первом проходе
 const DOT_ZOOM = 10, THUMB_ZOOM = 14, VIEW_ZOOM = 12; // точки снимков, миниатюры, миниатюры для ленты
 const THUMB = 240, MAP_THUMB = 88; // миниатюра ленты и сетки; на карте — 44 px в белой рамке
@@ -70,8 +77,9 @@ let scan = 0, ctx = null, loading = null;
 let dirs = [], needsAccess = false, busy = false, checked = 0;
 const canFolders = () => "showDirectoryPicker" in window && !isMobile();
 
-function addAlbum(path, name, local, files) {
-  const a = { id: path, name, title: displayName(name), local, parent: null, photos: [], point: null, country: undefined, cover: null, from: 0, to: 0, done: false };
+function addAlbum(path, name, local, files, tracks = []) {
+  const a = { id: path, name, title: displayName(name), local, parent: null, photos: [], point: null, country: undefined, cover: null, from: 0, to: 0, done: false,
+    tracks: tracks.map((t) => ({ ...t, key: `album:${dirs.indexOf(t.root)}:${t.path}` })) };
   // ролик с тем же именем, что у снимка, — его живое фото, отдельной клеткой не показывается
   const stem = (f) => f.name.replace(/\.[^.]+$/, "").toLowerCase();
   const clips = new Map(files.filter((f) => VIDEO_RE.test(f.name)).map((f) => [stem(f), f]));
@@ -98,11 +106,12 @@ async function listRepo() {
 // своя папка: альбом — каждая папка, где есть снимки (подпапки — свои альбомы); «[Originals]» —
 // исходники поправленных снимков, повторы — пропускаются
 async function walk(handle, path, token, root) {
-  const files = [], dirs = [], proxies = new Map();
+  const files = [], dirs = [], proxies = new Map(), tracks = [];
   try {
     for await (const [name, h] of handle.entries()) {
       if (h.kind === "directory") { if (!/^[._[]/.test(name)) dirs.push([name, h]); }
       else if (MEDIA_RE.test(name)) files.push({ name, path: `${path}/${name}`, handle: h, root });
+      else if (TRACK_RE.test(name)) tracks.push({ name, path: `${path}/${name}`, handle: h, root, dir: handle });
       else if (/^GL\d{6}\.LRV$/i.test(name)) proxies.set(name.slice(2, 8), h);
     }
   } catch { return; }
@@ -110,7 +119,7 @@ async function walk(handle, path, token, root) {
   // GoPro: рядом с роликом GX011479.MP4 (4K, сотни МБ) — его уменьшенная копия GL011479.LRV (640×480);
   // кадр для клетки берётся из неё — быстро; играет в галерее сам ролик
   for (const f of files) { const m = /^G[HX](\d{6})\.MP4$/i.exec(f.name); if (m && proxies.has(m[1])) f.proxy = proxies.get(m[1]); }
-  if (files.length) addAlbum(path, handle.name, true, files);
+  if (files.length || tracks.length) addAlbum(path, handle.name, true, files, tracks);
   for (const [name, h] of dirs.sort((x, y) => x[0].localeCompare(y[0], undefined, { numeric: true }))) await walk(h, `${path}/${name}`, token, root);
 }
 
@@ -249,6 +258,17 @@ async function locate(a) {
   const f = countryAt(a.point, await loadBorders());
   a.country = f ? { name: f.properties.name, iso: f.properties.iso } : null;
 }
+// трек альбома — прочитан один раз за обход: { segs, color }; не читается — пустой
+const trackOf = (t) => (t.data ??= t.handle.getFile().then((f) => f.text()).then((x) => parseFile(t.name, x))
+  .catch(() => ({ segs: [] })).then((x) => (t.parsed = x)));
+const trackPoints = (a) => (a.tracks || []).flatMap((t) => (t.parsed?.segs || []).flat());
+const plural = (n, one, few, many) => `${n} ${n % 10 === 1 && n % 100 !== 11 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? few : many}`;
+const trackCount = (n) => (n ? plural(n, "трек", "трека", "треков") : "");
+// «Моим трекам» — ссылки на треки альбомов: файл, его папка и альбом (у «Снимков поездки» и
+// «Избранного» — название поездки)
+const trackTitle = (a) => (a.parent && (a.title === "Снимки поездки" || a.title === "Избранное") ? groups.get(a.parent)?.title || a.title : a.title);
+const sendTracks = () => emit("album-tracks", [...albums.values()].flatMap((a) => a.tracks.map((t) => ({ key: t.key, name: t.name.replace(/\.\w+$/, ""),
+  file: t.name, handle: t.handle, dir: t.dir, root: t.root, albumId: a.id, albumTitle: trackTitle(a) }))));
 const countryOf = (a) => (a.group ? tally(a).country : a.country?.name) || NO_COUNTRY;
 
 // ---------- обход ----------
@@ -268,7 +288,9 @@ async function finish(a) {
   if (best) a.point = best.point;
   const pool = best ? best.ids : a.photos;
   a.cover = pool[Math.floor(Math.random() * pool.length)] || null;
-  const ds = a.photos.map((id) => photos.get(id).rec?.date).filter(Boolean);
+  // у альбома без снимков с местом — точка трека
+  if (!a.point) a.point = trackPoints(a)[0]?.slice(0, 2) || null;
+  const ds = [...a.photos.map((id) => photos.get(id).rec?.date), ...trackPoints(a).map((q) => q[3])].filter(Boolean);
   if (ds.length) { a.from = Math.min(...ds); a.to = Math.max(...ds); }
   if (moved || a.country === undefined) await locate(a);
   a.done = true;
@@ -288,11 +310,14 @@ async function rescan() {
   if (!needsAccess) for (const d of dirs) { await walk(d, d.name, token, d); if (token !== scan) return; }
   if (token !== scan) return;
   for (const d of dirs) nest(d.name);
+  sendTracks();
   for (const a of albums.values()) {
     for (const id of a.photos.slice(0, PROBE)) {
       const r = await exifOf(photos.get(id));
       if (r.lat) { a.point = [r.lon, r.lat]; break; }
     }
+    for (const t of a.tracks) await trackOf(t);
+    if (!a.point) a.point = trackPoints(a)[0]?.slice(0, 2) || null;
     if (token !== scan) return;
     await locate(a);
   }
@@ -447,7 +472,9 @@ const albumData = () => fc([...albums.values()].filter((a) => a.point).map((a) =
 const dotData = () => fc(located().map((p) => ({ type: "Feature", geometry: { type: "Point", coordinates: pt(p) }, properties: { photo: p.id } })));
 const thumbData = () => fc(located().filter((p) => p.img).map((p) => ({ type: "Feature", geometry: { type: "Point", coordinates: pt(p) }, properties: { photo: p.id, img: p.img } })));
 const font = (map) => map.getStyle().layers.find((l) => l.type === "symbol" && Array.isArray(l.layout?.["text-font"]))?.layout["text-font"] || ["Noto Sans Regular"];
-const LAYERS = ["albums-icons", "albums-dots", "albums-count", "albums-thumbs"];
+const trackData = () => fc([...albums.values()].flatMap((a) => a.tracks.flatMap((t) => (t.parsed?.segs || []).filter((s) => s.length > 1)
+  .map((s) => ({ type: "Feature", geometry: { type: "LineString", coordinates: s.map((q) => [q[0], q[1]]) }, properties: { album: a.id, title: a.title, color: t.parsed.color || TRACK_COLOR } })))));
+const LAYERS = ["albums-tracks", "albums-icons", "albums-dots", "albums-count", "albums-thumbs"];
 
 // значок альбома — фиолетовый фотоаппарат с тонким белым кантом (правило значков Atlas)
 function cameraImage() {
@@ -471,6 +498,12 @@ function addLayers() {
   if (!map.getSource("albums")) map.addSource("albums", { type: "geojson", data: albumData() });
   if (!map.getSource("albums-photos")) map.addSource("albums-photos", { type: "geojson", data: dotData(), cluster: true, clusterRadius: 18, clusterMaxZoom: 18 });
   if (!map.getSource("albums-thumbs")) map.addSource("albums-thumbs", { type: "geojson", data: thumbData() });
+  if (!map.getSource("albums-tracks")) map.addSource("albums-tracks", { type: "geojson", data: trackData() });
+  // трек — под значками и снимками, с белым кантом; щелчок по нему — его альбом
+  if (!map.getLayer("albums-tracks-casing")) map.addLayer({ id: "albums-tracks-casing", type: "line", source: "albums-tracks",
+    layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#fff", "line-width": 6 } });
+  if (!map.getLayer("albums-tracks")) map.addLayer({ id: "albums-tracks", type: "line", source: "albums-tracks",
+    layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": ["get", "color"], "line-width": 3 } });
   if (!map.getLayer("albums-icons")) map.addLayer({ id: "albums-icons", type: "symbol", source: "albums", maxzoom: DOT_ZOOM,
     layout: { "icon-image": "album-camera", "icon-allow-overlap": true, "icon-ignore-placement": true } });
   if (!map.getLayer("albums-dots")) map.addLayer({ id: "albums-dots", type: "circle", source: "albums-photos", minzoom: DOT_ZOOM,
@@ -481,7 +514,7 @@ function addLayers() {
     paint: { "text-color": "#fff" } });
   if (!map.getLayer("albums-thumbs")) map.addLayer({ id: "albums-thumbs", type: "symbol", source: "albums-thumbs", minzoom: THUMB_ZOOM,
     layout: { "icon-image": ["get", "img"], "icon-padding": 4 } });
-  claimLayers(...LAYERS);
+  claimLayers(...LAYERS, "albums-tracks-casing");
 }
 
 // карта, лента и открытые списки — по ходу обхода, не чаще раза за кадр
@@ -492,6 +525,7 @@ function refresh() {
       ctx.map.getSource("albums")?.setData(albumData());
       ctx.map.getSource("albums-photos")?.setData(dotData());
       ctx.map.getSource("albums-thumbs")?.setData(thumbData());
+      ctx.map.getSource("albums-tracks")?.setData(trackData());
       setStripItems("albums", located().filter((p) => p.thumb).map(stripItem));
     }
     if (isOpen("albums") && !openAlbum && !searchText && !dupView) { if (openGroup) renderGroup(true); else renderList(currentCountry); }
@@ -505,8 +539,8 @@ function showOnMap(on) {
   shown = on;
   const map = ctx.map;
   if (on) { addLayers(); refresh(); wantInView(); return; }
-  for (const id of LAYERS) if (map.getLayer(id)) map.removeLayer(id);
-  for (const id of ["albums", "albums-photos", "albums-thumbs"]) if (map.getSource(id)) map.removeSource(id);
+  for (const id of [...LAYERS, "albums-tracks-casing"]) if (map.getLayer(id)) map.removeLayer(id);
+  for (const id of ["albums", "albums-photos", "albums-thumbs", "albums-tracks"]) if (map.getSource(id)) map.removeSource(id);
   setStripItems("albums", []);
 }
 
@@ -580,7 +614,8 @@ const galleryItem = (p) => ({ id: p.id, thumb: p.thumb, full: p.url, title: p.al
   coordinates: p.rec?.lat ? pt(p) : null, video: p.video, live: !!p.live, edit: editInfo(p) });
 
 function fitAlbum(a) {
-  const pts = photosOf(a).map((id) => photos.get(id)).filter((p) => p.rec?.lat).map(pt);
+  const pts = [...photosOf(a).map((id) => photos.get(id)).filter((p) => p.rec?.lat).map(pt),
+    ...(a.group ? tally(a).list : [a]).flatMap(trackPoints).map((q) => [q[0], q[1]])];
   if (!pts.length && !a.point) return;
   if (!pts.length) pts.push(a.point);
   const lng = pts.map((p) => p[0]), lat = pts.map((p) => p[1]);
@@ -631,7 +666,8 @@ function lazyImg(p, cls) {
 function albumRow(a) {
   const r = h("button", "tr-row al-row");
   const text = h("span", "tr-row-text");
-  text.append(h("span", "tr-row-title", a.title), h("span", "tr-row-sub", [`${a.photos.length} фото`, dates(a)].filter(Boolean).join(" · ")));
+  text.append(h("span", "tr-row-title", a.title), h("span", "tr-row-sub",
+    [a.photos.length || !a.tracks.length ? `${a.photos.length} фото` : "", trackCount(a.tracks.length), dates(a)].filter(Boolean).join(" · ")));
   r.append(lazyImg(photos.get(a.cover || a.photos[0]), "al-cover"), text);
   r.addEventListener("click", () => openAlbumById(a.id));
   return r;
@@ -772,10 +808,18 @@ function renderAlbum() {
   setFold([]);
   const bar = h("div", "pb-bar");
   const left = h("div", "tr-bar-left");
-  left.append(backBtn(a), btn(PLAYER.play, "Слайд-шоу альбома", () => gallery(a, null, true)));
+  const play = btn(PLAYER.play, "Слайд-шоу альбома", () => gallery(a, null, true));
+  play.disabled = !a.photos.length;
+  left.append(backBtn(a), play);
+  // трек из папки альбома — в «Моих треках», стрелка оттуда — назад сюда
+  for (const t of a.tracks) {
+    const b = btn(svg(TRACK_D, 20), `Просмотр трека «${t.name.replace(/\.\w+$/, "")}»`, () => emit("track-open", { key: t.key, ctx }));
+    b.classList.add("al-track");
+    left.append(b);
+  }
   bar.append(left);
   const clips = a.photos.filter((id) => photos.get(id).video).length;
-  const facts = h("div", "tr-facts al-facts", [`${a.photos.length - clips} фото`, clips ? `${clips} видео` : "", dates(a), a.country?.name, a.local ? "на этом компьютере" : ""].filter(Boolean).join(" · "));
+  const facts = h("div", "tr-facts al-facts", [a.photos.length - clips || !a.tracks.length ? `${a.photos.length - clips} фото` : "", trackCount(a.tracks.length), clips ? `${clips} видео` : "", dates(a), a.country?.name, a.local ? "на этом компьютере" : ""].filter(Boolean).join(" · "));
   // снимки по дням (Грегори 2026-11-04: «когда открыты миниатюры альбома, поделить их по датам»):
   // день — заголовок с датой и числом снимков, щелчок по нему сворачивает день; внутри дня — по времени;
   // без даты — последним. Один день — без заголовков
@@ -1219,6 +1263,19 @@ function openCountry(country) {
   emit("module", { id: "content/albums", on: true });
 }
 
+// «Мои треки» открыли панель — им нужны треки альбомов (папки обходятся, если ещё нет)
+on("album-tracks-wanted", ({ ctx: c }) => { ctx = c; wire(); load(c).catch(() => {}); }, { replay: false });
+// из трека — назад в его альбом
+on("album-open", async ({ id, ctx: c }) => {
+  ctx = c;
+  wire();
+  await load(c).catch(() => {});
+  const a = albums.get(id);
+  if (!a) return;
+  openCountry(countryOf(topOf(a)));
+  openAlbumById(id);
+}, { replay: false });
+
 panel.onClose(() => {
   dupView = false;
   dupRun++;
@@ -1289,7 +1346,7 @@ register({
   },
   settings: settingsSection,
   // для проверки
-  stats: () => ({ albums: albums.size, groups: groups.size, photos: photos.size, located: located().length, thumbs: [...photos.values()].filter((p) => p.thumb).length,
+  stats: () => ({ albums: albums.size, tracks: [...albums.values()].reduce((n, a) => n + a.tracks.length, 0), groups: groups.size, photos: photos.size, located: located().length, thumbs: [...photos.values()].filter((p) => p.thumb).length,
     countries: countries().map(([n, k]) => `${n}:${k}`), busy, shown, dups: dups && { busy: dups.busy, same: dups.same.length, like: dups.like.length, view: dupView }, open: openAlbum?.title || openGroup?.title || null, country: currentCountry }),
-  openFirst: () => { const a = [...albums.values()][0]; if (!a) return false; openCountry(countryOf(a)); openAlbumById(a.id); return true; },
+  openFirst: (title) => { const a = [...albums.values()].find((x) => !title || x.title === title); if (!a) return false; openCountry(countryOf(a)); openAlbumById(a.id); return true; },
 });

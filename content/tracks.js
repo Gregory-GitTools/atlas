@@ -8,9 +8,13 @@
 // оставить только его или вырезать, «Назад»; наибольшая скорость и высота, вид занятия, отрезки по км.
 // Шаг 3: убрать выбросы GPS, разрезать в точке графика, склеить с другим треком, дорисовать по карте.
 // Дальше (ROADMAP): оформить — название, цвет, заметка, альбом, снимки на треке по времени
+// Треки из альбомов (Грегори 2026-11-08: «сканировать папку с фото на наличие .GPX и хранить их с
+// фотографиями»): GPX в папке со снимками остаётся там — «Мои альбомы» находят его при обходе и сообщают
+// «album-tracks», здесь — только ссылка (раздел «Из альбомов», стрелка назад — в альбом). Правка пишется в
+// сам файл, исходник — в «[Originals]» рядом (только при первой правке), «Вернуть трек как в файле» — из него
 import { register } from "../core/modules.js";
 import { createPanel, isOpen, homeList } from "../core/panel.js";
-import { emit } from "../core/events.js";
+import { emit, on } from "../core/events.js";
 import { setSearchMode, searchMode } from "../core/search.js";
 import { cacheGet, cacheSet, cacheDelete } from "../core/storage.js";
 import { claimLayers, captureClicks } from "../core/popups.js";
@@ -25,6 +29,8 @@ const OPEN_ICON = svg("M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z");
 const BACK = svg("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z", 20);
 const SAVE = svg("M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z", 20);
 const UNDO = svg("M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62A7.95 7.95 0 0 1 12.5 10c3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 10.53 17.15 8 12.5 8z", 20);
+// альбом — стопка снимков, как у «Моих альбомов»
+const ALBUM_D = "M22 16V4c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2zm-11-4 2.03 2.71L16 11l4 5H8l3-4zM2 6v14c0 1.1.9 2 2 2h14v-2H4V6H2z";
 const DELETE = svg("M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z", 20);
 // правка трека: линия с краями; оранжевое — выбранное, серое пунктиром — то, что уберётся
 const toolIcon = (inner) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke-linecap="round">${inner}</svg>`;
@@ -57,7 +63,8 @@ function parseGpx(text) {
   const name = doc.querySelector("metadata > name, trk > name, rte > name")?.textContent.trim() || "";
   const note = doc.querySelector("trk > desc, metadata > desc")?.textContent.trim() || "";
   const creator = doc.documentElement.getAttribute("creator") || "";
-  return { name, note, segs, kind: kindFromFile(doc.querySelector("trk > type")?.textContent) || (/ski/i.test(creator) ? "ski" : null) };
+  const color = doc.getElementsByTagNameNS("*", "color")[0]?.textContent.trim();
+  return { name, note, segs, kind: kindFromFile(doc.querySelector("trk > type")?.textContent) || (/ski/i.test(creator) ? "ski" : null), ...(COLORS.includes(color) && { color }) };
 }
 
 function parseKml(text) {
@@ -84,8 +91,9 @@ function parseFile(name, text) {
   if (!segs.length) throw new Error("в файле нет трека");
   const first = segs[0][0][3];
   return { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: t.name || name.replace(/\.\w+$/, ""),
-    file: name, date: first || null, kind: t.kind || null, ...(t.note && { note: t.note }), segs };
+    file: name, date: first || null, kind: t.kind || null, ...(t.note && { note: t.note }), ...(t.color && { color: t.color }), segs };
 }
+export { parseFile };
 
 // ---------- подсчёт ----------
 const R = 6371008.8;
@@ -172,9 +180,90 @@ const tracks = new Map(); // id → трек с точками (прочитан
 let ctx = null, loading = null;
 const saveIndex = () => cacheSet("tracks/index", index).catch(() => {});
 async function getTrack(id) {
-  if (!tracks.has(id)) { const t = await cacheGet(`tracks/${id}`).catch(() => null); if (t) tracks.set(id, t); }
+  if (!tracks.has(id)) {
+    const e = fromAlbum(id);
+    const t = e ? await readAlbumTrack(e).catch(() => null) : await cacheGet(`tracks/${id}`).catch(() => null);
+    if (t) tracks.set(id, t);
+  }
   return tracks.get(id) || null;
 }
+
+// ---------- треки из альбомов ----------
+let albumIndex = []; // [{ key, name, file, handle, dir, root, albumId, albumTitle }] — от «Моих альбомов»
+let albumsAsked = false, cameFrom = null; // cameFrom — трек открыли из альбома: стрелка назад — туда
+const ORIGINALS = "[Originals]";
+const fromAlbum = (id) => albumIndex.find((e) => e.key === id);
+const backupOf = async (e) => { try { return await (await (await e.dir.getDirectoryHandle(ORIGINALS)).getFileHandle(e.file)).getFile(); } catch { return null; } };
+async function readAlbumTrack(e) {
+  const t = Object.assign(parseFile(e.file, await (await e.handle.getFile()).text()), { id: e.key, album: e });
+  const b = await backupOf(e);
+  if (b) try { t.orig = parseFile(e.file, await b.text()).segs; } catch { /* исходник не читается — без «Вернуть» */ }
+  return t;
+}
+async function canWrite(e) {
+  const mode = { mode: "readwrite" };
+  if (await e.root.queryPermission(mode) !== "granted" && await e.root.requestPermission(mode) !== "granted") throw new Error("нет разрешения на запись в папку");
+}
+// правка — в файл: после затишья, по одной записи за раз; исходник — в «[Originals]» перед первой
+let writes = Promise.resolve();
+const later = new Map();
+function writeLater(t) {
+  clearTimeout(later.get(t.id));
+  later.set(t.id, setTimeout(() => { later.delete(t.id); writes = writes.then(() => writeAlbum(t)); }, 400));
+}
+async function writeAlbum(t) {
+  const e = t.album;
+  try {
+    await canWrite(e);
+    if (!(await backupOf(e))) {
+      const src = await e.handle.getFile();
+      const w = await (await (await e.dir.getDirectoryHandle(ORIGINALS, { create: true })).getFileHandle(e.file, { create: true })).createWritable();
+      await w.write(src);
+      await w.close();
+    }
+    const w = await e.handle.createWritable();
+    await w.write(toGpx(t));
+    await w.close();
+  } catch (err) { ctx?.status(`Трек не записан в папку: ${err.message}`); }
+}
+// «Вернуть трек как в файле» — исходник из «[Originals]» на место, копия убрана
+async function restoreAlbum(t) {
+  const e = t.album;
+  clearTimeout(later.get(t.id));
+  later.delete(t.id);
+  await writes;
+  const b = await backupOf(e);
+  if (!b) return;
+  try {
+    await canWrite(e);
+    const w = await e.handle.createWritable();
+    await w.write(b);
+    await w.close();
+    await (await e.dir.getDirectoryHandle(ORIGINALS)).removeEntry(e.file);
+  } catch (err) { ctx?.status(`Трек не вернулся: ${err.message}`); return; }
+  tracks.delete(t.id);
+  history.delete(t.id);
+}
+// «Мои альбомы» нашли треки в папках (обошли заново — ссылки свежие, прочитанное остаётся)
+on("album-tracks", (list) => {
+  albumIndex = list;
+  for (const e of list) { const t = tracks.get(e.key); if (t) t.album = e; }
+  if (!shown) return;
+  showOnMap(true).then(() => { if (isOpen("tracks") && !openId) renderList(); });
+});
+// альбом: «Просмотр трека» — этот трек, стрелка назад — в альбом
+on("track-open", async ({ key, ctx: c }) => {
+  ctx = c;
+  wire();
+  await load();
+  cameFrom = key;
+  panel.open();
+  setSearchMode(MODE);
+  emit("module", { id: "content/tracks", on: true });
+  await showOnMap(true);
+  openTrack(key);
+}, { replay: false });
+const toAlbum = (e) => emit("album-open", { id: e.albumId, ctx });
 const load = () => (loading ??= cacheGet("tracks/index").then((x) => { index = x || []; }).catch(() => {}));
 
 async function addFiles(files) {
@@ -207,11 +296,15 @@ async function removeTrack(id) {
   renderList();
 }
 
+// вид — словом, которое понимают и другие программы (и kindFromFile), цвет — в своём расширении
+const KIND_WORD = { walk: "walking", hike: "hiking", run: "running", bike: "cycling", kite: "kitesurfing", surf: "surfing", xc: "cross country skiing",
+  ski: "skiing", boat: "boating", car: "driving" };
 function toGpx(t) {
   const esc = (s) => String(s).replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c]));
   const pt = ([lon, lat, ele, time]) => `<trkpt lat="${lat}" lon="${lon}">${ele != null ? `<ele>${ele}</ele>` : ""}${time ? `<time>${new Date(time).toISOString()}</time>` : ""}</trkpt>`;
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="Atlas">`
-    + `<metadata><name>${esc(t.name)}</name></metadata><trk><name>${esc(t.name)}</name>${t.note ? `<desc>${esc(t.note)}</desc>` : ""}`
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:atlas="https://gregory-gittools.github.io/atlas" version="1.1" creator="Atlas">`
+    + `<metadata><name>${esc(t.name)}</name>${t.color ? `<extensions><atlas:color>${t.color}</atlas:color></extensions>` : ""}</metadata>`
+    + `<trk><name>${esc(t.name)}</name>${t.note ? `<desc>${esc(t.note)}</desc>` : ""}${KIND_WORD[t.kind] ? `<type>${KIND_WORD[t.kind]}</type>` : ""}`
     + t.segs.map((s) => `<trkseg>${s.map(pt).join("")}</trkseg>`).join("") + "</trk></gpx>\n";
 }
 function download(t) {
@@ -244,7 +337,7 @@ const fc = (features) => ({ type: "FeatureCollection", features });
 const line = (t, open) => ({ type: "Feature", geometry: { type: "MultiLineString", coordinates: t.segs.map((s) => s.map((p) => [p[0], p[1]])) },
   properties: { id: t.id, open: open ? 1 : 0, color: t.color || COLOR } });
 function lineData() {
-  return fc(index.map((x) => tracks.get(x.id)).filter(Boolean).map((t) => line(t, t.id === openId)));
+  return fc([...index.map((x) => x.id), ...albumIndex.map((e) => e.key)].map((id) => tracks.get(id)).filter(Boolean).map((t) => line(t, t.id === openId)));
 }
 function endsData() {
   const t = openId && tracks.get(openId);
@@ -289,7 +382,7 @@ async function showOnMap(on) {
   if (!ctx) return;
   if (on) {
     await load();
-    await Promise.all(index.map((x) => getTrack(x.id)));
+    await Promise.all([...index.map((x) => x.id), ...albumIndex.map((e) => e.key)].map((id) => getTrack(id)));
     shown = true;
     addLayers();
     draw();
@@ -328,9 +421,12 @@ function renderList(query = searchText) {
   const q = query.toLowerCase();
   const list = index.filter((x) => !q || [x.name, day(x.date), x.note].join(" ").toLowerCase().includes(q)).sort((a, b) => (b.date || 0) - (a.date || 0));
   panel.setTitle(q ? "Найденные треки" : "Мои треки");
+  cameFrom = null;
   const nodes = [openButton()];
-  if (!index.length) nodes.push(h("p", "pb-hint", "Треков пока нет. Выгрузите трек из программы на телефоне (Sports Tracker: тренировка → ⋯ → «Экспорт GPX») и откройте здесь или перетащите файл на карту. Треки хранятся только на этом устройстве."));
-  else if (q && !list.length) nodes.push(h("p", "pb-hint", "Ничего не нашлось"));
+  const inAlbums = albumIndex.filter((e) => !q || [e.name, e.albumTitle, tracks.get(e.key)?.note].join(" ").toLowerCase().includes(q))
+    .sort((a, b) => (tracks.get(b.key)?.date || 0) - (tracks.get(a.key)?.date || 0));
+  if (!index.length && !albumIndex.length) nodes.push(h("p", "pb-hint", "Треков пока нет. Выгрузите трек из программы на телефоне (Sports Tracker: тренировка → ⋯ → «Экспорт GPX») и откройте здесь или перетащите файл на карту. Треки хранятся только на этом устройстве."));
+  else if (q && !list.length && !inAlbums.length) nodes.push(h("p", "pb-hint", "Ничего не нашлось"));
   for (const x of list) {
     const r = h("button", "tr-row");
     const icon = h("span", "tr-icon tk-icon");
@@ -342,6 +438,20 @@ function renderList(query = searchText) {
     r.addEventListener("click", () => openTrack(x.id));
     nodes.push(r);
   }
+  // из альбомов — под своими, с названием альбома
+  if (inAlbums.length) nodes.push(h("div", "pb-sub tk-section", "Из альбомов"));
+  for (const e of inAlbums) {
+    const t = tracks.get(e.key), r = h("button", "tr-row tk-album-row");
+    const icon = h("span", "tr-icon tk-icon");
+    if (t?.color) icon.style.background = t.color;
+    icon.innerHTML = kindOf(t?.kind) ? mdi(kindOf(t.kind)[2]) : svg(TRACK_D, 18);
+    const text = h("span", "tr-row-text");
+    text.append(h("span", "tr-row-title", t?.name || e.name), h("span", "tr-row-sub", [e.albumTitle, t && day(t.date), t && km(stats(t).dist)].filter(Boolean).join(" · ")));
+    r.append(icon, text);
+    r.title = `Трек из альбома «${e.albumTitle}»`;
+    r.addEventListener("click", () => openTrack(e.key));
+    nodes.push(r);
+  }
   panel.body.replaceChildren(...nodes);
 }
 
@@ -351,6 +461,7 @@ function renderList(query = searchText) {
 const history = new Map(); // id → [{ segs, revert }, …] — revert: что ещё вернуть (разрезали — убрать второй трек)
 function persist(t) {
   t.date = t.segs[0]?.[0]?.[3] || t.date;
+  if (t.album) { writeLater(t); return; } // трек из альбома — в свой файл
   cacheSet(`tracks/${t.id}`, t).catch(() => {});
   const x = index.find((x) => x.id === t.id);
   if (x) Object.assign(x, { name: t.name, date: t.date, dist: stats(t).dist, kind: t.kind || null, color: t.color || null, note: t.note || "" });
@@ -849,7 +960,12 @@ async function openTrack(id, keep = false) {
   panel.setTitle(t.name);
   const bar = h("div", "pb-bar");
   const left = h("div", "tr-bar-left");
-  left.append(btn(BACK, "Ко всем трекам", () => renderList()));
+  const e = t.album;
+  if (e && cameFrom === id) left.append(btn(BACK, `Назад в альбом «${e.albumTitle}»`, () => toAlbum(e)));
+  else {
+    left.append(btn(BACK, "Ко всем трекам", () => renderList()));
+    if (e) left.append(btn(svg(ALBUM_D, 20), `Открыть альбом «${e.albumTitle}»`, () => toAlbum(e)));
+  }
   const right = h("div", "tr-bar-left");
   const undo = btn(UNDO, "Назад — отменить последнюю правку", async () => {
     const step = history.get(id).pop();
@@ -860,8 +976,9 @@ async function openTrack(id, keep = false) {
     openTrack(id, true);
   });
   undo.disabled = !history.get(id)?.length;
-  right.append(undo, btn(SAVE, "Сохранить файлом GPX", () => download(t)),
-    btn(DELETE, "Удалить трек с этого устройства", () => { if (confirm(`Удалить трек «${t.name}» с этого устройства?`)) removeTrack(id); }));
+  right.append(undo, btn(SAVE, "Сохранить файлом GPX", () => download(t)));
+  // трек из альбома — файл в папке со снимками, отсюда не удаляется
+  if (!e) right.append(btn(DELETE, "Удалить трек с этого устройства", () => { if (confirm(`Удалить трек «${t.name}» с этого устройства?`)) removeTrack(id); }));
   bar.append(left, right);
   const all = t.segs.flat();
   const when = t.date ? `${day(t.date)}, ${clock(all[0][3])}–${clock(all[all.length - 1][3])}` : "";
@@ -928,7 +1045,7 @@ async function openTrack(id, keep = false) {
     second.date = second.segs[0][0][3] || t.date;
     await store(second);
     edit(t, pieces(t, (g) => g <= at), () => forget(second.id));
-    ctx?.status(`Вторая часть — отдельный трек «${second.name}»`);
+    ctx?.status(`Вторая часть — отдельный трек «${second.name}»${e ? " в «Моих треках»" : ""}`);
     setTimeout(() => ctx?.status(""), 4000);
     sel = null;
     openTrack(id, true);
@@ -1002,12 +1119,14 @@ async function openTrack(id, keep = false) {
     nodes.push(head, table);
   }
 
-  nodes.push(h("p", "pb-hint", `Точек: ${s.points}${t.segs.length > 1 ? `, кусков записи: ${t.segs.length}` : ""}${t.file ? ` · файл «${t.file}»` : ""}`));
+  nodes.push(h("p", "pb-hint", `Точек: ${s.points}${t.segs.length > 1 ? `, кусков записи: ${t.segs.length}` : ""}${t.file ? ` · файл «${t.file}»` : ""}`
+    + (e ? ` в папке альбома «${e.albumTitle}» — правка записывается в него, исходник — в «${ORIGINALS}»` : "")));
   if (t.orig) {
     const r = h("button", "text-btn tk-restore", "Вернуть трек как в файле");
     r.title = "Отменить все правки";
-    r.addEventListener("click", () => {
+    r.addEventListener("click", async () => {
       if (!confirm("Отменить все правки и вернуть трек как в файле?")) return;
+      if (e) { await restoreAlbum(t); sel = null; await getTrack(id); draw(); openTrack(id, true); return; }
       const orig = t.orig;
       edit(t, orig);
       delete t.orig;
@@ -1028,10 +1147,12 @@ const MODE = { icon: svg(TRACK_D, 20), title: "Мои треки", placeholder: 
 
 async function openPanel() {
   await load();
+  // треки из папок со снимками — «Мои альбомы» обходят папки (один раз; дальше сообщают сами)
+  if (!albumsAsked) { albumsAsked = true; emit("album-tracks-wanted", { ctx }); }
   renderList("");
   panel.open();
   setSearchMode(MODE);
-  showOnMap(true);
+  showOnMap(true).then(() => { if (isOpen("tracks") && !openId) renderList(); });
   emit("module", { id: "content/tracks", on: true });
 }
 
@@ -1040,6 +1161,7 @@ panel.onClose(() => {
   spikePts = [];
   liftPieces = null;
   openId = null;
+  cameFrom = null;
   hoverPt = null;
   selPiece = null;
   searchText = "";
@@ -1073,7 +1195,7 @@ register({
     load: (c) => { ctx = c; wire(); return load(); },
     // первой строкой — «Открыть файл…», потом треки, новые сверху
     items: () => [{ id: "", title: "Открыть трек…", icon: OPEN_ICON, hint: "GPX или KML" },
-      { id: "*", title: `Все треки (${index.length})`, icon: ICON, selected: isOpen("tracks") }],
+      { id: "*", title: `Все треки (${index.length + albumIndex.length})`, icon: ICON, selected: isOpen("tracks") }],
     choose: (id, c) => {
       ctx = c;
       wire();
@@ -1084,7 +1206,7 @@ register({
     close: () => panel.close(),
   },
   // для проверки
-  stats: () => ({ tracks: index.length, shown, open: openId ? tracks.get(openId)?.name : null }),
+  stats: () => ({ tracks: index.length, albumTracks: albumIndex.length, shown, open: openId ? tracks.get(openId)?.name : null, fromAlbum: cameFrom }),
   addText: (name, text) => addFiles([new File([text], name)]),
   // выбрать кусок a..b (доли трека 0…1), как ручками на графике
   select: (a, b) => {

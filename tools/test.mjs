@@ -58,7 +58,7 @@ const errors = [];
 let netFails = 0;
 ws.onmessage = (m) => {
   const d = JSON.parse(m.data);
-  if (pending.has(d.id)) { pending.get(d.id)(d.result); pending.delete(d.id); }
+  if (pending.has(d.id)) { pending.get(d.id)(d.result ?? { exceptionDetails: { text: `ошибка браузера: ${d.error?.message}` } }); pending.delete(d.id); }
   if (d.method === "Runtime.exceptionThrown") errors.push("исключение: " + (d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text).split("\n")[0]);
   if (d.method === "Runtime.consoleAPICalled" && d.params.type === "error") {
     // у объекта ошибки — и место, где она возникла (первые строки стека), иначе в отчёте одно «Error»
@@ -1344,6 +1344,76 @@ try {
       for (let i = 0; i < 20 && (await run(`${as}.groups`)); i++) await sleep(500);
       await run(`${gear}.click(); true`);
       await sleep(300);
+
+      // трек в папке со снимками (выдуманный, Пирита): «Поход» — снимок без места и walk.gpx, «Только трек» —
+      // папка с одним GPX, тоже альбом. Место альбома — из трека, в шапке — «Просмотр трека»; трек открывается
+      // в «Моих треках», стрелка — назад в альбом; правка пишется в файл, исходник — в «[Originals]»
+      if (mods.some((m) => m.id === "content/tracks")) {
+        const walk = (name, lat) => `<?xml version="1.0"?><gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="test"><metadata><name>${name}</name></metadata><trk><trkseg>${
+          Array.from({ length: 21 }, (_, i) => `<trkpt lat="${lat}" lon="${(24.83 + i * 0.000585).toFixed(6)}"><ele>5</ele><time>${new Date(Date.UTC(2024, 4, 5, 9, 0, i * 10)).toISOString()}</time></trkpt>`).join("")}</trkseg></trk></gpx>`;
+        await run(`(() => { const { file, folder } = testFs, gpx = (n, x) => file(n, new Blob([x]));
+          window.showDirectoryPicker = async () => folder("Треки", [folder("20240505 Поход", [file("p.jpg"), gpx("walk.gpx", ${JSON.stringify(walk("Поход у моря", 59.47))})]),
+            folder("20240506 Только трек", [gpx("solo.gpx", ${JSON.stringify(walk("Один трек", 59.48))})])]);
+          return true; })()`);
+        await run(`${gear}.click(); true`);
+        await sleep(600);
+        await run(`${setBtn("+ Добавить папку…")}.click(); true`);
+        for (let i = 0; i < 30 && !(await run(`${as}.tracks === 2 && !${as}.busy`)); i++) await sleep(500);
+        await run(`${gear}.click(); true`);
+        const am = `atlas.modules().find((m) => m.id === "content/albums")`, ts = `atlas.modules().find((m) => m.id === "content/tracks")`;
+        await run(`${am}.openFirst("Поход")`);
+        await sleep(800);
+        const g1 = await run(`({ ...${as}, facts: document.querySelector(".al-facts").textContent, btn: document.querySelector(".al-track")?.title,
+          lines: atlas.map.getSource("albums-tracks")?.serialize().data.features.length })`);
+        check("альбомы: GPX в папке — альбом и без снимков, линия на карте, в шапке «Просмотр трека»",
+          g1.tracks === 2 && g1.open === "Поход" && /^1 фото · 1 трек/.test(g1.facts) && g1.btn === "Просмотр трека «walk»" && g1.lines === 2, JSON.stringify(g1));
+        await run(`document.querySelector(".al-track").click(); true`);
+        await sleep(1200);
+        const tbar = `[...document.querySelectorAll('[data-panel="tracks"] .pb-bar .pb-btn')].map((b) => b.title)`;
+        const g2 = await run(`({ ...${ts}.stats(), panel: !document.querySelector('[data-panel="tracks"]').hidden, albums: !document.querySelector('[data-panel="albums"]').hidden, bar: ${tbar} })`);
+        check("треки: «Просмотр трека» — трек альбома в «Моих треках», стрелка — назад в альбом, без «Удалить»",
+          g2.panel && !g2.albums && g2.open === "Поход у моря" && g2.bar[0] === "Назад в альбом «Поход»" && !g2.bar.some((t) => /^Удалить/.test(t)) && g2.tracks === 0 && g2.albumTracks === 2,
+          JSON.stringify(g2));
+        await run(`(() => { const n = document.querySelector(".tk-name"); n.value = "Поход к маяку"; n.dispatchEvent(new Event("change")); return true; })()`);
+        await sleep(1200);
+        const walkDir = `atlasGalleryRoots().find((d) => d.name === "Треки").items.find((i) => i.name === "20240505 Поход")`;
+        const g3 = await run(`(async () => { const d = ${walkDir}, orig = d.items.find((i) => i.name === "[Originals]")?.items.find((i) => i.name === "walk.gpx");
+          return { now: await d.items.find((i) => i.name === "walk.gpx").data.text(), orig: orig && await orig.data.text(),
+            back: !!document.querySelector('[data-panel="tracks"] .tk-revert, [data-panel="tracks"] [title^="Вернуть"]') }; })()`);
+        check("треки: правка трека альбома — в его файл, исходник — в «[Originals]»",
+          g3.now.includes("<name>Поход к маяку</name>") && g3.orig?.includes("<name>Поход у моря</name>"), JSON.stringify({ ...g3, now: g3.now.slice(0, 300) }));
+        await run(`document.querySelector('[data-panel="tracks"] .pb-bar .pb-btn').click(); true`);
+        await sleep(1000);
+        const g4 = await run(`({ ...${as}, panel: !document.querySelector('[data-panel="albums"]').hidden, tracks: !document.querySelector('[data-panel="tracks"]').hidden, here: location.protocol })`);
+        // смена панелей не сдвигает историю браузера (раньше «альбом → трек → альбом» уводило со страницы)
+        await run(exitMode);
+        await sleep(500);
+        g4.after = await run(`location.protocol`);
+        check("треки: стрелка — назад в альбом, страница на месте", g4.panel && !g4.tracks && g4.open === "Поход" && g4.here === "http:" && g4.after === "http:", JSON.stringify(g4));
+        await run(exitMode);
+        await run(closeLayers);
+        // в «Моих треках» — раздел «Из альбомов» с названием альбома, кнопка «Открыть альбом»
+        await run(openLayers("content/tracks"));
+        await sleep(600);
+        await run(`${itemFor("Все треки (2)")}?.click(); true`);
+        await sleep(800);
+        const g5 = await run(`({ head: document.querySelector('[data-panel="tracks"] .tk-section')?.textContent,
+          rows: [...document.querySelectorAll('[data-panel="tracks"] .tk-album-row')].map((r) => r.textContent) })`);
+        await run(`[...document.querySelectorAll('[data-panel="tracks"] .tk-album-row')].find((r) => r.textContent.includes("Один трек")).click(); true`);
+        await sleep(800);
+        g5.bar = await run(tbar);
+        check("треки: «Из альбомов» — треки папок со снимками, у трека — «Открыть альбом»",
+          g5.head === "Из альбомов" && g5.rows.length === 2 && g5.rows.some((r) => r.includes("Поход к маяку") && r.includes("Поход")) && g5.bar[0] === "Ко всем трекам" && g5.bar[1] === "Открыть альбом «Только трек»",
+          JSON.stringify(g5));
+        await run(exitMode);
+        await run(closeLayers);
+        await run(`${gear}.click(); true`);
+        await sleep(600);
+        await run(`${setBtn("Убрать")}.click(); true`);
+        for (let i = 0; i < 20 && (await run(`${as}.tracks`)); i++) await sleep(500);
+        await run(`${gear}.click(); true`);
+        await sleep(300);
+      }
     }
   }
 

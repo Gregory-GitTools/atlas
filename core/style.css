@@ -2161,6 +2161,10 @@ body.has-photo-strip .status {
   background: var(--tone-track);
 }
 
+.tk-section {
+  margin: 10px 6px 2px;
+}
+
 .tk-when {
   margin: 4px 6px 6px;
 }
