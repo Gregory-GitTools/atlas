@@ -963,7 +963,7 @@ try {
           const e0 = await srun(`({ enabled: !document.querySelector(".edit-btn").disabled, meta: document.querySelector(".meta").textContent })`);
           await srun(`document.querySelector(".edit-btn").click(); true`);
           for (let i = 0; i < 20 && !(await srun(`window.galleryEditor?.state().open`)); i++) await sleep(300);
-          const e1 = await srun(`({ ...galleryEditor.state(), bar: !document.querySelector(".edit-bar").hidden, tools: [...document.querySelectorAll(".edit-tool")].filter((b) => !b.closest(".edit-info")).length,
+          const e1 = await srun(`({ ...galleryEditor.state(), bar: !document.querySelector(".edit-bar").hidden, tools: [...document.querySelectorAll(".edit-tool")].filter((b) => !b.closest(".edit-info, .edit-3d-row")).length,
             save: document.querySelector(".edit-save").disabled, nav: getComputedStyle(document.querySelector(".nav")).pointerEvents })`);
           // «Горизонт» (OpenCV, грузится по нажатию): линия на выдуманном снимке завалена на 2° — угол −2°
           await srun(`[...document.querySelectorAll(".edit-tool")].find((b) => b.title === "Выровнять по горизонту").click(); true`);
@@ -982,7 +982,7 @@ try {
               fav: riga.items.find((i) => /-Albom$/.test(i.name))?.items.map((i) => i.name) || null }; })()`;
           const saved = await run(fsState);
           check("правка: карандаш у своего снимка, поворот на 3° — сохранено: исходник в «[Originals]», снимок обрезан по рамке, копия в «…-Albom»",
-            e0.enabled && e1.open && e1.bar && e1.tools === 15 && e1.save && e1.nav === "none" && e2.dirty && !e2.save && e2.label === "3,0°"
+            e0.enabled && e1.open && e1.bar && e1.tools === 17 && e1.save && e1.nav === "none" && e2.dirty && !e2.save && e2.label === "3,0°"
             && saved.orig && saved.size[0] < 400 && saved.size[0] > 340 && JSON.stringify(saved.fav) === '["r.jpg"]', JSON.stringify({ e0, e1, e2, saved }));
           await srun(`document.querySelector(".edit-btn").click(); true`);
           for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
@@ -1073,6 +1073,59 @@ try {
           await srun(`document.querySelectorAll(".thumb")[1].click(); true`);
           await sleep(500);
           check("правка: у ролика карандаш неактивен", await srun(`document.querySelector(".edit-btn").disabled && document.querySelector(".edit-btn").title === "Ролики не правятся"`));
+          // ИИ: «Фон» (RMBG-1.4) — плитки вариантов с маской нейросети; «Прозрачный» у JPEG — PNG рядом, снимок
+          // не тронут. «3D-параллакс» (Depth Anything V2) — холст WebGL поверх снимка, ролик — рядом. Модели —
+          // с CDN (≈ 70 МБ в первый раз); без сети — предупреждение, не ошибка
+          const riga = `atlasGalleryRoots()[0].items.find((i) => i.name === "20240101 Рига")`;
+          await srun(`document.querySelectorAll(".thumb")[0].click(); true`);
+          await sleep(500);
+          const before = await run(`(async () => [...new Uint8Array(await ${riga}.items.find((i) => i.name === "r.jpg").data.arrayBuffer())].join())()`);
+          await srun(`document.querySelector(".edit-btn").click(); true`);
+          for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          await tool("Фон — нейросеть отделяет главное: размыть, заменить, убрать");
+          for (let i = 0; i < 300 && (await srun(`document.querySelectorAll(".edit-tiles:not([hidden]) .edit-tile canvas").length`)) < 6
+            && !/интернет/.test(await srun(`galleryEditor.state().note`)); i++) await sleep(500);
+          const bt = await srun(`({ tiles: [...document.querySelectorAll(".edit-tiles:not([hidden]) .edit-tile")].map((b) => b.title), drawn: document.querySelectorAll(".edit-tiles:not([hidden]) canvas").length, note: galleryEditor.state().note })`);
+          if (/интернет/.test(bt.note)) console.log("  ! ИИ: нейросеть не загрузилась (нет сети) — не проверено");
+          else {
+            await tile("Размыть");
+            for (let i = 0; i < 60 && (await srun(`galleryEditor.state().values.bg !== "blur" || document.body.classList.contains("busy")`)); i++) await sleep(300);
+            const bs = await srun(`galleryEditor.state()`);
+            await gsend("Page.captureScreenshot", { format: "png" }).then((res) => fs.writeFileSync(path.join(OUT, "00-background.png"), Buffer.from(res.data, "base64")));
+            await tile("Прозрачный");
+            for (let i = 0; i < 60 && (await srun(`galleryEditor.state().values.bg !== "cut" || document.body.classList.contains("busy")`)); i++) await sleep(300);
+            await srun(`document.querySelector(".edit-save").click(); true`);
+            for (let i = 0; i < 60 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+            const cut = await run(`(async () => { const f = ${riga}.items.find((i) => i.name === "r без фона.png"), b = f && await createImageBitmap(f.data);
+              const same = [...new Uint8Array(await ${riga}.items.find((i) => i.name === "r.jpg").data.arrayBuffer())].join() === ${JSON.stringify(before)};
+              const r = { png: !!f, type: f && (await f.getFile()).type, size: b && [b.width, b.height], same };
+              ${riga}.items.splice(${riga}.items.indexOf(f), 1); return r; })()`);
+            check("ИИ: «Фон» — шесть плиток с маской нейросети, «Размыть» на превью; «Прозрачный» — PNG рядом, снимок не тронут",
+              JSON.stringify(bt.tiles) === '["Как есть","Размыть","Белый","Чёрный","Ч/Б фон","Прозрачный"]' && bt.drawn === 6 && bs.shown && bs.dirty
+              && cut.png && cut.same && cut.size?.[0] > 100, JSON.stringify({ bt, bs: { values: bs.values, shown: bs.shown, note: bs.note }, cut }));
+            // 3D: кадр с глубиной на холсте WebGL, «Качели», запись ролика рядом
+            await srun(`document.querySelector(".edit-btn").click(); true`);
+            for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+            await tool("3D-параллакс — снимок оживает (нейросеть: глубина)");
+            for (let i = 0; i < 300 && (await srun(`document.querySelector(".edit-3d").hidden`)) && !/не получилось/.test(await srun(`galleryEditor.state().note`)); i++) await sleep(500);
+            await tool("Качели");
+            await sleep(700);
+            const d3 = await srun(`(() => { const v = document.querySelector(".edit-3d"), c = Object.assign(document.createElement("canvas"), { width: 8, height: 8 }), x = c.getContext("2d");
+              x.drawImage(v, 0, 0, 8, 8); const px = x.getImageData(0, 0, 8, 8).data; let sum = 0; for (let i = 0; i < px.length; i += 4) sum += px[i] + px[i + 1] + px[i + 2];
+              return { shown: !v.hidden, size: [v.width, v.height], lit: sum > 0, sway: [...document.querySelectorAll(".edit-3d-row .edit-tool")].find((b) => b.title === "Качели").classList.contains("on"),
+                rec: !document.querySelector(".edit-3d-rec").disabled, note: galleryEditor.state().note }; })()`);
+            await gsend("Page.captureScreenshot", { format: "png" }).then((res) => fs.writeFileSync(path.join(OUT, "00-3d.png"), Buffer.from(res.data, "base64")));
+            await srun(`document.querySelector(".edit-3d-rec").click(); true`);
+            for (let i = 0; i < 60 && !/Ролик (сохранён|не записался)/.test(await srun(`galleryEditor.state().note`)); i++) await sleep(500);
+            const clip3 = await run(`(() => { const f = ${riga}.items.find((i) => / 3D[.](mp4|webm)$/.test(i.name)), r = f && { name: f.name, size: f.data.size };
+              if (f) ${riga}.items.splice(${riga}.items.indexOf(f), 1); return r || null; })()`);
+            const n3 = await srun(`galleryEditor.state().note`);
+            await srun(`document.querySelector(".edit-end .edit-tool[title='Выйти из правки (Esc)']").click(); true`);
+            await sleep(300);
+            check("ИИ: «3D-параллакс» — глубина нейросети, снимок движется на холсте WebGL, ролик 8 с — рядом со снимком",
+              d3.shown && d3.lit && d3.size[0] % 2 === 0 && d3.size[1] % 2 === 0 && d3.sway && d3.rec && clip3?.size > 1000 && /^r 3D[.](mp4|webm)$/.test(clip3.name) && /Ролик сохранён/.test(n3),
+              JSON.stringify({ d3, clip3, n3 }));
+          }
           // сведения о снимке (tools/info.js): дата, камера, место правятся — «Сохранить» пишет только EXIF,
           // сжатые точки те же; поля после этого показывают записанное; «Место» не разобрать — красная рамка
           await srun(`document.querySelectorAll(".thumb")[0].click(); true`);

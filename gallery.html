@@ -265,6 +265,11 @@
   /* сведения о снимке: файл, дата, камера, место, «В Избранное», «Удалить» */
   .edit-info { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 14px; max-width: 100%; padding: 6px 10px; border-radius: 16px; background: rgba(38, 38, 44, 0.85); color: #e8e8ec; font-size: 0.82rem; }
   .edit-info[hidden] { display: none; }
+  /* 3D-параллакс (tools/depth.js): холст поверх снимка, над полосой; строка движений и записи */
+  .edit-3d { position: absolute; left: 0; top: 0; width: 100%; z-index: 2; object-fit: contain; background: #1b1b1f; pointer-events: none; }
+  .edit-3d[hidden], .edit-3d-row[hidden] { display: none; }
+  .edit-3d-row { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 16px; background: rgba(38, 38, 44, 0.85); }
+  .edit-3d-rec { color: #ff5252; margin-left: 10px; }
   .edit-info-file { flex-basis: 100%; text-align: center; color: #a0a0a8; overflow-wrap: anywhere; }
   .edit-info-field { display: flex; align-items: center; gap: 4px; }
   .edit-info-label { color: #a0a0a8; }

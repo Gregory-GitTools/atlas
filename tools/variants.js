@@ -1,8 +1,8 @@
 // Плитки вариантов над полосой правки (шум, цвет): маленький снимок с вариантом и подпись, как в
 // photo-editor; щелчок — примерить (можно сравнивать подряд), ← → — соседний вариант. Плитки
 // считаются при открытии строки: снимок с уже выбранным другим инструментом (честно)
-export function variantsTool(ed, { key, title, icon, list, order, off, apply }) {
-  ed.filter({ key, order, off, apply });
+export function variantsTool(ed, { key, title, icon, list, order, off, apply, clear }) {
+  ed.filter({ key, order, off, apply, clear });
   const el = Object.assign(document.createElement("div"), { className: "edit-group" });
   const toggle = ed.button(icon, title, () => ed.panel(key));
   el.append(toggle);

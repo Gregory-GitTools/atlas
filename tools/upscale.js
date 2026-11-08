@@ -45,6 +45,9 @@ export async function upscale(src, progress = () => {}) {
       progress(++done / total);
     }
   }
+  // прозрачность (фон убран) нейросеть не видит — с исходника, вдвое
+  ox.globalCompositeOperation = "destination-in";
+  ox.drawImage(src, 0, 0, W * 2, H * 2);
   return out;
 }
 

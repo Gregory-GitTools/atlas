@@ -25,7 +25,7 @@ import { cacheGet } from "../core/storage.js";
 import * as settings from "../core/settings.js";
 import { keepExif, setMeta } from "./jpeg.js";
 
-const TOOLS = ["./rotate.js", "./perspective.js", "./crop.js", "./noise.js", "./color.js", "./upscale.js", "./info.js"]; // новый инструмент — файл в tools/ и строка здесь
+const TOOLS = ["./rotate.js", "./perspective.js", "./crop.js", "./noise.js", "./color.js", "./background.js", "./upscale.js", "./depth.js", "./info.js"]; // новый инструмент — файл в tools/ и строка здесь
 const PREVIEW_MAX = 2400; // как в photo-editor (было 1000 — при увеличении снимок размывался)
 const ORIGINALS = "[Originals]";
 const QUALITY = 0.92;
@@ -427,7 +427,8 @@ const api = {
   setAspect(key) { ed.aspect = key; settings.set("edit.aspect", key); ed.cropOn = true; refit(); sync(); },
   // строка над полосой: одна за раз (пропорции, шум, цвет); второй щелчок — убрать
   panel(key) { ed.panel = ed.panel === key ? null : key; sync(); },
-  // обработка пикселей: инструмент объявляет её, значение — в ed.values[key]
+  // обработка пикселей: инструмент объявляет её, значение — в ed.values[key]; clear(v) — с прозрачностью
+  // (у JPEG сохраняется PNG рядом)
   filter(f) { filters.push(f); filters.sort((a, b) => a.order - b.order); ed.values[f.key] = f.off; },
   setValue(key, v) { ed.values[key] = v; refilter(); },
   // маленькая копия снимка с обработкой, как будто ed.values[key] = v — для плиток вариантов
@@ -440,6 +441,8 @@ const api = {
   },
   // копия превью без поворота — для поиска горизонта
   preview: () => ed.pv,
+  // готовый кадр в размер превью: обработка, точный угол, перспектива, рамка — для 3D
+  frame: () => framed(ed.shown || ed.pv, 1),
   // сведения о снимке: поправки к EXIF ({ date, camera, gps }; ключа нет — не трогали)
   setMeta(m) { ed.meta = m; sync(); },
   // обработка готового кадра при сохранении: { on() — включена, run(canvas) → canvas }
@@ -571,6 +574,16 @@ async function save() {
   try {
     const where = await locate(p, true);
     const jpeg = !/\.(png|webp)$/i.test(where.name), meta = jpeg && Object.keys(ed.meta).length ? ed.meta : null;
+    // прозрачного JPEG не бывает — PNG рядом («… без фона.png»), сам снимок не тронут
+    if (jpeg && active().some((f) => f.clear?.(ed.values[f.key]))) {
+      const png = await render(where, null, "image/png"), name = `${where.name.replace(/\.[^.]+$/, "")} без фона.png`;
+      await write(await where.dir.getFileHandle(name, { create: true }), png);
+      close(true);
+      try { window.opener?.atlasGalleryRescan?.(); } catch { /* окно карты закрыто */ }
+      say(`Сохранено рядом: ${name}`);
+      setTimeout(() => say(""), 4000);
+      return;
+    }
     // поправили только сведения — тот же снимок с новым EXIF, без пересжатия
     const blob = edited() ? await render(where, meta) : await setMeta(ed.file, meta || {});
     // исходник — в «[Originals]», только при первой правке (дальше там уже настоящий оригинал)
@@ -594,7 +607,20 @@ async function save() {
 }
 
 // снимок в полный размер со всей правкой
-async function render(where, meta) {
+// кадр: точный угол, перспектива и рамка; f — во сколько раз base больше превью
+function framed(base, f) {
+  const W = base.width, H = base.height, r = kept();
+  if (warped()) return warpOut(base, r, f);
+  const out = Object.assign(document.createElement("canvas"), { width: Math.max(1, Math.round(r.w * f)), height: Math.max(1, Math.round(r.h * f)) });
+  const x = out.getContext("2d");
+  x.imageSmoothingQuality = "high";
+  x.translate(-r.x * f, -r.y * f);
+  x.rotate((ed.angle * Math.PI) / 180);
+  x.drawImage(base, -W / 2, -H / 2);
+  return out;
+}
+
+async function render(where, meta, type) {
   // полный размер: исходник → повороты на 90° и зеркало → точный угол и рамка
   const bmp = await createImageBitmap(ed.file, { imageOrientation: "from-image" });
   let base = ed.q || ed.flip ? turned(bmp, ed.q, ed.flip) : bmp;
@@ -606,23 +632,14 @@ async function render(where, meta) {
     await runFilters(base, ed.values, base.width / ed.pv.width);
   }
   // рамка — в точках превью: в полный размер — во столько раз, во сколько снимок больше превью
-  const W = base.width, H = base.height, f = W / ed.pv.width, r = kept();
-  let out;
   if (warped()) {
     say("Сохраняю: выправляю перспективу…");
     await new Promise((res) => setTimeout(res, 30)); // надпись успевает показаться
-    out = warpOut(base, r, f);
-  } else {
-    out = Object.assign(document.createElement("canvas"), { width: Math.max(1, Math.round(r.w * f)), height: Math.max(1, Math.round(r.h * f)) });
-    const x = out.getContext("2d");
-    x.imageSmoothingQuality = "high";
-    x.translate(-r.x * f, -r.y * f);
-    x.rotate((ed.angle * Math.PI) / 180);
-    x.drawImage(base, -W / 2, -H / 2);
   }
+  let out = framed(base, base.width / ed.pv.width);
   bmp.close?.();
   for (const fin of finishers) if (fin.on()) out = await fin.run(out);
-  const type = /\.png$/i.test(where.name) ? "image/png" : /\.webp$/i.test(where.name) ? "image/webp" : "image/jpeg";
+  type ||= /\.png$/i.test(where.name) ? "image/png" : /\.webp$/i.test(where.name) ? "image/webp" : "image/jpeg";
   const blob = await new Promise((r) => out.toBlob(r, type, QUALITY));
   if (!blob) throw new Error("снимок слишком большой для браузера");
   return type === "image/jpeg" ? keepExif(blob, ed.file, out.width, out.height, meta) : blob;
