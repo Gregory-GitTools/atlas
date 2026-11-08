@@ -2052,10 +2052,46 @@ body.has-photo-strip .status {
   font-weight: 600;
 }
 
+/* шапка повторов: ссылки на разделы */
+.al-dup-links {
+  display: flex;
+  gap: 6px;
+}
+
+.al-dup-link {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--tone-my) 14%, #fff);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.al-dup-link:hover {
+  background: var(--active);
+}
+
+/* папки группы — у каждой «скопировать полный путь» */
 .al-dup-where {
-  margin: 8px 6px 4px;
+  margin: 8px 2px 4px 6px;
   color: var(--muted);
   font-size: 12px;
+}
+
+.al-dup-folder {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.al-dup-place {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .al-dup {

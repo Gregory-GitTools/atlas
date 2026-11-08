@@ -1120,6 +1120,23 @@ try {
         dv.view && dv.title === "Повторы" && dv.same === 2 && dv.like === 1 && JSON.stringify(dv.rows.slice().sort()) === "[2,2,4]" && dv.keep === 3 && dv.all === "Убрать лишние копии (4)", JSON.stringify(dv));
       await sleep(800);
       await shot("99-dups");
+      // в шапке — ссылки на разделы; у папок — «скопировать полный путь»: где лежит своя папка, спрашивается
+      // один раз (вставили папку выше — имя дописывается), путь — с обратными косыми, как в Проводнике
+      const links = await run(`(async () => { const l = [...document.querySelectorAll(".al-dup-link")]; const b = document.querySelector('[data-panel="albums"] .panel-body');
+        l[1].click(); await new Promise((r) => setTimeout(r, 900));
+        const head = [...document.querySelectorAll(".al-dup-title")][1].getBoundingClientRect().top - document.querySelector(".al-dup-links").getBoundingClientRect().bottom;
+        return { names: l.map((x) => x.textContent), top: b.scrollTop, head }; })()`);
+      const copied = await run(`(async () => { const asked = []; window.prompt = (q) => { asked.push(q); return "E:/Архив/"; };
+        let got = null; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (t) => { got = t; } } });
+        const btns = [...document.querySelectorAll(".al-dup-folder .pb-btn")];
+        btns[0].click(); await new Promise((r) => setTimeout(r, 300)); const first = got;
+        btns[1].click(); await new Promise((r) => setTimeout(r, 300));
+        return { first, second: got, asked: asked.length, title: btns[0].title }; })()`);
+      check("повторы: в шапке ссылки на разделы, у папок — копировать полный путь (папку на диске спрашивают один раз)",
+        JSON.stringify(links.names) === '["Одинаковые (2)","Похожие (1)"]' && links.top > 0 && links.head > -30 && links.head < 400
+        && copied.asked === 2 && /^E:\\Архив\\(Фото|Диск D)\\20240101 Рига$/.test(copied.first) && copied.title === "Скопировать полный путь к папке"
+        && (await run(`!document.querySelector('[data-panel="albums"] .panel-head .panel-btn[title="Найти повторы снимков"] path').getAttribute("d").startsWith("M16 1H4")`)),
+        JSON.stringify({ links, copied }));
       const tree = `const tree = (d, pre = "") => d.items.flatMap((i) => (i.kind === "directory" ? tree(i, pre + i.name + "/") : [pre + i.name]));`;
       await run(`[...document.querySelectorAll(".al-dup-cell")].find((c) => /^Диск D.*v[.]mp4/.test(c.querySelector(".al-cell").title)).querySelector(".al-dup-out").click(); true`);
       for (let i = 0; i < 20 && (await run(`${as}.dups.same`)) !== 1; i++) await sleep(300);

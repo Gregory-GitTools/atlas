@@ -840,9 +840,11 @@ function openAlbumById(id) {
 // оставить её. Лишняя копия не удаляется — переносится в папку «[Повторы]» в корне своей папки тем же
 // путём (обход её пропускает); вернуть — перенести файл обратно. У живого фото — вместе с роликом
 const STASH = "[Повторы]";
+// кнопка — снимок с лупой (Грегори 2026-11-08: два листка — «копировать», он у пути к папке)
+const FIND_DUPS = svg("M18 13v7H4V6h5.02c.05-.71.22-1.38.48-2H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-5l-2-2zm-1.5 5h-11l2.75-3.53 1.96 2.36 2.75-3.54zm2.8-9.11c.44-.7.7-1.51.7-2.39C20 4.01 17.99 2 15.5 2S11 4.01 11 6.5s2.01 4.5 4.49 4.5c.88 0 1.7-.26 2.39-.7L21 13.42 22.42 12 19.3 8.89zM15.5 9C14.12 9 13 7.88 13 6.5S14.12 4 15.5 4 18 5.12 18 6.5 16.88 9 15.5 9z", 18);
 const COPY = svg("M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z", 18);
 let dupView = false, dups = null, dupRun = 0;
-const dupBtn = panel.addButton(COPY, "Найти повторы снимков", () => openDups());
+const dupBtn = panel.addButton(FIND_DUPS, "Найти повторы снимков", () => openDups());
 dupBtn.hidden = true;
 const mb = (n) => (n < 1048576 ? `${Math.max(1, Math.round(n / 1024))} КБ`
   : n < 1073741824 ? `${(n / 1048576).toLocaleString("ru", { maximumFractionDigits: n < 10485760 ? 1 : 0 })} МБ` : `${(n / 1073741824).toLocaleString("ru", { maximumFractionDigits: 1 })} ГБ`);
@@ -945,6 +947,10 @@ function renderDups() {
   setFold([]);
   const bar = h("div", "pb-bar");
   bar.append(btn(BACK, "К альбомам", () => { renderList(currentCountry); panel.body.scrollTop = 0; }));
+  // в шапке — ссылки на разделы (Грегори 2026-11-08); шапка не уезжает при прокрутке
+  const links = h("div", "al-dup-links");
+  const sections = [];
+  bar.append(links);
   const nodes = [bar];
   if (dups.busy) nodes.push(h("p", "pb-hint al-dup-hint", `${dups.step}… ${dups.done} из ${dups.total}`));
   else {
@@ -958,22 +964,62 @@ function renderDups() {
       all.addEventListener("click", () => stashAll(extra, `Перенести лишние копии (${extra.length}, ${mb(size)}) в папку «${STASH}»? Ничего не удаляется: вернуть можно, перенеся файлы обратно.`));
       nodes.push(all);
     }
-    const section = (list, title, hint) => {
+    const section = (list, title, short, hint) => {
       if (!list.length) return;
-      nodes.push(h("div", "al-dup-title", title), h("p", "pb-hint al-dup-hint", hint));
+      const head = h("div", "al-dup-title", title);
+      const go = h("button", "al-dup-link", `${short} (${list.length})`);
+      go.title = `К разделу «${title}»`;
+      go.addEventListener("click", () => panel.body.scrollTo({ top: head.offsetTop - bar.offsetHeight - 4, behavior: "smooth" }));
+      links.append(go);
+      nodes.push(head, h("p", "pb-hint al-dup-hint", hint));
+      // над группами — папки, где лежат копии, у каждой — «скопировать полный путь»
       let last = "";
       for (const g of list) {
-        const at = [...new Set(g.map((p) => placeOf(p.album)))].join(" · ");
-        if (at !== last) nodes.push(h("div", "al-dup-where", (last = at)));
+        const folders = [...new Map(g.map((p) => [p.album.id, p])).values()];
+        const at = folders.map((p) => p.album.id).join("|");
+        if (at !== last) { last = at; nodes.push(whereBox(folders)); }
         nodes.push(dupRow(g));
       }
     };
-    section(dups.same, "Одинаковые файлы", "Копии байт в байт");
-    section(dups.like, "Похожие снимки", "Сняты в ту же секунду, картинка почти та же — уменьшенная или поправленная копия, а может, серия. Решайте сами");
+    section(dups.same, "Одинаковые файлы", "Одинаковые", "Копии байт в байт");
+    section(dups.like, "Похожие снимки", "Похожие", "Сняты в ту же секунду, картинка почти та же — уменьшенная или поправленная копия, а может, серия. Решайте сами");
   }
   const keep = panel.body.scrollTop;
   panel.body.replaceChildren(...nodes);
   panel.body.scrollTop = keep;
+}
+
+// полный путь к папке на диске: браузер его не сообщает (знает только имя выбранной папки) — где она
+// лежит, Грегори вставляет один раз из адресной строки Проводника, помнится на этом компьютере (albums/paths)
+let diskPaths = null;
+const pathsOf = async () => (diskPaths ??= (await cacheGet("albums/paths").catch(() => null)) || {});
+async function askDiskPath(root) {
+  const known = (await pathsOf())[root.name] || "";
+  const text = prompt(`Где на диске лежит ваша папка «${root.name}»? Откройте её в Проводнике, щёлкните по адресной строке, скопируйте и вставьте сюда (например E:\\AllPhoto\\${root.name}).`, known);
+  if (text == null || !text.trim()) return null;
+  let path = text.trim().replace(/^"|"$/g, "").replace(/\//g, "\\").replace(/\\+$/, "");
+  // вставили папку выше — дописываем имя выбранной
+  if (path.split("\\").pop().toLowerCase() !== root.name.toLowerCase()) path += `\\${root.name}`;
+  diskPaths[root.name] = path;
+  await cacheSet("albums/paths", diskPaths).catch(() => {});
+  return path;
+}
+async function copyFolderPath(p) {
+  const base = (await pathsOf())[p.root.name] || await askDiskPath(p.root);
+  if (!base) return;
+  const full = [base, ...p.path.split("/").slice(1, -1)].join("\\");
+  try { await navigator.clipboard.writeText(full); ctx?.status(`Путь скопирован: ${full}`); }
+  catch { prompt("Скопируйте путь:", full); }
+}
+function whereBox(folders) {
+  const box = h("div", "al-dup-where");
+  for (const p of folders) {
+    const line = h("div", "al-dup-folder");
+    const copy = btn(COPY, "Скопировать полный путь к папке", () => copyFolderPath(p));
+    line.append(h("span", "al-dup-place", placeOf(p.album)), copy);
+    box.append(line);
+  }
+  return box;
 }
 
 function dupRow(g) {
@@ -1097,10 +1143,16 @@ function settingsSection(c, render) {
   for (const d of dirs) {
     const row = h("div", "set-row");
     row.append(h("span", "al-folder", `Папка: ${d.name}`));
+    const where = h("button", "text-btn", "Путь на диске…");
+    where.title = "Для «Скопировать полный путь» в повторах";
+    where.addEventListener("click", async () => { if (await askDiskPath(d)) render?.(); });
+    row.append(where);
     const forget = h("button", "text-btn", "Убрать");
     forget.addEventListener("click", () => forgetFolder(d, render));
     row.append(forget);
     box.append(row);
+    const known = diskPaths?.[d.name];
+    if (known) box.append(h("p", "set-hint", known));
   }
   const pick = h("button", "text-btn", "+ Добавить папку…");
   pick.addEventListener("click", () => pickFolder(render));
@@ -1114,7 +1166,7 @@ function settingsSection(c, render) {
   return box;
 }
 // выбранная папка видна в настройках сразу, ещё до первого открытия раздела
-if (canFolders()) savedDirs().then((l) => { if (!dirs.length) dirs = l; });
+if (canFolders()) { savedDirs().then((l) => { if (!dirs.length) dirs = l; }); pathsOf(); }
 
 // ---------- режим в строке поиска ----------
 const MODE = { icon: svg(STACK_D, 20), title: "Мои альбомы", placeholder: "Найти альбом", tone: "my",
