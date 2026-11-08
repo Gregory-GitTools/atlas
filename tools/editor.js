@@ -213,6 +213,16 @@ function shrink(r) {
   for (let i = 0; i < 20; i++) { const m = (lo + hi) / 2; if (fits(at(m))) lo = m; else hi = m; }
   return at(lo);
 }
+// снимок поменялся (угол, перспектива): рамка не тронута рукой — снова самая большая; тронута —
+// едет и растягивается вместе с самой большой, на том же месте снимка (Грегори 2026-11-08: «рамка
+// кадрирования не следит за рамкой перспективы» — раньше только уменьшалась)
+function follow(change) {
+  if (!ed.touched) { change(); ed.crop = biggest(); return; }
+  const c = ed.crop, r = c.w / c.h, b0 = biggest(r);
+  change();
+  const b1 = biggest(r), k = b0.h > 0 ? b1.h / b0.h : 1;
+  ed.crop = shrink({ x: b1.x + (c.x - b0.x) * k, y: b1.y + (c.y - b0.y) * k, w: c.w * k, h: c.h * k });
+}
 const same = (a, b) => Math.abs(a.x - b.x) < 0.5 && Math.abs(a.y - b.y) < 0.5 && Math.abs(a.w - b.w) < 0.5 && Math.abs(a.h - b.h) < 0.5;
 // что останется: рамка (если она открыта), иначе — весь снимок без пустых углов
 const kept = () => (ed.cropOn ? ed.crop : biggest(ed.pv.width / ed.pv.height));
@@ -386,7 +396,7 @@ canvas.addEventListener("pointermove", (e) => {
     // угол снимка — куда отпустили (не дальше снимка от его края и только выпуклым)
     const [qx, qy] = turn([pt.x, pt.y], -rad()), W = ed.pv.width, H = ed.pv.height;
     const q = ed.quad.map((c, i) => (i === drag.i ? [Math.max(-W, Math.min(W, qx)), Math.max(-H, Math.min(H, qy))] : c));
-    if (convex(q)) { ed.quad = q; ed.crop = ed.touched ? shrink(ed.crop) : biggest(); sync(); }
+    if (convex(q)) { follow(() => { ed.quad = q; }); sync(); }
     return;
   }
   const min = (40 * view.dpr) / view.s;
@@ -460,8 +470,8 @@ const api = {
   get state() { return ed; },
   svg, button, redraw, say, dirty, sync: () => sync(),
   sub,
-  // повернули — рамка не тронута рукой: снова самая большая; тронута — уменьшается, если не влезает
-  setAngle(a) { ed.angle = Math.max(-45, Math.min(45, Math.round(a * 10) / 10)); ed.crop = ed.touched ? shrink(ed.crop) : biggest(); sync(); },
+  // повернули — рамка за снимком (follow)
+  setAngle(a) { follow(() => { ed.angle = Math.max(-45, Math.min(45, Math.round(a * 10) / 10)); }); sync(); },
   // поправленная перспектива поворачивается вместе со снимком (photo-editor: иначе правка пропадёт)
   turn(d) {
     const o = ed.quad;
@@ -477,7 +487,7 @@ const api = {
   },
   // перспектива: ручки показать или убрать (поправленное остаётся); «как было» — снимок без неё
   perspective(on = !ed.persp) { ed.persp = on; sync(); },
-  resetQuad() { ed.quad = rectQuad(); ed.crop = ed.touched ? shrink(ed.crop) : biggest(); sync(); },
+  resetQuad() { follow(() => { ed.quad = rectQuad(); }); sync(); },
   warped,
   // рамка: открыть или убрать; пропорции — открывают её заново, самой большой
   crop(on = !ed.cropOn) { ed.cropOn = on; ed.panel = on ? "crop" : ed.panel === "crop" ? null : ed.panel; refit(); sync(); },

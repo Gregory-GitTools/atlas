@@ -56,11 +56,18 @@ export default function upscaleTool(ed) {
   // включено — для этого снимка: открыли другой — выключено
   let forP = null;
   const on = () => !!forP && forP === ed.state.p;
-  const toggle = ed.button(ed.svg("M21 11V3h-8l3.29 3.29-10 10L3 13v8h8l-3.29-3.29 10-10z"), "Увеличить ×2 нейросетью — при сохранении", () => {
+  const toggle = ed.button(ed.svg("M21 11V3h-8l3.29 3.29-10 10L3 13v8h8l-3.29-3.29 10-10z"), "Увеличить ×2 нейросетью — снимок станет вдвое больше по каждой стороне (делается при сохранении)", () => {
     forP = on() ? null : ed.state.p;
-    ed.say(on() ? "×2 — при сохранении (нейросеть; большой снимок — минуты)" : "");
+    ed.say(on() ? said() : "");
     ed.sync();
   });
+  // на экране ×2 не видно (Грегори 2026-11-08: «не понимаю, как работает») — подсказка с размерами:
+  // кадр (после поворота, перспективы, рамки) в точках снимка → вдвое
+  const said = () => {
+    const s = ed.state, f = ed.frame(), k = s.size ? Math.max(...s.size) / Math.max(s.src.width, s.src.height) : 1;
+    const w = Math.round(f.width * k), h = Math.round(f.height * k);
+    return `×2 включено: при сохранении нейросеть дорисует детали — ${w} × ${h} → ${w * 2} × ${h * 2} точек (большой снимок — минуты)`;
+  };
   el.append(toggle);
   ed.finish({
     on,

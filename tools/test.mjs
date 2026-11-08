@@ -1084,6 +1084,16 @@ try {
           await sleep(200);
           const z2 = await srun(`galleryEditor.state().zoom`);
           check("правка: колесо — масштаб снимка, Ctrl+колесо страницу не масштабирует, двойной щелчок — вписан", z1 > 1.3 && ctrl && z2 === 1, JSON.stringify({ z1, ctrl, z2 }));
+          // рамка, тронутая рукой (вдвое меньше самой большой), едет за перспективой: угол снимка вернули —
+          // рамка выросла вместе со снимком (раньше оставалась прежней). «×2» — подсказка с размерами
+          const fl = await srun(`(() => { const a = galleryEditor.api, e = a.state; a.crop(true);
+            const b = e.crop; e.touched = true; e.crop = { x: b.x, y: b.y, w: b.w / 2, h: b.h / 2 };
+            e.quad = e.quad.map((c, i) => (i === 0 ? [c[0] + 60, c[1] + 40] : c)); e.crop = { ...e.crop };
+            const h0 = e.crop.h; a.resetQuad(); const h1 = e.crop.h, big = b.h; a.crop(false); return { h0, h1, big, fits: galleryEditor.state().fits }; })()`);
+          await srun(`[...document.querySelectorAll(".edit-tool")].find((b) => b.title.startsWith("Увеличить ×2")).click(); true`);
+          const x2 = await srun(`galleryEditor.state().note`);
+          check("правка: рамка, тронутая рукой, едет и растёт вместе с перспективой; «×2» — подсказка с размерами",
+            fl.h1 > fl.h0 * 1.05 && fl.fits && /×2 включено.*\d+ × \d+ → \d+ × \d+/.test(x2), JSON.stringify({ fl, x2 }));
           await srun(`document.querySelector(".edit-end .edit-tool[title='Выйти из правки (Esc)']").click(); true`);
           await sleep(300);
           // шум и цвет: плитки вариантов с маленьким снимком; «Лёгкое» и «Ч/Б» — превью с обработкой, сохранено серым
