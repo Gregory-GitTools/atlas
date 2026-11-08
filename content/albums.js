@@ -11,7 +11,8 @@
 // случайный снимок из него. Страна — по границам стран без сети (country-borders.json travel-earth).
 // Видео и живые фото (как в travel-earth, Грегори 2026-11-02): ролик (.mov/.mp4) — своей клеткой со
 // значком ▶; живое фото iPhone — снимок и ролик с одним именем (IMG_1234.JPG + IMG_1234.MOV) — одна
-// клетка со значком LIVE, ролик оживает в галерее
+// клетка со значком LIVE, ролик оживает в галерее. Повторы (2026-11-08) — одинаковые и похожие снимки в
+// своих папках, лишние копии — в папку «[Повторы]»
 import { register, isMobile } from "../core/modules.js";
 import { createPanel, isOpen, homeList } from "../core/panel.js";
 import { repoFiles, repoUrl, repoSite } from "../core/repo.js";
@@ -491,7 +492,7 @@ function refresh() {
       ctx.map.getSource("albums-thumbs")?.setData(thumbData());
       setStripItems("albums", located().filter((p) => p.thumb).map(stripItem));
     }
-    if (isOpen("albums") && !openAlbum && !searchText) { if (openGroup) renderGroup(true); else renderList(currentCountry); }
+    if (isOpen("albums") && !openAlbum && !searchText && !dupView) { if (openGroup) renderGroup(true); else renderList(currentCountry); }
   });
 }
 const stripItem = (p) => ({ id: p.id, coordinates: pt(p), thumb: p.thumb, title: [p.album.title, photoDate(p)].filter(Boolean).join(" · "),
@@ -552,11 +553,10 @@ window.atlasGalleryRoots = () => dirs;
 // «Смотреть» — сразу слайд-шоу (play); щелчок по снимку — просто галерея с него
 function gallery(a, startId, play = false) {
   const ids = photosOf(a);
-  openGalleryWith(ids.map((id) => photos.get(id)).map((p) => ({ id: p.id, thumb: p.thumb, full: p.url,
-    title: p.album.title, credit: [photoDate(p), p.name].filter(Boolean).join(" · "), coordinates: p.rec?.lat ? pt(p) : null,
-    video: p.video, live: !!p.live, edit: editInfo(p) })),
-  startId || ids[0], media, { play });
+  openGalleryWith(ids.map((id) => galleryItem(photos.get(id))), startId || ids[0], media, { play });
 }
+const galleryItem = (p) => ({ id: p.id, thumb: p.thumb, full: p.url, title: p.album.title, credit: [photoDate(p), p.name].filter(Boolean).join(" · "),
+  coordinates: p.rec?.lat ? pt(p) : null, video: p.video, live: !!p.live, edit: editInfo(p) });
 
 function fitAlbum(a) {
   const pts = photosOf(a).map((id) => photos.get(id)).filter((p) => p.rec?.lat).map(pt);
@@ -646,7 +646,7 @@ function rows(items, depth = 0) {
     return [line];
   });
 }
-const rerender = () => (openAlbum ? renderAlbum() : openGroup ? renderGroup(true) : renderList(currentCountry, searchText));
+const rerender = () => (dupView ? renderDups() : openAlbum ? renderAlbum() : openGroup ? renderGroup(true) : renderList(currentCountry, searchText));
 
 // в шапке — раскрыть или свернуть все папки списка разом; кнопка видна, только когда папки есть
 const UNFOLD = svg("M12 5.83 15.17 9l1.41-1.41L12 3 7.41 7.59 8.83 9 12 5.83zm0 12.34L8.83 15l-1.41 1.41L12 21l4.59-4.59L15.17 15 12 18.17z", 18);
@@ -660,6 +660,7 @@ const foldBtn = panel.addButton(UNFOLD, "Раскрыть все папки", ()
 });
 function setFold(items) {
   foldItems = items;
+  dupBtn.hidden = dupView || ![...photos.values()].some((p) => p.handle);
   const all = allFolders(items), open = all.length > 0 && all.every((g) => expanded.has(g.id));
   foldBtn.hidden = !all.length;
   foldBtn.innerHTML = open ? FOLD : UNFOLD;
@@ -684,6 +685,7 @@ function accessRow() {
 function renderList(country, query = "") {
   openAlbum = null;
   openGroup = null;
+  dupView = false;
   currentCountry = country ?? currentCountry;
   searchText = query;
   const q = query.toLowerCase();
@@ -694,6 +696,7 @@ function renderList(country, query = "") {
   // без страны — список стран (первой строкой — своя папка), у списка страны — стрелка «Все страны»
   if (!q && !currentCountry) {
     panel.setTitle("Мои альбомы");
+    setFold([]);
     panel.body.replaceChildren(...(busy ? [h("p", "pb-hint", `Читаю снимки… проверено ${checked}`)] : []), homeList(countryItems(), chooseItem));
     return;
   }
@@ -736,6 +739,7 @@ function openGroupById(id) {
   if (!g) return;
   openAlbum = null;
   openGroup = g;
+  dupView = false;
   renderGroup();
   fitAlbum(g);
 }
@@ -818,10 +822,229 @@ function openAlbumById(id) {
   if (!a) return;
   openAlbum = a;
   openGroup = null;
+  dupView = false;
   renderedAlbum = null; // открыли заново — с начала
   renderAlbum();
   fitAlbum(a);
   if (!a.done) finish(a).then(() => { refresh(); if (openAlbum === a) renderAlbum(); });
+}
+
+// ---------- повторы (Грегори 2026-11-08: поиск дубликатов — первый из новых фото-инструментов) ----------
+// В своих папках одни и те же снимки лежат по нескольку раз: поездка скопирована на другой диск,
+// снимок сохранён дважды. Одинаковые — файлы байт в байт: сначала размер, у совпавших по размеру —
+// хэш SHA-256 (у роликов больше 32 МБ — начала, середины и конца). Похожие — снимки одной секунды
+// съёмки (дата EXIF) с почти той же картинкой (dHash 64 бита, отличие до 8): уменьшенная или
+// поправленная копия. «Избранное» (-Albom) — копии нарочно, не в счёте. Оставить — самый большой файл,
+// при равных — из альбома, где снимков больше (полная копия поездки), потом — с коротким именем (без
+// «— копия», «(1)» — в архиве Грегори такие копии Проводника есть); щелчок по другой клетке —
+// оставить её. Лишняя копия не удаляется — переносится в папку «[Повторы]» в корне своей папки тем же
+// путём (обход её пропускает); вернуть — перенести файл обратно. У живого фото — вместе с роликом
+const STASH = "[Повторы]";
+const COPY = svg("M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z", 18);
+let dupView = false, dups = null, dupRun = 0;
+const dupBtn = panel.addButton(COPY, "Найти повторы снимков", () => openDups());
+dupBtn.hidden = true;
+const mb = (n) => (n < 1048576 ? `${Math.max(1, Math.round(n / 1024))} КБ`
+  : n < 1073741824 ? `${(n / 1048576).toLocaleString("ru", { maximumFractionDigits: n < 10485760 ? 1 : 0 })} МБ` : `${(n / 1073741824).toLocaleString("ru", { maximumFractionDigits: 1 })} ГБ`);
+const push = (m, k, v) => { if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
+
+async function digest(file) {
+  const CHUNK = 4 << 20;
+  const parts = file.size <= 8 * CHUNK ? [file] : [0, (file.size - CHUNK) / 2, file.size - CHUNK].map((o) => file.slice(Math.floor(o), Math.floor(o) + CHUNK));
+  const hash = await crypto.subtle.digest("SHA-256", await new Blob(parts).arrayBuffer());
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+// отпечаток картинки: 9×8 серых точек, бит — светлее ли точка соседа справа
+async function dhash(p) {
+  const bmp = await createImageBitmap(await p.handle.getFile(), { resizeWidth: 9, resizeHeight: 8, resizeQuality: "high" });
+  const c = new OffscreenCanvas(9, 8).getContext("2d");
+  c.drawImage(bmp, 0, 0);
+  const d = c.getImageData(0, 0, 9, 8).data, gray = (i) => d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11;
+  const bits = [];
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) bits.push(gray(y * 9 + x) > gray(y * 9 + x + 1));
+  return bits;
+}
+const differ = (a, b) => a.reduce((n, bit, i) => n + (bit !== b[i]), 0);
+
+async function findDups() {
+  const run = ++dupRun, token = scan;
+  const list = [...photos.values()].filter((p) => p.handle && p.album.title !== "Избранное");
+  dups = { busy: true, scan, step: "", done: 0, total: 0, same: [], like: [], keep: new Map(), moving: 0 };
+  const step = (text, total) => { Object.assign(dups, { step: text, done: 0, total }); renderDups(); };
+  const tick = () => { if (++dups.done % 25 === 0) renderDups(); };
+  const stale = () => run !== dupRun || token !== scan;
+  step("Сравниваю размеры", list.length);
+  const bySize = new Map();
+  for (const p of list) {
+    try { p.size = (await p.handle.getFile()).size; push(bySize, p.size, p); } catch { /* файла уже нет */ }
+    if (stale()) return;
+    tick();
+  }
+  const cands = [...bySize.values()].filter((g) => g.length > 1);
+  step("Сверяю содержимое", cands.flat().length);
+  for (const g of cands) {
+    const byHash = new Map();
+    for (const p of g) {
+      try { push(byHash, await digest(await p.handle.getFile()), p); } catch { /* не прочитался */ }
+      if (stale()) return;
+      tick();
+    }
+    for (const x of byHash.values()) if (x.length > 1) dups.same.push(x);
+  }
+  // похожие: из одинаковых файлов — по одному, снимки одной секунды съёмки
+  const twins = new Set(dups.same.flatMap((g) => g.slice(1)));
+  const pics = list.filter((p) => !p.video && !twins.has(p));
+  step("Ищу похожие снимки", pics.length);
+  const byDate = new Map();
+  for (const p of pics) {
+    const r = await exifOf(p);
+    if (r.date) push(byDate, r.date, p);
+    if (stale()) return;
+    tick();
+  }
+  for (const g of byDate.values()) {
+    if (g.length < 2) continue;
+    const prints = await Promise.all(g.map((p) => dhash(p).catch(() => null)));
+    if (stale()) return;
+    // близкие попарно — в одну группу
+    const root = g.map((_, i) => i), find = (i) => (root[i] === i ? i : (root[i] = find(root[i])));
+    for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++)
+      if (prints[i] && prints[j] && differ(prints[i], prints[j]) <= 8) root[find(i)] = find(j);
+    const by = new Map();
+    g.forEach((p, i) => push(by, find(i), p));
+    for (const x of by.values()) if (x.length > 1) dups.like.push(x);
+  }
+  // группы из одних и тех же папок — рядом
+  const where = (g) => [...new Set(g.map((p) => p.album.id))].sort().join("|");
+  for (const k of ["same", "like"]) dups[k].sort((x, y) => where(x).localeCompare(where(y)));
+  dups.busy = false;
+  renderDups();
+}
+
+const keepOf = (g) => dups.keep.get(g) || [...g].sort((x, y) => (y.size || 0) - (x.size || 0) || y.album.photos.length - x.album.photos.length
+  || x.name.length - y.name.length)[0]; // «IMG_1.jpg» раньше «IMG_1 — копия.jpg»
+// где лежит: своя папка (если их несколько), поездка, альбом
+function placeOf(a) {
+  const parts = [a.title];
+  for (let g = a.parent && groups.get(a.parent); g; g = g.parent && groups.get(g.parent)) parts.unshift(g.title);
+  if (dirs.length > 1) parts.unshift(a.id.split("/")[0]);
+  return parts.join(" / ");
+}
+
+function openDups() {
+  dupView = true;
+  openAlbum = null;
+  openGroup = null;
+  if (!dups || (!dups.busy && dups.scan !== scan)) findDups(); else renderDups();
+  panel.body.scrollTop = 0;
+}
+
+function renderDups() {
+  if (!dupView || !dups) return;
+  panel.setTitle("Повторы");
+  setFold([]);
+  const bar = h("div", "pb-bar");
+  bar.append(btn(BACK, "К альбомам", () => { renderList(currentCountry); panel.body.scrollTop = 0; }));
+  const nodes = [bar];
+  if (dups.busy) nodes.push(h("p", "pb-hint al-dup-hint", `${dups.step}… ${dups.done} из ${dups.total}`));
+  else {
+    const extra = dups.same.flatMap((g) => g.filter((p) => p !== keepOf(g)));
+    const size = extra.reduce((n, p) => n + (p.size || 0), 0);
+    nodes.push(h("div", "tr-facts al-facts", dups.same.length ? `Одинаковых файлов: ${dups.same.length} · лишних копий ${extra.length} (${mb(size)})` : "Одинаковых файлов нет"),
+      h("p", "pb-hint al-dup-hint", `Лишняя копия не удаляется — переносится в папку «${STASH}» вашей папки тем же путём. Щелчок по снимку — оставить его, двойной — посмотреть.`));
+    if (extra.length) {
+      const all = h("button", "text-btn al-dup-all", dups.moving ? `Переношу… ${dups.moving - 1}` : `Убрать лишние копии (${extra.length})`);
+      all.disabled = !!dups.moving;
+      all.addEventListener("click", () => stashAll(extra, `Перенести лишние копии (${extra.length}, ${mb(size)}) в папку «${STASH}»? Ничего не удаляется: вернуть можно, перенеся файлы обратно.`));
+      nodes.push(all);
+    }
+    const section = (list, title, hint) => {
+      if (!list.length) return;
+      nodes.push(h("div", "al-dup-title", title), h("p", "pb-hint al-dup-hint", hint));
+      let last = "";
+      for (const g of list) {
+        const at = [...new Set(g.map((p) => placeOf(p.album)))].join(" · ");
+        if (at !== last) nodes.push(h("div", "al-dup-where", (last = at)));
+        nodes.push(dupRow(g));
+      }
+    };
+    section(dups.same, "Одинаковые файлы", "Копии байт в байт");
+    section(dups.like, "Похожие снимки", "Сняты в ту же секунду, картинка почти та же — уменьшенная или поправленная копия, а может, серия. Решайте сами");
+  }
+  const keep = panel.body.scrollTop;
+  panel.body.replaceChildren(...nodes);
+  panel.body.scrollTop = keep;
+}
+
+function dupRow(g) {
+  const row = h("div", "al-dup");
+  const kept = keepOf(g);
+  for (const p of g) {
+    const cell = h("div", "al-dup-cell" + (p === kept ? " keep" : ""));
+    const pic = h("button", "al-cell");
+    pic.title = [placeOf(p.album), p.name, photoDate(p)].filter(Boolean).join(" · ");
+    pic.append(lazyImg(p, ""));
+    if (p.video || p.live) pic.append(h("span", "al-badge", p.video ? "▶" : "LIVE"));
+    pic.addEventListener("click", () => { dups.keep.set(g, p); renderDups(); });
+    pic.addEventListener("dblclick", () => openGalleryWith(g.map(galleryItem), p.id, media));
+    cell.append(pic, h("span", "al-dup-info", [p.album.title, p.size ? mb(p.size) : ""].filter(Boolean).join(" · ")));
+    if (p === kept) cell.append(h("span", "al-dup-keep", "оставить"));
+    else {
+      const out = h("button", "text-btn al-dup-out", "Убрать");
+      out.disabled = !!dups.moving;
+      out.addEventListener("click", () => stashAll([p]));
+      cell.append(out);
+    }
+    row.append(cell);
+  }
+  return row;
+}
+
+// запись в свою папку браузер разрешает только по нажатию — разрешение спрашивается первым делом
+async function stashAll(list, question) {
+  for (const r of new Set(list.map((p) => p.root))) {
+    if (await r.requestPermission({ mode: "readwrite" }).catch(() => "denied") !== "granted") { ctx?.status("Нет разрешения на запись в папку — копии остались на месте"); return; }
+  }
+  if (question && !confirm(question)) return;
+  let fail = 0;
+  dups.moving = 1;
+  renderDups();
+  for (const p of list) {
+    try { await stash(p); forget(p); } catch { fail++; }
+    if (++dups.moving % 10 === 0) renderDups();
+  }
+  dups.moving = 0;
+  if (fail) ctx?.status(`Не перенеслось копий: ${fail}`);
+  refresh();
+  renderDups();
+}
+
+const dirAt = async (root, names, create = false) => { let d = root; for (const n of names) d = await d.getDirectoryHandle(n, { create }); return d; };
+async function stash(p) {
+  const folder = p.path.split("/").slice(1, -1); // путь внутри своей папки — без её имени и имени файла
+  const from = await dirAt(p.root, folder), to = await dirAt(p.root, [STASH, ...folder], true);
+  for (const f of [p, p.live].filter(Boolean)) {
+    // такой файл в «[Повторы]» уже есть — рядом с номером
+    let name = f.name;
+    for (let i = 2; await to.getFileHandle(name).then(() => true, () => false); i++) name = f.name.replace(/(\.[^.]+)?$/, ` (${i})$1`);
+    if (f.handle.move) try { await f.handle.move(to, name); continue; } catch { /* перенос не поддержан — копия и удаление */ }
+    const w = await (await to.getFileHandle(name, { create: true })).createWritable();
+    await w.write(await f.handle.getFile());
+    await w.close();
+    await from.removeEntry(f.name);
+  }
+}
+// убранный снимок — из альбома и из найденного
+function forget(p) {
+  photos.delete(p.id);
+  const a = p.album;
+  a.photos = a.photos.filter((id) => id !== p.id);
+  if (a.cover === p.id) a.cover = a.photos[0] || null;
+  for (const k of ["same", "like"]) dups[k] = dups[k].map((g) => {
+    const rest = g.filter((x) => x !== p), kept = dups.keep.get(g);
+    if (kept && kept !== p) dups.keep.set(rest, kept);
+    return rest;
+  }).filter((g) => g.length > 1);
 }
 
 // ---------- свои папки (настройки) ----------
@@ -923,6 +1146,9 @@ function openCountry(country) {
 }
 
 panel.onClose(() => {
+  dupView = false;
+  dupRun++;
+  dups = null;
   openAlbum = null;
   openGroup = null;
   currentCountry = null;
@@ -990,6 +1216,6 @@ register({
   settings: settingsSection,
   // для проверки
   stats: () => ({ albums: albums.size, groups: groups.size, photos: photos.size, located: located().length, thumbs: [...photos.values()].filter((p) => p.thumb).length,
-    countries: countries().map(([n, k]) => `${n}:${k}`), busy, shown, open: openAlbum?.title || openGroup?.title || null, country: currentCountry }),
+    countries: countries().map(([n, k]) => `${n}:${k}`), busy, shown, dups: dups && { busy: dups.busy, same: dups.same.length, like: dups.like.length, view: dupView }, open: openAlbum?.title || openGroup?.title || null, country: currentCountry }),
   openFirst: () => { const a = [...albums.values()][0]; if (!a) return false; openCountry(countryOf(a)); openAlbumById(a.id); return true; },
 });

@@ -825,6 +825,7 @@ try {
           folder(trip, [file("0.jpg"), folder("20230626 Варшава", [file("3.jpg"), folder("[Originals]", [file("3.jpg")])]),
             folder("20230625 Таллин", [file("1.jpg"), file("2.jpg")]), folder(trip + "-Albom", [file("1.jpg")])]),
           folder("20240101 Рига", [file("r.jpg"), file("r.mov"), file("v.mp4")]), folder("Music", [file("a.m4a")])]);
+        window.testFs = { file, folder };
         return true; })()`);
       await run(`${gear}.click(); true`);
       await sleep(600);
@@ -1078,6 +1079,70 @@ try {
       }
       await run(exitMode);
       await run(closeLayers);
+
+      // повторы: вторая папка «Диск D» — копия ролика v.mp4 из «Риги» и два похожих снимка (одна секунда съёмки
+      // в EXIF, второй — уменьшенный); 0–3.jpg первой папки — одинаковые файлы (8×8), копия в «Избранном» не в счёте.
+      // Оставить — из альбома, где снимков больше; лишнее — в «[Повторы]» тем же путём
+      await run(`(async () => { const { file, folder } = testFs;
+        const shot = async (w) => {
+          const c = new OffscreenCanvas(w, w * 3 / 4), x = c.getContext("2d");
+          x.fillStyle = "#fa3"; x.fillRect(0, 0, w, w * 3 / 4); x.fillStyle = "#236"; x.beginPath(); x.arc(w * 0.3, w * 0.3, w * 0.2, 0, 7); x.fill(); x.fillRect(w * 0.6, w * 0.1, w * 0.3, w * 0.55);
+          const b = new Uint8Array(await (await c.convertToBlob({ type: "image/jpeg" })).arrayBuffer());
+          // EXIF: IFD0 → Exif IFD → DateTimeOriginal
+          const t = new Uint8Array(64), v = new DataView(t.buffer);
+          t.set([0x49, 0x49, 0x2a, 0]); v.setUint32(4, 8, true);
+          v.setUint16(8, 1, true); v.setUint16(10, 0x8769, true); v.setUint16(12, 4, true); v.setUint32(14, 1, true); v.setUint32(18, 26, true);
+          v.setUint16(26, 1, true); v.setUint16(28, 0x9003, true); v.setUint16(30, 2, true); v.setUint32(32, 20, true); v.setUint32(36, 44, true);
+          t.set(new TextEncoder().encode("2024:03:01 12:00:00"), 44);
+          const app = new Uint8Array(74); app.set([0xff, 0xe1, 0, 72, 0x45, 0x78, 0x69, 0x66, 0, 0]); app.set(t, 10);
+          return new Blob([b.slice(0, 2), app, b.slice(2)], { type: "image/jpeg" });
+        };
+        const v = atlasGalleryRoots()[0].items.find((i) => i.name === "20240101 Рига").items.find((i) => i.name === "v.mp4");
+        const s1 = await shot(400), s2 = await shot(200);
+        window.showDirectoryPicker = async () => folder("Диск D", [folder("20240101 Рига", [file("v.mp4", v.data)]),
+          folder("20240301 Похожие", [file("s1.jpg", s1), file("s2.jpg", s2)])]);
+        return true; })()`);
+      const before = await run(`${as}.albums`);
+      await run(`${gear}.click(); true`);
+      await sleep(600);
+      await run(`${setBtn("+ Добавить папку…")}.click(); true`);
+      for (let i = 0; i < 30 && !(await run(`${as}.albums === ${before + 2} && !${as}.busy`)); i++) await sleep(500);
+      await run(`${gear}.click(); true`);
+      await run(openLayers("content/albums"));
+      await sleep(600);
+      const dupBtn = `document.querySelector('[data-panel="albums"] .panel-head .panel-btn[title="Найти повторы снимков"]')`;
+      check("повторы: кнопка в шапке «Моих альбомов»", await run(`!!${dupBtn} && !${dupBtn}.hidden`));
+      await run(`${dupBtn}.click(); true`);
+      for (let i = 0; i < 40 && !(await run(`${as}.dups && !${as}.dups.busy`)); i++) await sleep(500);
+      const dv = await run(`({ ...${as}.dups, title: document.querySelector('[data-panel="albums"] .panel-title').textContent, rows: [...document.querySelectorAll(".al-dup")].map((r) => r.children.length),
+        keep: document.querySelectorAll(".al-dup-cell.keep").length, all: document.querySelector(".al-dup-all")?.textContent, where: [...document.querySelectorAll(".al-dup-where")].map((w) => w.textContent) })`);
+      check("повторы: одинаковые файлы (снимки и ролик в двух папках) и похожие снимки, в каждой группе один «оставить»",
+        dv.view && dv.title === "Повторы" && dv.same === 2 && dv.like === 1 && JSON.stringify(dv.rows.slice().sort()) === "[2,2,4]" && dv.keep === 3 && dv.all === "Убрать лишние копии (4)", JSON.stringify(dv));
+      await sleep(800);
+      await shot("99-dups");
+      const tree = `const tree = (d, pre = "") => d.items.flatMap((i) => (i.kind === "directory" ? tree(i, pre + i.name + "/") : [pre + i.name]));`;
+      await run(`[...document.querySelectorAll(".al-dup-cell")].find((c) => /^Диск D.*v[.]mp4/.test(c.querySelector(".al-cell").title)).querySelector(".al-dup-out").click(); true`);
+      for (let i = 0; i < 20 && (await run(`${as}.dups.same`)) !== 1; i++) await sleep(300);
+      const d1 = await run(`(() => { ${tree} return { d: tree(atlasGalleryRoots()[1]), same: ${as}.dups.same }; })()`);
+      check("повторы: «Убрать» переносит копию в «[Повторы]» тем же путём",
+        JSON.stringify(d1.d) === JSON.stringify(["20240301 Похожие/s1.jpg", "20240301 Похожие/s2.jpg", "[Повторы]/20240101 Рига/v.mp4"]) && d1.same === 1, JSON.stringify(d1));
+      await run(`window.confirm = () => true; document.querySelector(".al-dup-all").click(); true`);
+      for (let i = 0; i < 20 && (await run(`${as}.dups.same`)); i++) await sleep(300);
+      const d2 = await run(`(() => { ${tree} const all = tree(atlasGalleryRoots()[0]); return { moved: all.filter((f) => f.startsWith("[Повторы]/")), jpgs: all.filter((f) => !f.includes("[") && /[0-9][.]jpg$/.test(f)),
+        ...${as}.dups, facts: document.querySelector(".al-facts").textContent, photos: ${as}.photos }; })()`);
+      const trip = "20230625-0716 (Travel) Испания";
+      check("повторы: «Убрать лишние копии» — остался один снимок из альбома, где снимков больше, похожие — на месте",
+        JSON.stringify(d2.moved) === JSON.stringify([`[Повторы]/${trip}/0.jpg`, `[Повторы]/${trip}/20230625 Таллин/2.jpg`, `[Повторы]/${trip}/20230626 Варшава/3.jpg`])
+        && JSON.stringify(d2.jpgs) === JSON.stringify([`${trip}/20230625 Таллин/1.jpg`, `${trip}/${trip}-Albom/1.jpg`]) && d2.same === 0 && d2.like === 1 && d2.facts === "Одинаковых файлов нет",
+        JSON.stringify(d2));
+      await run(exitMode);
+      await run(closeLayers);
+      await run(`${gear}.click(); true`);
+      await sleep(600);
+      await run(`[...document.querySelectorAll(".set-row")].find((r) => r.textContent.includes("Диск D")).querySelector(".text-btn").click(); true`);
+      for (let i = 0; i < 20 && (await run(`${as}.busy || ${as}.albums !== ${before}`)); i++) await sleep(500);
+      await run(`${gear}.click(); true`);
+      await sleep(600);
       await run(`${gear}.click(); true`);
       await sleep(600);
       await run(`${setBtn("Убрать")}.click(); true`);

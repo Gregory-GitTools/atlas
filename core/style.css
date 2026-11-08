@@ -2036,6 +2036,76 @@ body.has-photo-strip .status {
   white-space: nowrap;
 }
 
+/* повторы: группа — копии в ряд, оставляемая — в рамке цвета раздела */
+.al-dup-hint {
+  margin: 0 6px 8px;
+}
+
+.al-dup-all {
+  display: block;
+  margin: 0 6px 10px;
+}
+
+.al-dup-title {
+  margin: 10px 6px 2px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.al-dup-where {
+  margin: 8px 6px 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.al-dup {
+  display: flex;
+  gap: 6px;
+  padding: 0 4px 10px;
+  overflow-x: auto;
+}
+
+.al-dup-cell {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 92px;
+}
+
+.al-dup-cell .al-cell {
+  width: 100%;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+}
+
+.al-dup-cell.keep .al-cell {
+  outline-color: var(--tone-my);
+}
+
+.al-dup-info {
+  width: 100%;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.al-dup-keep {
+  color: var(--tone-my);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 26px;
+}
+
+.al-dup-out {
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
 /* ---------- мои треки ---------- */
 .tk-open {
   display: block;
