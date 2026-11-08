@@ -60,13 +60,14 @@ export default function info(ed) {
   ed.sub.append(row);
 
   // что в файле (orig) и что сейчас в полях → поправки для «Сохранить»
-  let orig = {}, forP = null, fav = null, inFav = false;
+  let orig = {}, forP = null, fav = null, inFav = false, sent = "{}";
   function changed() {
     const m = {}, gps = parseGps(place.value);
     if (toExif(date.value) !== (toInput(orig.date) ? toExif(toInput(orig.date)) : "")) m.date = toExif(date.value);
     if (camera.value.trim() !== (orig.camera || "")) m.camera = camera.value.trim();
     place.classList.toggle("bad", gps === undefined);
     if (gps !== undefined && !sameGps(gps, orig.gps)) m.gps = gps;
+    sent = JSON.stringify(m);
     ed.setMeta(m);
   }
   for (const i of [date, camera, place]) i.addEventListener("input", changed);
@@ -78,10 +79,7 @@ export default function info(ed) {
     head.textContent = `${p.edit.path.split("/").pop()} · ${mb(file.size)} · ${s.size[0]} × ${s.size[1]}`;
     orig = /\.jpe?g$/i.test(p.edit.path) ? await readMeta(file) : {};
     if (forP !== p) return;
-    date.value = toInput(orig.date);
-    camera.value = orig.camera || "";
-    place.value = showGps(orig.gps);
-    place.classList.remove("bad");
+    fill({});
     const jpeg = /\.jpe?g$/i.test(p.edit.path);
     for (const i of [date, camera, place]) { i.disabled = !jpeg; i.title = jpeg ? i === place ? place.title : "" : "У PNG и WebP сведений EXIF нет — только у JPEG"; }
     // в «Избранном» ли он
@@ -94,6 +92,14 @@ export default function info(ed) {
       star.disabled = own;
     } catch { star.disabled = true; }
     if (forP === p) paint();
+  }
+  // поля — что в файле с поправками m (открыли снимок, «Назад», «Сбросить всё»)
+  function fill(m) {
+    sent = JSON.stringify(m);
+    date.value = toInput("date" in m ? m.date : orig.date);
+    camera.value = "camera" in m ? m.camera : orig.camera || "";
+    place.value = showGps("gps" in m ? m.gps : orig.gps);
+    place.classList.remove("bad");
   }
   const paint = () => {
     star.innerHTML = svg(inFav ? STAR : STAR_O);
@@ -154,7 +160,8 @@ export default function info(ed) {
       toggle.classList.toggle("on", open || Object.keys(s.meta || {}).length > 0);
       row.hidden = !open;
       if (!s.p) { forP = null; return; }
-      if (forP !== s.p) { forP = s.p; load(s).catch(() => {}); }
+      if (forP !== s.p) { forP = s.p; sent = "{}"; load(s).catch(() => {}); }
+      else if (JSON.stringify(s.meta || {}) !== sent) fill(s.meta || {});
     },
   };
 }

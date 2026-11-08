@@ -982,12 +982,12 @@ try {
               fav: riga.items.find((i) => /-Albom$/.test(i.name))?.items.map((i) => i.name) || null }; })()`;
           const saved = await run(fsState);
           check("правка: карандаш у своего снимка, поворот на 3° — сохранено: исходник в «[Originals]», снимок обрезан по рамке, копия в «…-Albom»",
-            e0.enabled && e1.open && e1.bar && e1.tools === 17 && e1.save && e1.nav === "none" && e2.dirty && !e2.save && e2.label === "3,0°"
+            e0.enabled && e1.open && e1.bar && e1.tools === 18 && e1.save && e1.nav === "none" && e2.dirty && !e2.save && e2.label === "3,0°"
             && saved.orig && saved.size[0] < 400 && saved.size[0] > 340 && JSON.stringify(saved.fav) === '["r.jpg"]', JSON.stringify({ e0, e1, e2, saved }));
           await srun(`document.querySelector(".edit-btn").click(); true`);
           for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
-          const e3 = await srun(`({ ...galleryEditor.state(), restore: document.querySelector(".edit-end .edit-tool").disabled })`);
-          await srun(`document.querySelector(".edit-end .edit-tool").click(); true`);
+          const e3 = await srun(`({ ...galleryEditor.state(), restore: document.querySelector(".edit-restore").disabled })`);
+          await srun(`document.querySelector(".edit-restore").click(); true`);
           for (let i = 0; i < 30 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
           const back = await run(fsState);
           check("правка: «Оригинал» — снимок как был, «[Originals]» и копия в «…-Albom» убраны", e3.hasOriginal && !e3.restore
@@ -1039,10 +1039,53 @@ try {
           check("правка: перспектива — угол тянется, снимок искажён, рамка внутри; поворот и зеркало несут её с собой",
             p1.persp && p1.warped && p1.quad[0][0] > -125 + 20 && p1.fits && p1.dirty && p2.s1.q === 3 && p2.s1.flip && p2.s1.warped && p2.s1.fits
             && p2.s2.q === 0 && !p2.s2.flip && JSON.stringify(p2.s2.quad) === JSON.stringify(p1.quad), JSON.stringify({ p1, p2 }));
+          // рамка — самая большая на искажённом снимке: на 3 % больше не влезает нигде рядом, а по-старому
+          // (вокруг середины четырёхугольника) выходила меньше
+          const bg = await srun(`(() => { const s = galleryEditor.state(), c = s.crop, f = galleryEditor.fitsBox, k = 1.03;
+            const cx = s.quad.reduce((a, p) => a + p[0], 0) / 4, cy = s.quad.reduce((a, p) => a + p[1], 0) / 4, r = c.w / c.h;
+            let lo = 0, hi = 2000; for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (f({ x: cx - m * r / 2, y: cy - m / 2, w: m * r, h: m })) lo = m; else hi = m; }
+            let bigger = false; for (let dx = -40; dx <= 40; dx += 4) for (let dy = -40; dy <= 40; dy += 4)
+              if (f({ x: c.x + dx - c.w * (k - 1) / 2, y: c.y + dy - c.h * (k - 1) / 2, w: c.w * k, h: c.h * k })) bigger = true;
+            return { h: c.h, old: Math.round(lo * 10) / 10, bigger }; })()`);
+          check("правка: рамка на искажённом снимке — самая большая, больше прежней (вокруг середины)", !bg.bigger && bg.h > bg.old + 1, JSON.stringify(bg));
           await srun(`document.querySelector(".edit-save").click(); true`);
           for (let i = 0; i < 40 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
           const ps = await run(fsState);
           check("правка: перспектива сохранена — кадр по рамке", Math.abs(ps.size[0] - p2.s2.crop.w) <= 2 && Math.abs(ps.size[1] - p2.s2.crop.h) <= 2, JSON.stringify({ ps, crop: p2.s2.crop }));
+          // «Назад» (и Ctrl+Z) — по шагу; «Сбросить правку» активна с первой правки — снимок как при открытии;
+          // колесо — масштаб снимка вокруг мыши, Ctrl+колесо не масштабирует страницу, двойной щелчок — вписан
+          await srun(`document.querySelector(".edit-btn").click(); true`);
+          for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          const angle = (v) => srun(`(() => { const s = document.querySelector(".edit-angle input"); s.value = ${v}; s.dispatchEvent(new Event("input")); return true; })()`);
+          const btns = `({ ...galleryEditor.state(), undo: !document.querySelector(".edit-end .edit-tool").disabled, reset: !document.querySelector(".edit-restore").disabled, resetTitle: document.querySelector(".edit-restore").title })`;
+          const u0 = await srun(btns);
+          await angle(5);
+          const u1 = await srun(btns);
+          await sleep(800);
+          await angle(8);
+          await sleep(800);
+          await srun(`document.querySelector(".edit-end .edit-tool").click(); true`);
+          const u2 = await srun(btns);
+          await srun(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true })); true`);
+          const u3 = await srun(btns);
+          await angle(8);
+          await srun(`document.querySelector(".edit-restore").click(); true`);
+          const u4 = await srun(btns);
+          check("правка: «Назад» — по шагу (и Ctrl+Z), «Сбросить правку» — активна с первой правки, снимок как при открытии",
+            !u0.undo && /^Вернуть/.test(u0.resetTitle) && u1.undo && u1.reset && /^Сбросить правку/.test(u1.resetTitle) && u2.angle === 5 && u3.angle === 0 && u4.angle === 0 && !u4.dirty && u4.undo,
+            JSON.stringify({ u0, u1, u2, u3, u4 }));
+          const cv = await srun(`(() => { const b = document.querySelector(".edit-canvas").getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 3]; })()`);
+          await gsend("Input.dispatchMouseEvent", { type: "mouseWheel", x: cv[0], y: cv[1], deltaX: 0, deltaY: -400 });
+          await sleep(200);
+          const z1 = await srun(`galleryEditor.state().zoom`);
+          const ctrl = await srun(`(() => { const e = new WheelEvent("wheel", { deltaY: -100, ctrlKey: true, bubbles: true, cancelable: true }); document.body.dispatchEvent(e); return e.defaultPrevented; })()`);
+          await gsend("Input.dispatchMouseEvent", { type: "mousePressed", x: cv[0], y: cv[1], button: "left", clickCount: 2 });
+          await gsend("Input.dispatchMouseEvent", { type: "mouseReleased", x: cv[0], y: cv[1], button: "left", clickCount: 2 });
+          await sleep(200);
+          const z2 = await srun(`galleryEditor.state().zoom`);
+          check("правка: колесо — масштаб снимка, Ctrl+колесо страницу не масштабирует, двойной щелчок — вписан", z1 > 1.3 && ctrl && z2 === 1, JSON.stringify({ z1, ctrl, z2 }));
+          await srun(`document.querySelector(".edit-end .edit-tool[title='Выйти из правки (Esc)']").click(); true`);
+          await sleep(300);
           // шум и цвет: плитки вариантов с маленьким снимком; «Лёгкое» и «Ч/Б» — превью с обработкой, сохранено серым
           await srun(`document.querySelector(".edit-btn").click(); true`);
           for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);

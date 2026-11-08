@@ -64,6 +64,7 @@ export default function upscaleTool(ed) {
   el.append(toggle);
   ed.finish({
     on,
+    set: (v) => { forP = v ? ed.state.p : null; }, // «Назад», «Сбросить всё»
     run: (c) => {
       ed.say("Сохраняю: увеличение ×2 — загружаю нейросеть…");
       return upscale(c, (k) => ed.say(`Сохраняю: увеличение ×2 — ${Math.round(k * 100)}%`));

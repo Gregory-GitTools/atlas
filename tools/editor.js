@@ -109,14 +109,35 @@ function onPhoto(x, y) {
   return q.every((a, i) => { const b = q[(i + 1) % 4]; return sign * ((b[0] - a[0]) * (pt[1] - a[1]) - (b[1] - a[1]) * (pt[0] - a[0])) >= -0.01 * ed.pv.width; });
 }
 const fits = (r) => onPhoto(r.x, r.y) && onPhoto(r.x + r.w, r.y) && onPhoto(r.x, r.y + r.h) && onPhoto(r.x + r.w, r.y + r.h);
-// самая большая рамка пропорции r посередине снимка (с поворотом — посередине повёрнутого,
-// с перспективой — вокруг середины четырёхугольника)
+// самая большая рамка пропорции r внутри снимка (с поворотом и перспективой). Была — вокруг
+// середины четырёхугольника, и у скошенного снимка оставалось много места (Грегори 2026-11-08):
+// при высоте h середины рамки, у которых все четыре уголка на снимке, — выпуклый многоугольник
+// (каждый уголок × каждая сторона — полуплоскость); h — наибольшая, при которой он не пуст,
+// рамка — посередине этого многоугольника
 function biggest(r = ratio()) {
-  const pts = outline(), cx = pts.reduce((a, p) => a + p[0], 0) / 4, cy = pts.reduce((a, p) => a + p[1], 0) / 4;
-  const at = (h) => ({ x: cx - (h * r) / 2, y: cy - h / 2, w: h * r, h });
+  const q = outline(), sign = Math.sign(cross(q[0], q[1], q[2])) || 1, big = 4 * Math.max(ed.pv.width, ed.pv.height);
+  const centers = (h) => {
+    let poly = [[-big, -big], [big, -big], [big, big], [-big, big]];
+    for (let i = 0; i < 4 && poly.length; i++) {
+      const a = q[i], b = q[(i + 1) % 4];
+      for (const [dx, dy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        // уголок — середина + (dx·w/2, dy·h/2) — по внутреннюю сторону a→b
+        const side = ([x, y]) => sign * ((b[0] - a[0]) * (y + (dy * h) / 2 - a[1]) - (b[1] - a[1]) * (x + (dx * h * r) / 2 - a[0]));
+        const out = [];
+        poly.forEach((p, k) => {
+          const n = poly[(k + 1) % poly.length], sp = side(p), sn = side(n);
+          if (sp >= 0) out.push(p);
+          if ((sp >= 0) !== (sn >= 0)) { const t = sp / (sp - sn); out.push([p[0] + (n[0] - p[0]) * t, p[1] + (n[1] - p[1]) * t]); }
+        });
+        poly = out;
+      }
+    }
+    return poly;
+  };
   let lo = 0, hi = 2 * Math.max(ed.pv.width, ed.pv.height);
-  for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (fits(at(m))) lo = m; else hi = m; }
-  return at(lo);
+  for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (centers(m).length) lo = m; else hi = m; }
+  const c = centers(lo), cx = c.length ? c.reduce((a, p) => a + p[0], 0) / c.length : 0, cy = c.length ? c.reduce((a, p) => a + p[1], 0) / c.length : 0;
+  return { x: cx - (lo * r) / 2, y: cy - lo / 2, w: lo * r, h: lo };
 }
 
 // куда уходит точка снимка (u, v от 0 до 1) при перспективе — и обратно (Хекберт, квадрат → четырёхугольник)
@@ -202,7 +223,7 @@ const kept = () => (ed.cropOn ? ed.crop : biggest(ed.pv.width / ed.pv.height));
 // cropOn — рамка открыта, crop — рамка, aspect — пропорции (помнятся), touched — рамку двигали рукой
 const ed = { p: null, file: null, src: null, pv: null, q: 0, flip: false, angle: 0, grid: false, dragging: false, hasOriginal: false,
   cropOn: false, crop: null, aspect: settings.get("edit.aspect", "photo"), touched: false, quad: null, persp: false,
-  panel: null, shown: null, values: {}, meta: {}, size: null };
+  panel: null, shown: null, values: {}, meta: {}, size: null, zoom: 1, pan: [0, 0] };
 // обработка пикселей от инструментов: { key, order, off, apply(canvas, value) } — по порядку order
 const filters = [];
 const active = (v = ed.values) => filters.filter((f) => v[f.key] !== undefined && v[f.key] !== f.off);
@@ -248,8 +269,9 @@ function draw() {
   if (!ed.pv) return;
   // снизу — место под полосу инструментов (на узком окне она в две строки)
   const low = (dock.offsetHeight + 24) * dpr;
-  const W = ed.pv.width, H = ed.pv.height, s = Math.min((cw * 0.94) / W, ((ch - low - 20 * dpr) * 0.94) / H);
-  const cx = cw / 2, cy = (ch - low) / 2 + 10 * dpr;
+  // вписан в окно, дальше — масштаб колесом и сдвиг (ed.zoom, ed.pan — точки CSS)
+  const W = ed.pv.width, H = ed.pv.height, s = ed.zoom * Math.min((cw * 0.94) / W, ((ch - low - 20 * dpr) * 0.94) / H);
+  const cx = cw / 2 + ed.pan[0] * dpr, cy = (ch - low) / 2 + 10 * dpr + ed.pan[1] * dpr;
   view = { s, cx, cy, dpr };
   x.save();
   x.translate(cx, cy);
@@ -338,19 +360,26 @@ function grab(pt) {
   if (pt.x > r.x && pt.x < r.x + r.w && pt.y > r.y && pt.y < r.y + r.h) return { kind: "move", from: pt, r0: { ...r } };
   return null;
 }
+// мимо рамки и ручек (или средней кнопкой) — сдвигает вид
 canvas.addEventListener("pointerdown", (e) => {
-  const g0 = grab(toFrame(e));
-  if (!g0) return;
-  drag = g0;
-  ed.dragging = true;
+  const g0 = e.button === 1 ? null : grab(toFrame(e));
+  if (g0) ed.dragging = true;
+  drag = g0 || { kind: "pan", x: e.clientX, y: e.clientY, pan: [...ed.pan] };
   canvas.setPointerCapture(e.pointerId);
+  if (!g0) canvas.style.cursor = "grabbing";
+  e.preventDefault();
   redraw();
 });
 canvas.addEventListener("pointermove", (e) => {
   const pt = toFrame(e);
   if (!drag) {
     const g0 = grab(pt);
-    canvas.style.cursor = !g0 ? "" : g0.kind === "quad" ? "grab" : g0.kind === "move" ? "move" : g0.i === 0 || g0.i === 3 ? "nwse-resize" : "nesw-resize";
+    canvas.style.cursor = !g0 ? (zoomed() ? "grab" : "") : g0.kind === "quad" ? "pointer" : g0.kind === "move" ? "move" : g0.i === 0 || g0.i === 3 ? "nwse-resize" : "nesw-resize";
+    return;
+  }
+  if (drag.kind === "pan") {
+    ed.pan = [drag.pan[0] + e.clientX - drag.x, drag.pan[1] + e.clientY - drag.y];
+    redraw();
     return;
   }
   if (drag.kind === "quad") {
@@ -387,9 +416,37 @@ canvas.addEventListener("pointermove", (e) => {
   ed.touched = true;
   sync();
 });
-const letGo = () => { if (drag) { drag = null; ed.dragging = false; sync(); } };
+const letGo = () => {
+  if (!drag) return;
+  const pan = drag.kind === "pan";
+  drag = null;
+  ed.dragging = false;
+  canvas.style.cursor = pan && zoomed() ? "grab" : "";
+  if (!pan) sync();
+};
 canvas.addEventListener("pointerup", letGo);
 canvas.addEventListener("pointercancel", letGo);
+// колесо — масштаб снимка вокруг стрелки мыши (от 1/5 окна — видны ручки перспективы за краями —
+// до ×12); двойной щелчок — снова вписан. Масштаб браузера в правке выключен (Грегори 2026-11-08):
+// Ctrl+колесо и щипок тачпада — тоже масштаб снимка, Ctrl + / − / 0 — ничего
+const zoomed = () => ed.zoom !== 1 || ed.pan[0] !== 0 || ed.pan[1] !== 0;
+function zoomAt(k, clientX, clientY) {
+  const z = Math.max(0.2, Math.min(12, ed.zoom * k));
+  if (z === ed.zoom) return;
+  // точка под мышью остаётся на месте: середина снимка отъезжает от мыши во столько же раз
+  const b = canvas.getBoundingClientRect(), mx = clientX - b.left, my = clientY - b.top;
+  const cx = view.cx / view.dpr, cy = view.cy / view.dpr, f = z / ed.zoom;
+  ed.pan = [ed.pan[0] + (mx - (mx - cx) * f) - cx, ed.pan[1] + (my - (my - cy) * f) - cy];
+  ed.zoom = z;
+  redraw();
+}
+canvas.addEventListener("wheel", (e) => {
+  if (!ed.p) return;
+  e.preventDefault();
+  zoomAt(Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : e.ctrlKey ? 0.01 : 0.0015)), e.clientX, e.clientY);
+}, { passive: false });
+addEventListener("wheel", (e) => { if (ed.p && e.ctrlKey) e.preventDefault(); }, { passive: false });
+canvas.addEventListener("dblclick", () => { if (!ed.p) return; ed.zoom = 1; ed.pan = [0, 0]; canvas.style.cursor = ""; redraw(); });
 
 // ---------- инструменты ----------
 const svg = (d, size = 22) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><path d="${d}" fill="currentColor"/></svg>`;
@@ -474,12 +531,14 @@ async function refilter() {
 }
 const syncers = [];
 const groups = Object.assign(document.createElement("div"), { className: "edit-tools" });
-const restoreBtn = button(svg("M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"), "Вернуть снимок, каким он был до правки", restore);
+const restoreBtn = button(svg("M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"), "Сбросить правку", () => (changed() ? resetAll() : restore()));
+restoreBtn.classList.add("edit-restore");
 const cancelBtn = button(svg("M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"), "Выйти из правки (Esc)", () => close());
 const saveBtn = button(svg("M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"), "Сохранить (Ctrl+S)", save);
 saveBtn.classList.add("edit-save");
+const undoBtn = button(svg("M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"), "Назад — отменить последнее (Ctrl+Z)", () => undo());
 const end = Object.assign(document.createElement("div"), { className: "edit-end" });
-end.append(restoreBtn, cancelBtn, saveBtn);
+end.append(undoBtn, restoreBtn, cancelBtn, saveBtn);
 bar.append(groups, end);
 // группы — в порядке TOOLS, как бы ни грузились модули
 const ready = Promise.all(TOOLS.map((m) => { const slot = groups.appendChild(document.createElement("div")); slot.className = "edit-group"; return import(m).then((mod) => {
@@ -490,9 +549,61 @@ const ready = Promise.all(TOOLS.map((m) => { const slot = groups.appendChild(doc
 
 function sync() {
   saveBtn.disabled = !dirty();
-  restoreBtn.disabled = !ed.hasOriginal;
+  // «Сбросить правку»: есть изменения — снимок как при открытии правки (активна с первой правки,
+  // Грегори 2026-11-08); нет — снимок из копии, каким он был до первой сохранённой правки
+  if (ed.p && first) {
+    const now = snapKey();
+    undoBtn.disabled = !history.length && now === current.key;
+    if (now !== current.key) remember();
+  }
+  restoreBtn.disabled = !changed() && !ed.hasOriginal;
+  restoreBtn.title = changed() || !ed.hasOriginal ? "Сбросить правку — снимок как при открытии" : "Вернуть снимок, каким он был до правки (из копии)";
   for (const f of syncers) f(ed);
   redraw();
+}
+
+// ---------- назад, сбросить всё (Грегори 2026-11-08) ----------
+// шаг — снимок состояния правки; изменения подряд (ползунок, набор текста, тянут рамку) — один шаг:
+// запоминается через полсекунды тишины и не посреди перетаскивания
+let history = [], current = null, first = null, later = 0;
+const snap = () => ({ angle: ed.angle, q: ed.q, flip: ed.flip, crop: { ...ed.crop }, cropOn: ed.cropOn, touched: !!ed.touched, quad: ed.quad.map((c) => [...c]),
+  aspect: ed.aspect, values: { ...ed.values }, meta: { ...ed.meta }, fin: finishers.map((f) => f.on()) });
+const keyOf = (sn) => JSON.stringify(sn);
+const snapKey = () => keyOf(snap());
+function remember() {
+  clearTimeout(later);
+  later = setTimeout(function tick() { if (ed.dragging) later = setTimeout(tick, 300); else commit(); }, 500);
+}
+function commit() {
+  clearTimeout(later);
+  if (!ed.p) return;
+  const sn = snap(), key = keyOf(sn);
+  if (key === current.key) return;
+  history.push(current);
+  current = { sn, key };
+}
+function back(to) {
+  const sn = to.sn, turnedNow = sn.q !== ed.q || sn.flip !== ed.flip;
+  Object.assign(ed, { angle: sn.angle, q: sn.q, flip: sn.flip, crop: { ...sn.crop }, cropOn: sn.cropOn, touched: sn.touched, quad: sn.quad.map((c) => [...c]),
+    aspect: sn.aspect, values: { ...sn.values }, meta: { ...sn.meta } });
+  if (!ed.cropOn && ed.panel === "crop") ed.panel = null;
+  finishers.forEach((f, i) => f.set?.(sn.fin[i]));
+  if (turnedNow) ed.pv = turned(ed.src, ed.q, ed.flip);
+  current = to;
+  refilter();
+}
+const changed = () => !!ed.p && !!first && snapKey() !== first.key;
+function undo() {
+  if (!ed.p || busy) return;
+  commit();
+  if (history.length) back(history.pop());
+}
+function resetAll() {
+  if (!ed.p || busy) return;
+  commit();
+  if (current.key === first.key) return;
+  history.push(current); // и это можно вернуть «Назад»
+  back(first);
 }
 
 // ---------- открыть, выйти ----------
@@ -518,6 +629,10 @@ async function open(p) {
     for (const f of filters) ed.values[f.key] = f.off; // как в photo-editor: «Оригинал», шум выключен
     ed.quad = rectQuad();
     refit();
+    Object.assign(ed, { zoom: 1, pan: [0, 0] });
+    finishers.forEach((f) => f.set?.(false));
+    history = [];
+    current = first = { sn: snap(), key: snapKey() };
     document.body.classList.add("editing");
     canvas.hidden = bar.hidden = sub.hidden = false;
     editBtn.classList.add("on");
@@ -533,8 +648,11 @@ async function open(p) {
 function close(force = false) {
   if (!ed.p) return true;
   if (!force && dirty() && !confirm("Выйти без сохранения? Правка пропадёт.")) return false;
-  Object.assign(ed, { p: null, file: null, src: null, pv: null, angle: 0, q: 0, flip: false, dragging: false, cropOn: false, crop: null, quad: null, persp: false, shown: null, panel: null, meta: {} });
+  Object.assign(ed, { p: null, file: null, src: null, pv: null, angle: 0, q: 0, flip: false, dragging: false, cropOn: false, crop: null, quad: null, persp: false, shown: null, panel: null, meta: {}, zoom: 1, pan: [0, 0] });
   drag = null;
+  clearTimeout(later);
+  history = [];
+  current = first = null;
   document.body.classList.remove("editing");
   canvas.hidden = bar.hidden = sub.hidden = true;
   editBtn.classList.remove("on");
@@ -682,6 +800,8 @@ function done(p, blob, text) {
 
 addEventListener("keydown", (e) => {
   if (!ed.p) return;
+  if ((e.ctrlKey || e.metaKey) && ["+", "-", "=", "_", "0"].includes(e.key)) { e.preventDefault(); return; }
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z" && !e.target.matches?.("input")) { e.preventDefault(); undo(); return; }
   if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); close(); }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); save(); }
 }, true);
@@ -690,7 +810,8 @@ addEventListener("beforeunload", (e) => { if (dirty()) e.preventDefault(); });
 // для проверки
 window.galleryEditor = { state: () => ({ open: !!ed.p, angle: ed.angle, q: ed.q, flip: ed.flip, dirty: dirty(), hasOriginal: ed.hasOriginal, pv: ed.pv && [ed.pv.width, ed.pv.height], note: note.textContent,
   cropOn: ed.cropOn, aspect: ed.aspect, crop: ed.crop && Object.fromEntries(Object.entries(ed.crop).map(([k, v]) => [k, Math.round(v * 10) / 10])), fits: !!ed.crop && fits(ed.crop),
-  persp: ed.persp, warped: !!ed.quad && warped(), panel: ed.panel, values: { ...ed.values }, shown: !!ed.shown, meta: { ...ed.meta }, size: ed.size, quad: ed.quad && ed.quad.map((c) => c.map((v) => Math.round(v))) }),
+  persp: ed.persp, warped: !!ed.quad && warped(), panel: ed.panel, values: { ...ed.values }, shown: !!ed.shown, meta: { ...ed.meta }, size: ed.size, zoom: Math.round(ed.zoom * 1000) / 1000, steps: history.length, quad: ed.quad && ed.quad.map((c) => c.map((v) => Math.round(v))) }),
+  fitsBox: (r) => fits(r),
   // угол снимка (с перспективой и поворотом) → точка экрана
   cornerOnScreen: (i) => { const [x, y] = outline()[i], b = canvas.getBoundingClientRect(); return [b.left + (view.cx + x * view.s) / view.dpr, b.top + (view.cy + y * view.s) / view.dpr]; },
   // точка рамки (в точках превью от середины снимка) → точка экрана — проверка тянет за уголки
