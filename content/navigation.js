@@ -15,7 +15,10 @@ import { WAYS, ARROW } from "../core/route.js";
 
 const HISTORY = "route.history";
 const ICON = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2 4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>';
-const id = (e) => `${e.lngLat[0].toFixed(5)},${e.lngLat[1].toFixed(5)}`;
+// сохранённый маршрут («⋯» → «Сохранить маршрут» в окне места) — своя запись, даже к той же точке
+const id = (e) => e.saved || `${e.lngLat[0].toFixed(5)},${e.lngLat[1].toFixed(5)}`;
+// значок сохранённого маршрута в списке (Грегори 2026-11-09: «если это сохранённый маршрут — поставить отметку»)
+const ROUTE_ICON = '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M18,15A3,3 0 0,1 21,18A3,3 0 0,1 18,21C16.69,21 15.58,20.17 15.17,19H14A2,2 0 0,1 12,17V15A2,2 0 0,0 10,13H8.83C8.42,14.17 7.31,15 6,15A3,3 0 0,1 3,12A3,3 0 0,1 6,9C7.31,9 8.42,9.83 8.83,11H10A4,4 0 0,1 14,15V17H15.17C15.58,15.83 16.69,15 18,15M18,17A1,1 0 0,0 17,18A1,1 0 0,0 18,19A1,1 0 0,0 19,18A1,1 0 0,0 18,17M6,11A1,1 0 0,0 5,12A1,1 0 0,0 6,13A1,1 0 0,0 7,12A1,1 0 0,0 6,11Z"/></svg>';
 const h = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls || "", textContent: text || "" });
 
 let navOn = false, state = {}, results = null, note = "", ctx = null;
@@ -89,7 +92,18 @@ function targetCard() {
     ways.append(b);
   }
   const way = h("div", "nav-way", state.busy ? `${WAYS.find((w) => w.id === state.busy).title}: ищу путь…` : state.route?.text || (state.me ? "Путь по дорогам и тропам — выберите, как добираться" : ""));
-  card.append(top, ways, way);
+  // остановки по пути — по порядку, крестик снимает
+  const stopsRow = h("div", "go-stops");
+  (state.stops || []).forEach((title, i) => {
+    const chip = h("span", "go-stop-chip");
+    chip.append(h("b", "", String(i + 1)), h("span", "", title));
+    const x = h("button", "go-stop-x");
+    Object.assign(x, { type: "button", title: "Убрать остановку", innerHTML: CLOSE });
+    x.addEventListener("click", (e) => { e.stopPropagation(); emit("route-stop-remove", i); });
+    chip.append(x);
+    stopsRow.append(chip);
+  });
+  card.append(top, ...(state.stops?.length ? [stopsRow] : []), ways, way);
   return card;
 }
 
@@ -112,7 +126,12 @@ function suggestions(q) {
   }
   const hist = historyList({ key: HISTORY, id, match: q ? (e) => `${e.title} ${e.address || ""}`.toLowerCase().includes(q) : null,
     // подпись — адрес; координаты — только если название не они же (старые записи)
-    label: (e) => { const c = `${e.lngLat[1].toFixed(5)}, ${e.lngLat[0].toFixed(5)}`; return { title: e.title, sub: e.address || (e.title === c ? "" : c) }; },
+    label: (e) => {
+      const c = `${e.lngLat[1].toFixed(5)}, ${e.lngLat[0].toFixed(5)}`;
+      const via = e.stops?.length ? `через ${e.stops.map((s) => s.title).join(", ")} · ` : "";
+      return { title: e.title, sub: via + (e.address || (e.title === c ? "" : c)), icon: e.saved ? ROUTE_ICON : "" };
+    },
+    rename: (e, title) => ({ ...e, title }),
     pick: choose, changed: render });
   if (hist.childElementCount) out.push(hist);
   else if (!q) out.push(h("div", "search-note", "Наберите место и нажмите Enter — или «Сюда» в окне любого места на карте"));
@@ -157,6 +176,8 @@ on("route-card", ({ open }) => {
   emit("nav-hold", { hold: open });
   if (open) emit("route-show");
 }, { replay: false });
+// «Сохранить маршрут» — наверх списка «Куда», своей записью со значком маршрута
+on("route-save", (r) => remember(HISTORY, { ...r, saved: `r${Date.now()}` }, id, 40), { replay: false });
 // «Сюда» в окне места — в историю и окно навигации
 on("route-open", (t) => {
   remember(HISTORY, t, id);

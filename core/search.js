@@ -138,6 +138,8 @@ export function initSearch({ map, maplibregl }) {
   picked = showCard;
   // стрелка пути в столбике: карточка видна — свернуть, нет — показать
   on("route-card-toggle", () => (cardShown ? foldCard() : showCard()), { replay: false });
+  // в путь добавили остановку — карточку показать (с поиском)
+  on("route-card-show", () => { emit("search-show"); showCard(); }, { replay: false });
   // карточка сворачивается своей кнопкой (раздел зовёт foldCard)
   foldCard = () => { cardOpen = false; refresh(); };
 
@@ -222,8 +224,10 @@ export function initSearch({ map, maplibregl }) {
     }
     if (mode) { close(); return; }
     const h = historyList({ key: HISTORY_KEY, id: (e) => e.display_name, match: q ? (e) => e.display_name.toLowerCase().includes(q) : null,
-      label: (e) => { const [t, ...rest] = e.display_name.split(", "); return { title: t, sub: rest.join(", ") }; },
-      pick: (e) => choose(e, e.display_name.split(", ")[0]), changed: suggest });
+      // переименованное — своё название (name), адрес — подписью
+      label: (e) => { const [t, ...rest] = e.display_name.split(", "); return e.name ? { title: e.name, sub: e.display_name } : { title: t, sub: rest.join(", ") }; },
+      rename: (e, name) => ({ ...e, name }),
+      pick: (e) => choose(e, e.name || e.display_name.split(", ")[0]), changed: suggest });
     // строкам истории — как найденным: стрелки ↑↓ ходят по ним
     for (const b of h.querySelectorAll(".search-item")) b.dataset.key = b.closest(".search-history-row").entry.display_name;
     const top = raw ? [everywhere(raw)] : [];
@@ -248,7 +252,7 @@ export function initSearch({ map, maplibregl }) {
   };
 
   // новое место — наверх; уже известное остаётся на своём месте (избранное не перемешивается)
-  const remember = (r) => rememberIn(HISTORY_KEY, { display_name: r.display_name, lat: r.lat, lon: r.lon, boundingbox: r.boundingbox },
+  const remember = (r) => rememberIn(HISTORY_KEY, { display_name: r.display_name, lat: r.lat, lon: r.lon, boundingbox: r.boundingbox, ...(r.name ? { name: r.name } : {}) },
     (e) => e.display_name, HISTORY_SIZE);
 
   const choose = (r, title) => {

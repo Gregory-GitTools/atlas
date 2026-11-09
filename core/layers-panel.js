@@ -156,7 +156,7 @@ export function initLayersPanel(ctx) {
   const arrowBtn = Object.assign(document.createElement("button"), { className: "btn glass wheel-toggle", innerHTML: ARROW });
   const lensBtn = Object.assign(document.createElement("button"), { className: "btn glass search-toggle" });
   const controls = [arrowBtn, lensBtn];
-  let shown = null, searchOn = false, mode = null, routeNow = null, started = false;
+  let shown = null, searchOn = false, mode = null, routeNow = null;
   const paint = () => {
     arrowBtn.classList.toggle("open", shown === "layers");
     arrowBtn.title = shown === "layers" ? "Спрятать слои карты" : "Слои карты";
@@ -173,7 +173,9 @@ export function initLayersPanel(ctx) {
     lensBtn.style.color = tone && !searchOn ? `var(--tone-${tone})` : "";
     lensBtn.classList.toggle("mode", !!mode && !target);
     lensBtn.classList.toggle("open", !mode || !!target);
-    const logo = !started && !mode && !target && !searchOn && !shown;
+    // логотип — пока не открыты ни поиск, ни барабан разделов и нет режима (Грегори 2026-11-09: «если ни один
+    // барабан не активен — лого»; открыт только барабан слоёв — тоже лого: нажатие откроет поиск)
+    const logo = !mode && !target && !searchOn && shown !== "content";
     lensBtn.classList.toggle("drop", logo);
     lensBtn.innerHTML = target ? `<span class="search-card-arrow" style="transform: rotate(${routeNow.me ? routeNow.arrow || 0 : 0}deg)">${ROUTE_ARROW}</span>`
       : mode ? mode.icon : logo ? LOGO : LUPA;
@@ -203,8 +205,10 @@ export function initLayersPanel(ctx) {
   // → поиск с барабаном разделов; открыто → спрятать всё (окно раздела прячется вместе со строкой,
   // body.search-hidden; режим остаётся — его значок на кнопке, без режима — лупа). Логотип — только при
   // старте, до первого щелчка
-  arrowBtn.addEventListener("click", () => setShown(shown === "layers" ? null : "layers"));
-  lensBtn.addEventListener("click", () => { started = true; searchOn || shown === "content" ? setShown(null, false) : setShown("content", true); });
+  // открыт поиск (верхняя кнопка активна) — нижняя кнопка сменяет барабаны туда и обратно, поиск не трогает
+  // (Грегори 2026-11-09); поиск закрыт — показать или спрятать барабан слоёв
+  arrowBtn.addEventListener("click", () => setShown(shown === "layers" ? (searchOn ? "content" : null) : "layers"));
+  lensBtn.addEventListener("click", () => (searchOn || shown === "content" ? setShown(null, false) : setShown("content", true)));
   on("search-mode", (m) => { mode = m; paint(); });
   // раздел живёт в самой строке поиска (навигация) — строка нужна. Барабан после выбора не закрывается —
   // он под рукой, открывает и закрывает его только кнопка справа вверху (Грегори 2026-11-06)
@@ -235,7 +239,8 @@ export function initLayersPanel(ctx) {
       if (!e.target.isConnected) return;
       if (openKey && !sub.contains(e.target) && !wheel.contains(e.target) && !controls.some((c) => c.contains(e.target))) show(null);
     });
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && isOpen && !e.defaultPrevented) { e.preventDefault(); openKey ? show(null) : setShown(null); } });
+    // Esc закрывает столбик кнопки; сам барабан — нет: он под рукой, Esc («Назад») сначала закрывает окна
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && isOpen && openKey && !e.defaultPrevented) { e.preventDefault(); show(null); } });
 
     // ---------- столбик кнопки ----------
     let openKey = null;
@@ -274,7 +279,7 @@ export function initLayersPanel(ctx) {
       sub.hidden = false;
       // слева от барабана, по центру относительно кнопки (она в центре барабана); не выходит за экран
       const r = wheel.getBoundingClientRect();
-      const mid = r.top + r.height / 2;
+      const mid = r.top + centerY();
       sub.style.right = `${innerWidth - r.left - 4}px`;
       sub.style.top = `${Math.max(8, Math.min(mid - sub.offsetHeight / 2, innerHeight - sub.offsetHeight - 8))}px`;
     }
@@ -291,20 +296,26 @@ export function initLayersPanel(ctx) {
       const step = Math.PI / 2 / half;
       return { step, radius: Math.min(full, GAP / Math.sin(step)) };
     };
+    // барабан прижат к своей кнопке (Грегори 2026-11-09: «уже не понятно, кто есть кто»): разделы — к верху,
+    // под кнопку справа вверху, слои — к низу, к треугольнику; хватает кнопок на всю высоту — по середине
+    const centerY = () => {
+      const h = drum.clientHeight, r = geom().radius + BTN / 2 + 4;
+      return name === "content" ? Math.min(h / 2, r) : Math.max(h / 2, h - r);
+    };
     const shownAt = (v) => v - (DETENT * Math.sin(2 * Math.PI * v)) / (2 * Math.PI);
     const wrap = (d) => { const k = n(); return ((d % k) + k + k / 2) % k - k / 2; };
     const centerIndex = () => ((Math.round(raw) % n()) + n()) % n();
 
     function layout() {
       if (!n() || !isOpen) return;
-      const h = drum.clientHeight, { radius, step } = geom();
+      const cy = centerY(), { radius, step } = geom();
       const off = shownAt(raw);
       list.forEach(({ cell }, i) => {
         const a = wrap(i - off) * step;
         if (Math.abs(a) >= Math.PI / 2) { cell.hidden = true; return; }
         const k = Math.cos(a);
         cell.hidden = false;
-        cell.style.transform = `translateY(${h / 2 + radius * Math.sin(a) - BTN / 2}px)`;
+        cell.style.transform = `translateY(${cy + radius * Math.sin(a) - BTN / 2}px)`;
         // к краям барабана — темнее и прозрачнее, центральная — сверху
         cell.style.filter = `brightness(${0.55 + 0.45 * k})`;
         cell.style.opacity = String(Math.min(1, 0.25 + k));

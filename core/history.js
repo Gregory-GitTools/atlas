@@ -8,6 +8,7 @@
 import * as settings from "./settings.js";
 
 const CLEAR = `<svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>`;
+const EDIT = `<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"/></svg>`;
 const DRAG = `<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M9 5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm-6 5.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM9 16a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm6 0a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z"/></svg>`;
 
 export const loadList = (key) => settings.get(key, []);
@@ -21,7 +22,9 @@ export function remember(key, entry, id, size = 20) {
 // key — где хранится; id(e) — чем записи различаются; label(e) → { title, sub }; pick(e) — щелчок;
 // changed() — список стал другим (перерисовать). Пусто — пустой узел
 // match(e) — показать только подходящие (набирают текст — подсказки из уже найденного)
-export function historyList({ key, id, label, pick, changed, match }) {
+// rename(e, title) → новая запись: у строки карандаш — переименовать прямо в строке (Грегори 2026-11-09);
+// label может вернуть icon — значок перед названием (сохранённый маршрут)
+export function historyList({ key, id, label, pick, changed, match, rename }) {
   const box = Object.assign(document.createElement("div"), { className: "history" });
   const list = loadList(key).filter((e) => !match || match(e));
   if (!list.length) return box;
@@ -31,10 +34,11 @@ export function historyList({ key, id, label, pick, changed, match }) {
     row.entry = entry;
     const handle = Object.assign(document.createElement("span"), { className: "search-drag", title: "Перетащить выше или ниже", innerHTML: DRAG });
     handle.addEventListener("pointerdown", (e) => drag(e, row));
-    const { title: t, sub } = label(entry);
+    const { title: t, sub, icon } = label(entry);
     const b = Object.assign(document.createElement("button"), { type: "button", className: "search-item" });
     b.innerHTML = `<span class="search-item-title"></span><span class="search-item-sub"></span>`;
     b.firstChild.textContent = t;
+    if (icon) b.firstChild.insertAdjacentHTML("afterbegin", `<i class="history-icon">${icon}</i>`);
     b.lastChild.textContent = sub || "";
     b.addEventListener("click", () => pick(entry));
     const del = Object.assign(document.createElement("button"), { type: "button", className: "search-delete", title: "Удалить из истории", innerHTML: CLEAR });
@@ -43,7 +47,26 @@ export function historyList({ key, id, label, pick, changed, match }) {
       saveList(key, loadList(key).filter((x) => id(x) !== id(entry)));
       changed();
     });
-    row.append(handle, b, del);
+    const edit = rename && Object.assign(document.createElement("button"), { type: "button", className: "search-delete search-rename", title: "Переименовать", innerHTML: EDIT });
+    edit?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const input = Object.assign(document.createElement("input"), { type: "text", className: "history-rename", value: t });
+      b.replaceWith(input);
+      input.focus();
+      input.select();
+      let done = false;
+      const finish = (keep) => {
+        if (done) return;
+        done = true;
+        const v = input.value.trim();
+        if (keep && v && v !== t) saveList(key, loadList(key).map((x) => (id(x) === id(entry) ? rename(x, v) : x)));
+        changed();
+      };
+      input.addEventListener("keydown", (ev) => { ev.stopPropagation(); if (ev.key === "Enter") finish(true); else if (ev.key === "Escape") { ev.preventDefault(); finish(false); } });
+      input.addEventListener("click", (ev) => ev.stopPropagation());
+      input.addEventListener("blur", () => finish(true));
+    });
+    row.append(handle, b, ...(edit ? [edit] : []), del);
     rows.append(row);
   }
   const clear = Object.assign(document.createElement("button"), { type: "button", className: "search-history-clear", textContent: "Очистить историю" });

@@ -2843,23 +2843,166 @@ body.search-hidden .panel-left {
   cursor: default;
 }
 
-/* «Сюда» — с той стороны окна, где объект (Грегори 2026-11-06: окно указывало вправо, а кнопка пряталась
-   слева за краем) */
-.go-here {
-  display: block;
+/* окно места при навигации (Грегори 2026-11-09): слева направо — стрелка «Сюда», «Добавить», «Поделиться»,
+   «Отметить»; кнопки как в карточке пути, значки почти во всю кнопку. Вверху, левее крестика, — «⋯» */
+.go-actions {
+  display: flex;
+  gap: 4px;
   margin-top: 8px;
 }
 
-.maplibregl-popup-anchor-right .go-here,
-.maplibregl-popup-anchor-top-right .go-here,
-.maplibregl-popup-anchor-bottom-right .go-here {
-  margin-left: auto;
+.go-actions[hidden],
+.go-more[hidden] {
+  display: none;
 }
 
-.maplibregl-popup-anchor-top .go-here,
-.maplibregl-popup-anchor-bottom .go-here {
-  margin-left: auto;
-  margin-right: auto;
+.go-act,
+.go-more {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.go-act:hover,
+.go-more:hover {
+  background: var(--panel-hover);
+}
+
+.go-act > svg {
+  width: 30px;
+  height: 30px;
+}
+
+.go-here {
+  color: var(--tone-nav);
+}
+
+.go-flagit.on {
+  color: #e53935;
+}
+
+.go-more {
+  position: absolute;
+  top: 0;
+  right: 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+.maplibregl-popup-content.has-more {
+  padding-right: 66px;
+}
+
+.maplibregl-popup-content:has(.go-more[hidden]) {
+  padding-right: 34px;
+}
+
+.go-menu {
+  position: absolute;
+  top: 34px;
+  right: 8px;
+  z-index: 2;
+}
+
+/* остановка по пути на карте — синий кружок с номером */
+.go-stop {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #0a5cff;
+  color: #fff;
+  border: 2px solid #fff;
+  box-shadow: var(--shadow);
+  font: 700 13px var(--font);
+}
+
+/* отметка — красный флажок с белым кантом, древко в точке */
+.go-mark {
+  width: 30px;
+  height: 30px;
+  color: #e53935;
+  cursor: pointer;
+  filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+}
+
+.go-mark svg {
+  width: 30px;
+  height: 30px;
+}
+
+/* остановки в карточке пути */
+.go-stops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.go-stop-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 2px 2px 8px;
+  border-radius: 14px;
+  background: var(--panel-hover);
+  font-size: 13px;
+}
+
+.go-stop-chip > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.go-stop-chip > b {
+  color: #0a5cff;
+}
+
+.go-stop-x {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.go-stop-x svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* история: значок сохранённого маршрута перед названием, переименование прямо в строке */
+.history-icon {
+  display: inline-flex;
+  vertical-align: -4px;
+  margin-right: 6px;
+  color: var(--tone-nav);
+}
+
+.history-rename {
+  flex: 1;
+  min-width: 0;
+  margin: 4px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--tone-nav);
+  border-radius: 6px;
+  font: inherit;
 }
 
 /* крестик окна на карте — крупный, толстой линией (правило больших значков) */

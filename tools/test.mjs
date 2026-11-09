@@ -124,10 +124,11 @@ try {
   // при старте всё закрыто, на кнопке справа вверху — логотип; барабан разделов — «Поиском места» в центре
   const start = await run(`({ logo: !!document.querySelector(".search-toggle .start-logo"), search: document.body.classList.contains("search-hidden"),
     wheels: [...document.querySelectorAll(".wheel")].every((w) => w.classList.contains("closed")), panels: [...document.querySelectorAll(".panel")].every((p) => p.hidden) })`);
-  // первый щелчок — поиск и барабан разделов, в центре «Поиск места»; логотипа больше нет; второй — всё закрыть
+  // щелчок — поиск и барабан разделов, в центре «Поиск места», на кнопке лупа; второй — всё закрыть, снова логотип
   start.mid = await run(`(async () => { const L = document.querySelector(".search-toggle"); L.click(); await new Promise((r) => setTimeout(r, 500));
-    const m = [...document.querySelectorAll(".wheel-content .wheel-cell:not([hidden])")].sort((a, b) => b.style.zIndex - a.style.zIndex)[0]?.querySelector(".layers-circle").ariaLabel;
-    L.click(); await new Promise((r) => setTimeout(r, 300)); return m + (L.querySelector(".start-logo") ? " (логотип остался)" : ""); })()`);
+    const m = [...document.querySelectorAll(".wheel-content .wheel-cell:not([hidden])")].sort((a, b) => b.style.zIndex - a.style.zIndex)[0]?.querySelector(".layers-circle").ariaLabel
+      + (L.querySelector(".start-logo") ? " (логотип при открытом поиске)" : "");
+    L.click(); await new Promise((r) => setTimeout(r, 300)); return m + (L.querySelector(".start-logo") ? "" : " (нет логотипа после закрытия)"); })()`);
   check("старт: всё закрыто, на кнопке справа вверху — логотип; первый щелчок — «Поиск места» в центре барабана",
     start.logo && start.search && start.wheels && start.panels && start.mid === "Поиск места", JSON.stringify(start));
   check("правка: EXIF исходника переносится — поворот 1, новый размер кадра, место съёмки остаётся",
@@ -226,6 +227,43 @@ try {
   check("куда идти: путь пешком — линия, длина и время в окне; синяя, поверх всего", walk.route?.way === "foot" && walk.route.points > 10 && /Пешком: .* · \d+ мин/.test(walk.way)
     && top.last.join() === "go-route-casing,go-route,go-line" && top.color === "#0a5cff", JSON.stringify({ walk, top }));
   await shot("00-route");
+  // окно места при навигации (Грегори 2026-11-09): стрелка, «Добавить», «Поделиться», «Отметить»; «⋯» — «Сохранить маршрут»
+  const placePopup = (title, ll) => `(async () => { const { track } = await import(new URL("core/popups.js", location.href));
+    window.__pp = track(new atlas.ctx.maplibregl.Popup()).setLngLat(${JSON.stringify(ll)}).setHTML('<div class="popup-title">${title}</div>').addTo(atlas.map);
+    await new Promise((r) => setTimeout(r, 200)); return true; })()`;
+  await run(placePopup("Остановка", [24.77, 59.435]));
+  const acts = await run(`({ btns: [...__pp.getElement().querySelectorAll(".go-actions .go-act")].map((b) => b.title), more: !!__pp.getElement().querySelector(".go-more:not([hidden])") })`);
+  await run(`__pp.getElement().querySelector(".go-add").click(); true`);
+  await sleep(500);
+  const added = await run(`({ stops: atlas.route.state().stops, chip: [...document.querySelectorAll(".search-card .go-stop-chip")].map((c) => c.textContent), marker: document.querySelectorAll(".go-stop").length })`);
+  await run(placePopup("Остановка", [24.77, 59.435]));
+  await run(`__pp.getElement().querySelector(".go-flagit").click(); true`);
+  const marked = await run(`({ marks: atlas.route.state().marks, flag: document.querySelectorAll(".go-mark").length, on: __pp.getElement().querySelector(".go-flagit").classList.contains("on") })`);
+  await run(`__pp.getElement().querySelector(".go-flagit").click(); true`);
+  const unmarked = await run(`({ marks: atlas.route.state().marks, flag: document.querySelectorAll(".go-mark").length })`);
+  await run(`__pp.getElement().querySelector(".go-more").click(); true`);
+  const menuOpen = await run(`!__pp.getElement().querySelector(".go-menu").hidden`);
+  await run(`[...__pp.getElement().querySelectorAll(".go-menu .menu-item")].find((b) => b.textContent === "Сохранить маршрут").click(); true`);
+  const saved = await run(`(() => { const e = JSON.parse(localStorage.getItem("atlas.route.history") || "[]")[0]; return e && { title: e.title, stops: e.stops?.length, saved: !!e.saved }; })()`);
+  await run(`__pp.remove(); localStorage.setItem("atlas.route.history", JSON.stringify(JSON.parse(localStorage.getItem("atlas.route.history") || "[]").filter((e) => !e.saved))); true`);
+  await run(`document.querySelector(".search-card .go-stop-x").click(); true`);
+  await sleep(300);
+  const removed = await run(`atlas.route.state().stops`);
+  check("окно места при навигации: стрелка, «Добавить», «Поделиться», «Отметить» и «⋯»; остановка в пути и на карте, отметка флажком, «Сохранить маршрут» — в список «Куда»",
+    JSON.stringify(acts.btns) === '["Сюда","Добавить в путь","Поделиться","Отметить"]' && acts.more && JSON.stringify(added.stops) === '["Остановка"]' && added.chip.length === 1 && added.marker === 1
+    && marked.marks.includes("Остановка") && marked.flag === 1 && marked.on && !unmarked.marks.length && !unmarked.flag && menuOpen
+    && saved?.saved && saved.title === "Проба" && saved.stops === 1 && !removed.length, JSON.stringify({ acts, added, marked, unmarked, menuOpen, saved, removed }));
+  // история: карандаш — переименовать в строке; у сохранённого маршрута — значок
+  const ren = await run(`(async () => { const hm = await import(new URL("core/history.js", location.href));
+    hm.saveList("zz.hist", [{ id: 1, t: "Старое", r: 1 }]);
+    let box; const make = () => { box?.remove(); box = hm.historyList({ key: "zz.hist", id: (e) => e.id, label: (e) => ({ title: e.t, icon: e.r ? "<svg></svg>" : "" }), rename: (e, t) => ({ ...e, t }), pick() {}, changed: make }); document.body.append(box); };
+    make();
+    const icon = !!box.querySelector(".history-icon");
+    box.querySelector(".search-rename").click();
+    const i = box.querySelector(".history-rename"); i.value = "Новое"; i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    const r = { icon, title: hm.loadList("zz.hist")[0].t, shown: box.querySelector(".search-item-title")?.textContent };
+    box.remove(); hm.saveList("zz.hist", []); return r; })()`);
+  check("история: карандаш переименовывает запись прямо в строке, у сохранённого маршрута — значок", ren.icon && ren.title === "Новое" && ren.shown === "Новое", JSON.stringify(ren));
   // кнопка «Навигация» в барабане поиска светится, пока навигация включена; выключили — путь убран, точка осталась
   const wheelNav = `document.querySelector('.wheel-content .layers-circle[data-key="content/navigation"]')`;
   const lit = await run(`({ on: ${wheelNav}?.classList.contains("on"), nav: ${navStats}.navOn })`);
@@ -273,7 +311,7 @@ try {
   await clickInput();
   const shut = await run(`${navList}.hidden`);
   await clickInput();
-  await run(`${navList}.querySelector(".search-history-row:last-child .search-delete").click(); true`);
+  await run(`${navList}.querySelector(".search-history-row:last-child .search-delete:not(.search-rename)").click(); true`);
   const left = await run(`JSON.parse(localStorage.getItem("atlas.route.history") || "[]").length`);
   check("навигация: место из «Куда» — точка, подсказки закрылись; щелчок по строке — история (отдельно от карточки), набор — подходящие, второй щелчок — закрыть",
     found > 0 && /Kadri|Кадри/i.test(picked.target) && picked.history.length === 2 && !picked.list && picked.card && picked.placeholder === "Куда"
@@ -1795,15 +1833,18 @@ try {
     A.click(); await wait(); const s3 = st();
     // поиск открыт без барабана — щелчок прячет всё (Грегори 2026-11-06, вечер: «открыть / свернуть всё»)
     L.click(); await wait(); const s4 = st();
+    // поиск закрыт: нижняя кнопка — барабан слоёв, наверху логотип (Грегори 2026-11-09)
+    A.click(); await wait(); const s5 = st(); A.click(); await wait();
     // два положения: закрыто → всё → закрыто (лупа, логотипа после старта нет) → всё
     L.click(); await wait(); const c1 = st(); L.click(); await wait(); const c2 = st(); L.click(); await wait(); const c3 = st();
     const lr = L.getBoundingClientRect();
     A.click(); await wait();
-    return { s0, s1, s2, s3, s4, c1, c2, c3, keys, corner: innerWidth - lr.right >= 18 && innerWidth - lr.right <= 24 && lr.top < 20 }; })()`);
-  check("кнопка справа вверху: два положения — всё и закрыто (лупа, не логотип); столбик под логотипом — пока что-то открыто; треугольник — слои",
-    !lens.s0.search && !lens.s0.content && !lens.s0.drop && lens.s0.logo && !lens.s0.dock && lens.s1.content && lens.s1.search && lens.s1.logo && lens.s1.dock
-    && lens.s2.layers && !lens.s2.content && lens.s2.search && !lens.s3.layers && !lens.s4.search && !lens.s4.content && !lens.s4.dock
-    && lens.c1.search && lens.c1.content && lens.c1.dock && !lens.c2.search && !lens.c2.content && !lens.c2.drop && lens.c2.logo && !lens.c2.dock && lens.c3.search && lens.c3.content
+    return { s0, s1, s2, s3, s4, s5, c1, c2, c3, keys, corner: innerWidth - lr.right >= 18 && innerWidth - lr.right <= 24 && lr.top < 20 }; })()`);
+  check("кнопка справа вверху: всё закрыто — логотип, открыто — лупа; при открытом поиске нижняя кнопка сменяет барабаны туда и обратно; без поиска — слои, наверху логотип",
+    !lens.s0.search && !lens.s0.content && lens.s0.drop && !lens.s0.logo && !lens.s0.dock && lens.s1.content && lens.s1.search && lens.s1.logo && lens.s1.dock
+    && lens.s2.layers && !lens.s2.content && lens.s2.search && !lens.s3.layers && lens.s3.content && lens.s3.search && !lens.s4.search && !lens.s4.content && !lens.s4.dock
+    && lens.s5.layers && !lens.s5.search && lens.s5.drop
+    && lens.c1.search && lens.c1.content && lens.c1.dock && !lens.c2.search && !lens.c2.content && lens.c2.drop && !lens.c2.dock && lens.c3.search && lens.c3.content
     && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои треки", "Навигация", "Настройки", "Поиск места", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико
   // крутит его, нажатие по кнопке не в центре докручивает её и открывает столбик
@@ -1814,8 +1855,8 @@ try {
     return { n: cells.length, gaps, edge: cells[0].b, mid: Math.max(...cells.map((c) => c.b)) }; })()`);
   const mid = Math.floor(drum.gaps.length / 2);
   check("колесо: в центре промежутки больше, к краям меньше и темнее", drum.n >= 5 && drum.gaps[0] < drum.gaps[mid] && drum.gaps.at(-1) < drum.gaps[mid] && drum.edge < drum.mid, JSON.stringify(drum));
-  const centerKey = `(() => { const r = document.querySelector(".wheel-layers").getBoundingClientRect(), m = r.top + r.height / 2;
-    return [...document.querySelectorAll(".wheel-layers .wheel-cell")].filter((c) => !c.hidden).map((c) => { const b = c.getBoundingClientRect(); return [Math.abs(b.top + b.height / 2 - m), c.querySelector(".layers-circle").dataset.key]; }).sort((a, b) => a[0] - b[0])[0][1]; })()`;
+  // центральная — та, что сверху (барабан прижат к треугольнику, его центр — не середина полосы)
+  const centerKey = `[...document.querySelectorAll(".wheel-layers .wheel-cell")].filter((c) => !c.hidden).sort((a, b) => b.style.zIndex - a.style.zIndex)[0].querySelector(".layers-circle").dataset.key`;
   const before = await run(centerKey);
   await run(`document.querySelector(".wheel-layers").dispatchEvent(new WheelEvent("wheel", { deltaY: 200, bubbles: true, cancelable: true })); true`);
   await sleep(1200);
