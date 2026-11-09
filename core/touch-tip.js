@@ -7,8 +7,12 @@ let tip = null, timer = null, start = null, shown = 0;
 const hide = () => { tip?.remove(); tip = null; };
 
 const show = (el) => {
+  if (!start) return; // палец уже отпустили
   const text = el.getAttribute("title");
-  if (!text) return;
+  // кнопку за это время убрали или спрятали (нажатие свернуло окно) — подписи нет: иначе она вылезала
+  // в левом верхнем углу поверх строки поиска («Свернуть», Грегори 2026-11-06)
+  const box = el.getBoundingClientRect();
+  if (!text || !el.isConnected || !box.width || !box.height) return;
   hide();
   tip = Object.assign(document.createElement("div"), { className: "touch-tip", textContent: text });
   document.body.append(tip);

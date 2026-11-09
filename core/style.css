@@ -200,13 +200,14 @@ html, body {
   height: 24px;
 }
 
+/* кнопки шапки окна — как в карточке пути (.go-close): 34 px, скруглённый квадрат */
 .panel-btn {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   /* без своего отступа кнопки, иначе значок «во всю кнопку» выходит 16 px (Грегори 2026-11-08: «в шапке значки мелкие») */
   padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: 8px;
   background: transparent;
   color: var(--text);
   cursor: pointer;
@@ -1121,11 +1122,12 @@ body.has-photo-strip .status {
    постоянно над треугольником, при любом размере окна; на телефоне — от строки поиска до ленты фото.
    Спрятанная уезжает вправо */
 /* верх барабана — под лупой справа вверху */
+/* барабаны — ниже, к треугольнику (Грегори 2026-11-06): от кнопки языка под логотипом до треугольника */
 .wheel {
   position: fixed;
   right: calc(var(--side-r) - var(--gap) * 1.5);
-  top: calc(var(--top-inset) + 2 * var(--gap) + var(--button));
-  bottom: 76px;
+  top: calc(var(--top-inset) + 3 * var(--gap) + 2 * var(--button));
+  bottom: calc(var(--gap) + var(--button));
   z-index: 20;
   width: calc(var(--button) + 3 * var(--gap));
   touch-action: none;
@@ -1177,8 +1179,8 @@ body.has-photo-strip .status {
 
 @media (max-width: 600px) {
   .wheel {
-    top: calc(var(--top-inset) + var(--gap) + 50px);
-    bottom: 96px;
+    top: calc(var(--top-inset) + 3 * var(--gap) + 2 * var(--button));
+    bottom: calc(var(--gap) + var(--button));
   }
 }
 
@@ -1228,14 +1230,8 @@ body.has-photo-strip .status {
   height: calc(var(--button) - 8px);
 }
 
-/* стрелка к цели — по центру кружка, поворачивается вокруг середины */
-/* у кнопки справа вверху position: fixed — она и так опора для стрелки */
-.dock-mode {
-  position: relative;
-}
-
-.search-toggle > .search-card-arrow,
-.dock-mode > .search-card-arrow {
+/* стрелка к цели — по центру кружка, поворачивается вокруг середины (у кнопки position: fixed — опора) */
+.search-toggle > .search-card-arrow {
   position: absolute;
   inset: 0;
   width: auto;
@@ -2910,22 +2906,6 @@ body.search-hidden .panel-left {
 
 body.dock-on .dock {
   display: flex;
-}
-
-.dock-fixed,
-.dock-modes {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.dock-modes:empty {
-  display: none;
-}
-
-/* значок режима — как включённая кнопка барабана, без галочки (здесь всё включено) */
-.dock-mode.layers-circle.on::after {
-  display: none;
 }
 
 /* значки столбика — ровно по центру кружка, почти во весь */

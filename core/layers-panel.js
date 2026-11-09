@@ -31,8 +31,9 @@
 // Ядро слоёв по именам не знает: новый модуль появляется сам; без известного раздела — в «Ещё».
 // Включённые слои, какой барабан открыт и спрятан ли поиск — помнятся. Открылась панель настроек —
 // барабан уступает место, и наоборот
-import { closeOpen, homeList } from "./panel.js";
-import { dockModes, setDockShown } from "./dock.js";
+import { closeOpen, homeList, isOpen as panelOpen, close as closePanel } from "./panel.js";
+import { setDockShown } from "./dock.js";
+import { GEAR_ICON } from "./settings-panel.js";
 import { ARROW as ROUTE_ARROW } from "./route.js";
 import { backable } from "./back.js";
 import { modules, toggle, available, allowed, onRegister, MODULES } from "./modules.js";
@@ -58,10 +59,6 @@ const CLEAR_ICON = '<svg viewBox="0 0 24 24" width="12" height="12"><path d="M6 
 const ARROW = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M15.5 5v14L6 12z"/></svg>';
 // поиск места — лупа (Грегори 2026-11-06: «логотип на кнопке не используем, логично — лупа»)
 const LUPA = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>';
-// навигация с целью — в столбике флажок финиша (стрелка к цели — на кнопке справа вверху)
-const FINISH = '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M5 2.5v19" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>'
-  + '<path d="M6 3.5h14v10H6z" fill="#fff" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>'
-  + '<path fill="currentColor" d="M6 3.5h3.5V7H6zM13 3.5h3.5V7H13zM9.5 7H13v3.3H9.5zM16.5 7H20v3.3h-3.5zM6 10.3h3.5v3.2H6zM13 10.3h3.5v3.2H13z"/></svg>';
 // логотип (из travel-earth) — только при старте, до первого щелчка по кнопке (Грегори 2026-11-06)
 const LOGO = '<img class="start-logo" src="icons/start-logo.png" alt="">';
 
@@ -73,7 +70,7 @@ export function initLayersPanel(ctx) {
   // ---------- слои ----------
   const active = new Set(settings.get("layers.on", []));
   const save = () => settings.set("layers.on", [...active]);
-  const renderAll = () => { drums.forEach((d) => d.render()); renderModes(); };
+  const renderAll = () => drums.forEach((d) => d.render());
 
   const switchTo = async (m, turnOn) => {
     // exclusive — в своей группе одновременно включён один (у «Мест» такого нет: Грегори, 2026-10-28)
@@ -124,9 +121,12 @@ export function initLayersPanel(ctx) {
   // режима раздела в обычный поиск мест
   const SEARCH_ENTRY = { key: "search", title: "Поиск места", icon: LUPA, tone: "maps", plain: [],
     content: { id: "search", column: { home: () => { emit("search-plain"); setShown(shown, true); }, isOpen: () => false, close: () => {} } } };
+  // последней — «Настройки» (Грегори 2026-11-06: «настройки в верхний барабан»)
+  const SETTINGS_ENTRY = { key: "settings", title: "Настройки", icon: GEAR_ICON, tone: "maps", plain: [],
+    content: { id: "settings", column: { home: () => emit("settings-open"), isOpen: () => panelOpen("settings"), close: () => closePanel("settings") } } };
   const contentEntries = () => [SEARCH_ENTRY, ...modules("content").filter(available)
     .sort((a, b) => MODULES.findIndex((p) => p.includes(a.id)) - MODULES.findIndex((p) => p.includes(b.id)))
-    .map((m) => ({ key: m.id, title: m.title, icon: m.icon, tone: m.tone, content: m, plain: [] }))];
+    .map((m) => ({ key: m.id, title: m.title, icon: m.icon, tone: m.tone, content: m, plain: [] })), SETTINGS_ENTRY];
 
   // раздел: своё home(ctx), иначе панель слева со списком column.items()
   const openHome = async (m) => {
@@ -178,11 +178,9 @@ export function initLayersPanel(ctx) {
     lensBtn.innerHTML = target ? `<span class="search-card-arrow" style="transform: rotate(${routeNow.me ? routeNow.arrow || 0 : 0}deg)">${ROUTE_ARROW}</span>`
       : mode ? mode.icon : logo ? LOGO : LUPA;
     lensBtn.title = searchOn || shown === "content" ? "Свернуть всё" : "Поиск и разделы";
-    // столбик справа под логотипом — пока открыт поиск или любой барабан, и не открыто окно справа (настройки)
-    setDockShown((searchOn || !!shown) && !rightOpen);
+    // под кнопкой — только язык подписей, пока открыт поиск или любой барабан
+    setDockShown(searchOn || !!shown);
   };
-  let rightOpen = false;
-  on("panel", (p) => { rightOpen = p?.side === "right"; paint(); }, { replay: false });
   // открытый поиск — шаг для «Назад» телефона
   let searchBack = null;
   const setShown = (which, search = searchOn) => {
@@ -208,10 +206,9 @@ export function initLayersPanel(ctx) {
   arrowBtn.addEventListener("click", () => setShown(shown === "layers" ? null : "layers"));
   lensBtn.addEventListener("click", () => { started = true; searchOn || shown === "content" ? setShown(null, false) : setShown("content", true); });
   on("search-mode", (m) => { mode = m; paint(); });
-  // раздел живёт в самой строке поиска (навигация) — строка нужна; на телефоне барабан уступает место
-  on("search-show", () => setShown(innerWidth <= 600 ? null : shown || "content", true), { replay: false });
-  // открылась панель настроек (на телефоне — любая) — барабан уступает место
-  on("panel", (p) => p && shown && (p.side === "right" || innerWidth <= 600) && setShown(null), { replay: false });
+  // раздел живёт в самой строке поиска (навигация) — строка нужна. Барабан после выбора не закрывается —
+  // он под рукой, открывает и закрывает его только кнопка справа вверху (Грегори 2026-11-06)
+  on("search-show", () => setShown(shown || "content", true), { replay: false });
 
   // ---------- барабан ----------
   function makeDrum(name, entries) {
@@ -381,7 +378,7 @@ export function initLayersPanel(ctx) {
       if (!drag || e.pointerId !== drag.id) return;
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       if (!drag.moved) {
-        if (dx > 40 && Math.abs(dx) > 2 * Math.abs(dy)) { drag = null; suppressClick = true; setShown(null); return; }
+        if (name === "layers" && dx > 40 && Math.abs(dx) > 2 * Math.abs(dy)) { drag = null; suppressClick = true; setShown(null); return; }
         if (Math.abs(dy) < 6) return;
         drag.moved = true;
         wheel.setPointerCapture(e.pointerId);
@@ -431,7 +428,7 @@ export function initLayersPanel(ctx) {
         if (label && label !== e.title) c.ariaLabel = `${e.title}: ${label}`;
         c.dataset.key = e.key;
         c.addEventListener("mouseenter", () => list[centerIndex()]?.c === c && Math.abs(raw - target) < 0.01 && showTip());
-        const anyOn = !!e.module?.active || e.plain.some((m) => m.active) || !!e.content?.column.isOpen();
+        const anyOn = !!e.module?.active || e.plain.some((m) => m.active) || !!e.content?.column.isOpen() || (e.key === "content/navigation" && !!routeNow?.target);
         c.classList.toggle("on", anyOn);
         x.hidden = !anyOn;
         // крестик: выключить всё в кнопке, забыть отмеченные виды и закрыть столбик (Грегори, 2026-10-29:
@@ -449,10 +446,19 @@ export function initLayersPanel(ctx) {
         c.addEventListener("click", (ev) => {
           ev.stopPropagation();
           const i = list.findIndex((l) => l.e.key === e.key);
-          // раздел — сразу его панель; слой — столбик
-          const act = () => (e.content ? (show(null), openHome(e.content)) : show(openKey === e.key ? null : e.key));
-          if (i === centerIndex() && Math.abs(raw - Math.round(raw)) < 0.01) act();
-          else { show(null); spinTo(i, act); }
+          // раздел — сразу его панель; слой — столбик. Окно раздела уже открыто — кнопка его сворачивает и
+          // разворачивает; у навигации с целью — карточку пути (как раньше значки в столбике под логотипом)
+          const act = () => {
+            if (!e.content) return show(openKey === e.key ? null : e.key);
+            show(null);
+            if (e.key === "content/navigation" && routeNow?.target) { if (!searchOn) setShown(shown, true); emit("route-card-toggle"); return; }
+            if (e.key !== "content/navigation" && e.content.column.isOpen()) { emit("panel-fold-request", { fold: !folded }); return; }
+            openHome(e.content);
+          };
+          // не в центре — докрутить и выполнить сразу, не дожидаясь конца прокрутки (пока карта летит, кадры
+          // редкие, и окно открывалось с задержкой)
+          if (!(i === centerIndex() && Math.abs(raw - Math.round(raw)) < 0.01)) spinTo(i, () => {}); // пустое «по приезде» — без подписи
+          act();
         });
         return { e, cell, c, x };
       });
@@ -468,44 +474,18 @@ export function initLayersPanel(ctx) {
 
   const drums = [makeDrum("layers", layerEntries), makeDrum("content", contentEntries)];
 
-  // ---------- значки включённых режимов в столбике под логотипом ----------
-  // навигация (есть цель — стрелка к ней: щелчок показывает или прячет карточку пути) и открытые разделы
-  // (щелчок — окно раздела показать или свернуть в строку)
+  // свёрнуто ли окно раздела; цель пути — стрелка на кнопке справа вверху, кнопка навигации в барабане светится
   let folded = null;
-  on("panel-fold", (f) => { folded = f; renderModes(); }, { replay: false });
+  on("panel-fold", (f) => { folded = f; }, { replay: false });
   on("route", (r) => {
     const same = routeNow?.target === r?.target && routeNow?.me === r?.me;
+    const sameTarget = routeNow?.target === r?.target;
     routeNow = r;
-    // стрелка крутится с картой и со мной — только повернуть её, не перерисовывая столбик
+    // стрелка крутится с картой и со мной — только повернуть её, не перерисовывая кнопку
     const a = same && lensBtn.querySelector(".search-card-arrow");
-    if (a) a.style.transform = `rotate(${r.me ? r.arrow || 0 : 0}deg)`; else { renderModes(); paint(); }
+    if (a) a.style.transform = `rotate(${r.me ? r.arrow || 0 : 0}deg)`; else paint();
+    if (!sameTarget) renderAll();
   });
-  function renderModes() {
-    const on_ = contentEntries().filter((e) => e.key !== "search" && e.content.column.isOpen() || (e.content.id === "content/navigation" && routeNow?.target));
-    dockModes.replaceChildren(...on_.map((e) => {
-      const m = e.content, nav = m.id === "content/navigation";
-      const b = Object.assign(document.createElement("button"), { type: "button", className: `btn layers-circle tone-${e.tone} on dock-mode` });
-      b.dataset.key = m.id;
-      const target = nav && routeNow?.target;
-      if (target) {
-        b.classList.add("dock-route");
-        b.innerHTML = FINISH;
-        b.title = `${routeNow.me ? routeNow.main : target.title} — показать или спрятать путь`;
-      } else {
-        b.innerHTML = m.icon;
-        b.title = nav ? "Навигация — строка «Куда»" : `${m.title} — показать или спрятать окно`;
-      }
-      b.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        if (target) { if (!searchOn) setShown(shown, true); emit("route-card-toggle"); return; }
-        if (nav) { openHome(m); return; }
-        // окно раздела: спрятано со строкой или свёрнуто — показать; видно — свернуть в строку
-        if (!searchOn) { setShown(shown, true); if (folded) emit("panel-fold-request", { fold: false }); return; }
-        emit("panel-fold-request", { fold: !folded });
-      });
-      return b;
-    }));
-  }
   document.body.append(arrowBtn, lensBtn);
 
   // слой включился не отсюда (сам по себе, по событию другого модуля) — кнопки обновить
