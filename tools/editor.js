@@ -261,7 +261,7 @@ async function locate(p, write = false) {
   const mode = write ? "readwrite" : "read";
   const ok = await root.queryPermission({ mode }) === "granted" ? "granted" : await root.requestPermission({ mode }).catch((e) => e);
   if (ok instanceof Error) throw new Error("браузер не успел спросить разрешение на запись — нажмите «Сохранить» ещё раз");
-  if (ok !== "granted") throw new Error(write ? "без разрешения на запись сохранить нельзя" : "нет доступа к папке");
+  if (ok !== "granted") throw new Error(write ? "браузер не дал записать в папку. Слева от адреса этого окна — значок настроек сайта → «Изменение файлов» → «Спрашивать», затем снова «Сохранить»" : "нет доступа к папке");
   const parts = p.edit.path.split("/"), name = parts.pop(), chain = [root];
   for (const s of parts) chain.push(await chain.at(-1).getDirectoryHandle(s));
   const dir = chain.at(-1);
