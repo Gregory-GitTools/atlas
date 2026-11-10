@@ -45,9 +45,6 @@ const GEO_ZOOM = 16;
 const FAR_ZOOM = 10; // дальше — при включении перелёт ко мне
 const NAV_MIN_STEP = 8; // м — сдвиг, по которому видно направление
 const NAV_TURN = 4; // ° — поворот меньше не трогает карту (GPS дрожит)
-// мс — сдвинул карту рукой: через столько она вернётся ко мне (Грегори 2026-11-06: «задержка нужна, когда я
-// потерялся и смотрю карту; 10 с маловато — 15»)
-const NAV_BACK = 15000;
 const NAV_LOW = 0.25; // я — на четверть экрана ниже середины
 
 const metersBetween = (a, b) => {
@@ -68,7 +65,7 @@ export function addGeolocate(map, maplibregl, status) {
   let heading = null, moveHeading = null, anchor = null, lastFix = 0, lastSpeed = 0, first = true, anim = 0, back = null;
   // открыта карточка пути — карта за мной не ходит: на экране весь путь (Грегори 2026-11-06: «не
   // позиционируем моё положение при открытой карточке; закрыли — сразу ко мне, без задержки»)
-  let hold = false;
+  let hold = false, tilting = false;
 
   const courseUp = () => compassMode === "3d";
   const low = () => compassMode === "3d";
@@ -85,15 +82,20 @@ export function addGeolocate(map, maplibregl, status) {
     el.classList.toggle("chevron", heading !== null && compassMode !== "north");
     if (heading !== null) marker.setRotation(heading);
   };
-  // карта ко мне: только центр (и поворот по ходу в 3D) — масштаб и наклон не трогаем
+  // карта ко мне: только центр (и поворот по ходу в 3D) — масштаб и наклон не трогаем; при начале навигации —
+  // всегда 3D (Грегори 2026-11-10: «ставим курсор на начальную точку только в момент начала навигации и
+  // первый раз переключаем в 3D»), дальше наклон — как поставили
   const center = (duration = 800) => {
-    if (!position || compassTurning || hold) return;
-    const offset = [0, low() ? Math.round(innerHeight * NAV_LOW) : 0];
+    if (!position || compassTurning || hold || tilting) return;
+    const tilt = first && map.getMaxPitch() >= 5 ? { pitch: Math.min(TILT, map.getMaxPitch()) } : {};
+    const offset = [0, low() || tilt.pitch ? Math.round(innerHeight * NAV_LOW) : 0];
     const bearing = compassMode === "north" ? { bearing: 0 } : courseUp() && moveHeading !== null ? { bearing: moveHeading } : {};
     // navFollow — окна на карте от этого не закрываются (Грегори 2026-11-04: «окно Сюда постоянно сбрасывается»)
-    if (first && map.getZoom() < FAR_ZOOM) map.flyTo({ center: position, zoom: GEO_ZOOM, offset, ...bearing, duration: 3000 }, { navFollow: true });
-    else map.easeTo({ center: position, offset, ...bearing, duration, easing: (t) => t }, { navFollow: true });
+    if (first && map.getZoom() < FAR_ZOOM) map.flyTo({ center: position, zoom: GEO_ZOOM, offset, ...bearing, ...tilt, duration: 3000 }, { navFollow: true });
+    else map.easeTo({ center: position, offset, ...bearing, ...tilt, ...(tilt.pitch ? { duration: 1000 } : { duration, easing: (t) => t }) }, { navFollow: true });
     first = false;
+    // пока карта наклоняется, замеры GPS её не перебивают
+    if (tilt.pitch) { tilting = true; map.once("moveend", () => { tilting = false; }); }
   };
   // метка — плавно от прежней точки к новой
   const glide = (to, duration) => {
@@ -179,21 +181,18 @@ export function addGeolocate(map, maplibregl, status) {
     else stop();
   });
 
-  // сдвинул, повернул, наклонил или приблизил карту рукой — она не бегает за мной, через 10 секунд —
-  // снова ко мне (в режиме, который стал от наклона: 3D или 2D)
-  const comeBack = () => {
-    clearTimeout(back);
-    back = setTimeout(() => { back = null; if (watch !== null && !follow) { follow = true; update(); center(); } }, NAV_BACK);
-  };
+  // сдвинул, повернул или наклонил карту рукой — она больше не бегает за мной и сама не возвращается
+  // (Грегори 2026-11-10: автоматическое возвращение спорило со щелчками по точкам маршрута); ко мне —
+  // кнопкой «Навигация» или закрыв карточку пути
   const userMove = (e) => {
     if (!e.originalEvent || watch === null || hold) return;
-    if (follow || back) comeBack();
     if (follow) { follow = false; update(); }
   };
   map.on("dragstart", userMove);
   map.on("rotatestart", userMove);
   map.on("pitchstart", userMove);
-  map.on("zoomstart", (e) => { if (e.originalEvent && back && !hold) comeBack(); });
+  // показали что-то на карте (точку маршрута) — карта за мной не идёт
+  on("nav-look", () => { if (watch !== null && follow) { follow = false; update(); } }, { replay: false });
   on("nav-hold", ({ hold: h }) => {
     if (hold === !!h) return;
     hold = !!h;

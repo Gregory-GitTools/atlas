@@ -40,11 +40,17 @@ const flagMarker = (ml) => {
   el.innerHTML = FLAG;
   return new ml.Marker({ element: el, anchor: "bottom-left", offset: [-5, 0] });
 };
+// свободная часть экрана: открытый барабан справа — путь левее (Грегори 2026-11-10: «с учётом открытого
+// барабана, чуть левей»)
+const viewPad = (pad = { top: 60, bottom: 60, left: 60, right: 60 }) => {
+  const wheel = [...document.querySelectorAll(".wheel:not(.closed)")].map((w) => w.getBoundingClientRect()).find((r) => r.width > 0);
+  return wheel && innerWidth > 600 ? { ...pad, right: Math.max(pad.right, Math.round(innerWidth - wheel.left) + 30) } : pad;
+};
 // показать весь путь: я, точка и линия по дорогам (Грегори 2026-11-05: «при первом „Сюда“ покажи весь путь»)
 export const fitPath = (map, pts) => {
   pts = pts.filter(Boolean);
   if (!map || !pts.length) return;
-  const pad = innerWidth <= 600 ? { top: Math.round(innerHeight * 0.45), bottom: 90, left: 40, right: 40 } : { top: 110, bottom: 110, left: 440, right: 90 };
+  const pad = viewPad(innerWidth <= 600 ? { top: Math.round(innerHeight * 0.45), bottom: 90, left: 40, right: 40 } : { top: 110, bottom: 110, left: 440, right: 90 });
   if (pts.length < 2) { map.flyTo({ center: pts[0], zoom: Math.max(map.getZoom(), 14), duration: 1500 }, { navFollow: true }); return; }
   const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
   map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: pad, maxZoom: 16, duration: 1500 }, { navFollow: true });
@@ -390,7 +396,7 @@ export function initRoute({ map, maplibregl, status }) {
     const add = button("go-act go-add", "Добавить в путь", ADD_ICON, () => {
       const p = placeOf(popup, content);
       closeAll();
-      if (target) { addStop(p); emit("route-card-show"); } else { setTarget(p); emit("route-open", p); }
+      if (target) { addStop(p); emit("route-added"); } else { setTarget(p); emit("route-open", p); }
     });
     const mark = button("go-act go-flagit", "Отметить", MARK_ICON, (b) => {
       toggleMark(placeOf(popup, content));
@@ -439,6 +445,15 @@ export function initRoute({ map, maplibregl, status }) {
   // окно навигации: выбрать точку (null — убрать) и проложить путь
   on("route-target", (t) => setTarget(t), { replay: false });
   on("route-stop-remove", (i) => removeStop(i), { replay: false });
+  on("route-finish-remove", () => removeFinish(), { replay: false });
+  // «стрелка вверх» карточки — к построению маршрута: у пути появляется своя запись (route-edit)
+  on("route-build", () => edited(), { replay: false });
+  // щелчок по точке в списке маршрута — показать её; карта за мной при этом не идёт
+  on("route-focus", (p) => {
+    emit("nav-look");
+    closeAll();
+    map.flyTo({ center: p.lngLat, zoom: Math.max(map.getZoom(), 15), padding: viewPad(), duration: 1200 }, { navFollow: true });
+  }, { replay: false });
   on("route-way", ({ way }) => { const w = WAYS.find((x) => x.id === way); if (w) ask(w); }, { replay: false });
   // карточку пути открыли — весь оставшийся путь на экран; есть сеть — путь заново от того места, где я
   // (Грегори 2026-11-06: «что будет в середине маршрута? пересчитывать при открытии карточки»)

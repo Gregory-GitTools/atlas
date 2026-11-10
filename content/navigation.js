@@ -9,7 +9,7 @@
 // «Убрать точку». Сама цель, линия и путь — в core/route.js (здесь только окно)
 import { register } from "../core/modules.js";
 import { emit, on } from "../core/events.js";
-import { setSearchMode, searchMode, geocode, refreshSearchList, foldSearchList, foldSearchCard, setSearchCard } from "../core/search.js";
+import { setSearchMode, searchMode, geocode, refreshSearchList, foldSearchList, setSearchCard, showSearchList } from "../core/search.js";
 import { historyList, remember, loadList, saveList } from "../core/history.js";
 import { WAYS, ARROW, SHARE_ICON } from "../core/route.js";
 
@@ -37,6 +37,8 @@ const MODE = { icon: ICON, title: "Навигация", placeholder: "Куда",
   filter: (text) => { if (!text && results) { results = null; note = ""; } },
   submit: (text) => find(text),
   list: (q) => suggestions(q),
+  // щелчок по строке — всегда к началу списка; true — был открыт маршрут
+  reset: () => { const was = !!openRoute; openRoute = null; return was; },
   exit: () => {} };
 // карточка пути — висящий маршрут: видна при любом режиме строки поиска (Грегори 2026-11-05: «навигация
 // работает со всеми режимами»); свёрнута — в строке крупная красная стрелка к цели
@@ -85,9 +87,11 @@ function targetCard() {
   arrow.style.transform = `rotate(${state.arrow || 0}deg)`;
   const text = h("div", "go-text");
   text.append(h("div", "go-main", state.me ? state.main : t.title), h("div", "go-sub", state.me ? t.title : "Включите навигацию — покажу, куда идти"));
+  // «стрелка вверх» — к построению маршрута: список его точек (Грегори 2026-11-10); свернуть карточку —
+  // кнопкой «Навигация» в барабане
   const fold = h("button", "go-close");
-  Object.assign(fold, { type: "button", title: "Свернуть", innerHTML: FOLD });
-  fold.addEventListener("click", (e) => { e.stopPropagation(); foldSearchCard(); });
+  Object.assign(fold, { type: "button", title: "Точки маршрута", innerHTML: FOLD });
+  fold.addEventListener("click", (e) => { e.stopPropagation(); emit("route-build"); showSearchList(); });
   const close = h("button", "go-close");
   Object.assign(close, { type: "button", title: "Убрать точку", innerHTML: CLOSE });
   close.addEventListener("click", (e) => { e.stopPropagation(); emit("route-target", null); });
@@ -101,17 +105,21 @@ function targetCard() {
     ways.append(b);
   }
   const way = h("div", "nav-way", state.busy ? `${WAYS.find((w) => w.id === state.busy).title}: ищу путь…` : state.route?.text || (state.me ? "Путь по дорогам и тропам — выберите, как добираться" : ""));
-  // остановки по пути — по порядку, крестик снимает
+  // точки маршрута по порядку: остановки с номером и финиш с флажком, крестик убирает любую — путь
+  // перестраивается (Грегори 2026-11-10: «финиш тоже должен быть в списке и его можно удалить»)
   const stopsRow = h("div", "go-stops");
-  (state.stops || []).forEach((title, i) => {
-    const chip = h("span", "go-stop-chip");
-    chip.append(h("b", "", String(i + 1)), h("span", "", title));
+  const pt = (badge, title, xTitle, fn) => {
+    const row = h("div", "go-pt");
+    const b = h("span", "go-pt-n");
+    b.innerHTML = badge;
     const x = h("button", "go-stop-x");
-    Object.assign(x, { type: "button", title: "Убрать остановку", innerHTML: CLOSE });
-    x.addEventListener("click", (e) => { e.stopPropagation(); emit("route-stop-remove", i); });
-    chip.append(x);
-    stopsRow.append(chip);
-  });
+    Object.assign(x, { type: "button", title: xTitle, innerHTML: CLOSE });
+    x.addEventListener("click", (e) => { e.stopPropagation(); fn(); });
+    row.append(b, h("span", "go-pt-t", title), x);
+    stopsRow.append(row);
+  };
+  (state.stops || []).forEach((title, i) => pt(`<b class="route-pt-n">${i + 1}</b>`, title, "Убрать остановку", () => emit("route-stop-remove", i)));
+  pt(FINISH_ICON, t.title, "Убрать финиш", () => emit("route-finish-remove"));
   card.append(top, ...(state.stops?.length ? [stopsRow] : []), ways, way);
   return card;
 }
@@ -163,13 +171,13 @@ function routeView(entry) {
   };
   const active = () => state.saved === entry.saved;
   const activate = () => { if (!active()) { emit("route-target", entry); emit("route-name", entry.name || null); } };
-  const name = h("div", "route-view-title");
-  name.innerHTML = `<i class="history-icon">${ROUTE_ICON}</i>`;
-  name.append(entry.name || entry.title);
+  const name = h("div", "route-view-title", entry.name || entry.title);
+  // справа — значок маршрута: карточка пути (Грегори 2026-11-10: «именно он должен открывать карточку»)
   head.append(
     btn("route-view-back", "Все места", BACK, () => { openRoute = null; render(); }), name,
     btn("route-view-btn", "Поделиться маршрутом", SHARE_ICON, () => { activate(); emit("route-share"); }),
-    btn("route-view-btn", "Сохранить трек (GPX)", GPX_ICON, () => { activate(); emit("route-gpx"); }));
+    btn("route-view-btn", "Сохранить трек (GPX)", GPX_ICON, () => { activate(); emit("route-gpx"); }),
+    btn("route-view-btn route-view-card", "Карточка пути", ROUTE_ICON, () => { activate(); emit("route-card-show"); }));
   const pid = (p) => `${p.lngLat[0].toFixed(5)},${p.lngLat[1].toFixed(5)}`;
   const current = () => loadList(HISTORY).find((e) => e.saved === entry.saved) || entry;
   const points = () => { const e = current(); return [...(e.stops || []), { lngLat: e.lngLat, title: e.title, address: e.address || "" }]; };
@@ -193,7 +201,7 @@ function routeView(entry) {
       return { title: p.title, sub: last ? "Финиш" : p.address || "", icon: last ? FINISH_ICON : `<b class="route-pt-n">${i + 1}</b>` };
     },
     rename: (p, title) => ({ ...p, title }),
-    pick: () => { activate(); emit("route-show"); },
+    pick: (p) => { activate(); emit("route-focus", p); },
     changed: render });
   list.classList.add("route-view");
   return [head, list];
@@ -230,14 +238,24 @@ on("search-mode", (m) => { if (m) plain = false; if (!m && navOn && !plain) setT
 // карточка пути видна — карта за мной не ходит, на экране весь оставшийся путь (route-show); спрятали —
 // сразу ко мне (Грегори 2026-11-06: «карточку закрыли — позиционируем без задержки; открыли — опять весь
 // маршрут»)
-let cardOpen = false;
+// так же — пока открыт список точек маршрута (Грегори 2026-11-10: щелчки по точкам спорили с картой за мной)
+let cardOpen = false, viewing = false;
+const holdNow = () => emit("nav-hold", { hold: cardOpen || viewing });
 on("route-card", ({ open }) => {
   if (open === cardOpen) return;
   cardOpen = open;
-  emit("nav-hold", { hold: open });
+  holdNow();
+  if (open) emit("route-show");
+}, { replay: false });
+on("route-viewing", ({ open }) => {
+  if (open === viewing) return;
+  viewing = open;
+  holdNow();
   if (open) emit("route-show");
 }, { replay: false });
 // «Сохранить маршрут» — наверх списка «Куда», своей записью со значком маршрута
+// «Добавить» в окне места: открыт список точек маршрута — он и остаётся (точка в нём уже есть), иначе — карточка
+on("route-added", () => { if (!document.querySelector(".search-results:not([hidden]) .route-view")) emit("route-card-show"); }, { replay: false });
 on("route-save", (r) => remember(HISTORY, { ...r, saved: `r${Date.now()}` }, id, 40), { replay: false });
 // правка маршрута (добавили или убрали остановку, сменили способ) — в его запись; записи нет — наверх списка;
 // своё название (переименовали) остаётся

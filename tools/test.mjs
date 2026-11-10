@@ -154,9 +154,9 @@ try {
   const far = await run(`(async () => { const m = atlas.map, at = async (zoom) => { m.jumpTo({ zoom, pitch: 70 }); await new Promise((r) => setTimeout(r, 50)); return Math.round(m.getPitch()); };
     const r = { near: await at(13), mid: await at(7.5), far: await at(5) }; await new Promise((r) => setTimeout(r, 100)); r.label = document.querySelector(".compass-mode").textContent; m.jumpTo({ pitch: 0 }); return r; })()`);
   check("наклон: вблизи 70°, при отдалении меньше, на 100 км — 2D", far.near === 70 && far.mid > 0 && far.mid < 70 && far.far === 0 && far.label === "2D", JSON.stringify(far));
-  // навигация (подставные координаты): включаю в 2D у Таллина — масштаб и наклон не меняются, я в центре,
-  // карта не крутится; 3D — я внизу, карта по ходу движения (на восток, потом на север), метка — стрелка;
-  // сдвинул карту — через 15 секунд снова ко мне; выровнял рукой — через 15 секунд в центр 2D;
+  // навигация (подставные координаты): включаю у Таллина — сразу 3D, я внизу, масштаб прежний (Грегори
+  // 2026-11-10); карта по ходу движения (на восток, потом на север), метка — стрелка; сдвинул карту — сама не
+  // возвращается, кнопка «Навигация» — ко мне; выровнял рукой — 2D, кнопкой — я в центре;
   // С — я в центре, север вверху; «Куда идти» — точка из окна, расстояние, сторона, путь пешком
   await send("Browser.grantPermissions", { permissions: ["geolocation"], origin: url.replace(/\/$/, "") });
   const goTo = (lat, lon) => send("Emulation.setGeolocationOverride", { latitude: lat, longitude: lon, accuracy: 5 });
@@ -168,10 +168,8 @@ try {
   await run(`document.querySelector(".geo-btn").click(); true`);
   await sleep(2500);
   const n2 = await nav();
-  check("навигация: 2D — я в центре, масштаб, наклон и поворот не тронуты, кнопка «Навигация»",
-    n2.follow && n2.mode === "2d" && n2.zoom === 14.3 && n2.pitch === 0 && n2.bearing === 20 && Math.abs(n2.me.x) <= 3 && Math.abs(n2.me.y) <= 3 && /^Навигация/.test(n2.title), JSON.stringify(n2));
-  await run(`document.querySelector(".compass-btn").click(); true`);
-  await sleep(2500);
+  check("навигация: при начале — 3D, я внизу, масштаб не тронут, кнопка «Навигация»",
+    n2.follow && n2.mode === "3d" && n2.zoom === 14.3 && n2.pitch >= 55 && Math.abs(n2.me.x) <= 3 && Math.abs(n2.me.y - 200) <= 8 && /^Навигация/.test(n2.title), JSON.stringify(n2));
   await goTo(59.437, 24.7455);
   await sleep(2500);
   const navE = await nav();
@@ -181,18 +179,24 @@ try {
   const near = (a, b) => Math.abs(((a - b + 540) % 360) - 180) <= 5;
   check("навигация: 3D — я внизу, карта по ходу движения, метка — стрелка, масштаб прежний", navE.mode === "3d" && navE.pitch >= 55 && near(navE.heading, 90) && near(navE.bearing, 90)
     && navE.chevron && navE.zoom === 14.3 && Math.abs(navE.me.y - 200) <= 8 && near(navN.heading, 0) && near(navN.bearing, 0) && navN.zoom === 14.3, JSON.stringify([navE, navN]));
-  // сдвинул карту рукой — через 15 секунд она сама возвращается ко мне
+  // сдвинул карту рукой — сама не возвращается; кнопка «Навигация» — снова ко мне
   await run(`atlas.map.fire("dragstart", { originalEvent: new MouseEvent("mousedown") }); atlas.map.panBy([200, 0], { duration: 0 }); true`);
   const away = await run(`atlas.geo.state().follow`);
-  await sleep(16500);
+  await goTo(59.4376, 24.7455);
+  await sleep(3000);
+  const stay = await nav();
+  await run(`document.querySelector(".geo-btn").click(); true`);
+  await sleep(1500);
   const backHome = await nav();
-  check("навигация: сдвинул карту — через 15 секунд снова ко мне", away === false && backHome.follow && Math.abs(backHome.me.x) <= 3, JSON.stringify({ away, backHome }));
-  // выровнял карту рукой — 2D, через 15 секунд я в центре
+  check("навигация: сдвинул карту — сама не возвращается, кнопка «Навигация» — ко мне", away === false && !stay.follow && Math.abs(stay.me.x) > 100 && backHome.follow && Math.abs(backHome.me.x) <= 3, JSON.stringify({ away, stay, backHome }));
+  // выровнял карту рукой — 2D; кнопкой — я в центре
   await run(`atlas.map.fire("pitchstart", { originalEvent: new MouseEvent("mousedown") }); atlas.map.jumpTo({ pitch: 0 }); true`);
   const flat = await run(`({ ...atlas.geo.state() })`);
-  await sleep(16500);
+  await sleep(500);
+  await run(`document.querySelector(".geo-btn").click(); true`);
+  await sleep(1500);
   const flatBack = await nav();
-  check("навигация: выровнял рукой — 2D, через 15 секунд я в центре", flat.mode === "2d" && !flat.follow && flatBack.follow && flatBack.mode === "2d"
+  check("навигация: выровнял рукой — 2D, кнопкой «Навигация» — я в центре", flat.mode === "2d" && !flat.follow && flatBack.follow && flatBack.mode === "2d"
     && Math.abs(flatBack.me.x) <= 3 && Math.abs(flatBack.me.y) <= 3 && flatBack.chevron, JSON.stringify({ flat, flatBack }));
   // компас по кругу до «С» (из 2D — через 3D; если наклон на этом масштабе недоступен — сразу «С»)
   for (let k = 0; k < 3 && (await run(`document.querySelector(".compass-mode").textContent`)) !== "С"; k++) {
@@ -235,7 +239,7 @@ try {
   const acts = await run(`({ btns: [...__pp.getElement().querySelectorAll(".go-actions .go-act")].map((b) => b.title), more: !!__pp.getElement().querySelector(".go-more:not([hidden])") })`);
   await run(`__pp.getElement().querySelector(".go-add").click(); true`);
   await sleep(500);
-  const added = await run(`({ stops: atlas.route.state().stops, chip: [...document.querySelectorAll(".search-card .go-stop-chip")].map((c) => c.textContent), marker: document.querySelectorAll(".go-stop").length })`);
+  const added = await run(`({ stops: atlas.route.state().stops, chip: [...document.querySelectorAll(".search-card .go-pt")].map((c) => c.textContent), marker: document.querySelectorAll(".go-stop").length })`);
   await run(placePopup("Остановка", [24.77, 59.435]));
   await run(`__pp.getElement().querySelector(".go-flagit").click(); true`);
   const marked = await run(`({ marks: atlas.route.state().marks, flag: document.querySelectorAll(".go-mark").length, on: __pp.getElement().querySelector(".go-flagit").classList.contains("on") })`);
@@ -258,6 +262,8 @@ try {
   // маршрут с остановкой — сам в списке «Куда» (значок маршрута); его точки — своим списком, как история:
   // шапка «назад», «Поделиться маршрутом», «Сохранить трек»; перетащили — финиш другой, путь пересчитан
   await run(`(() => { const i = document.querySelector(".search-box input"); i.click(); i.focus(); return true; })()`);
+  await sleep(300);
+  await run(`document.querySelector(".search-results .history-icon").closest(".search-item").click(); true`);
   await sleep(600);
   const view = await run(`({ btns: [...document.querySelectorAll(".route-view-head button")].map((b) => b.title),
     rows: [...document.querySelectorAll(".route-view .search-history-row .search-item-title")].map((r) => r.textContent), finish: !!document.querySelector(".route-view .search-history-row:last-child .history-icon svg") })`);
@@ -271,12 +277,36 @@ try {
   const files = await run(`(() => { Object.defineProperty(navigator, "share", { value: undefined, configurable: true });
     return { gpx: atlas.route.gpx(), url: atlas.route.routeUrl() }; })()`);
   check("маршрут: остановка — запись со значком маршрута в «Куда», его точки — своим списком (назад, «Поделиться», GPX); перетащили — финиш другой",
-    JSON.stringify(view.btns) === '["Все места","Поделиться маршрутом","Сохранить трек (GPX)"]' && JSON.stringify(view.rows) === '["1Остановка","Проба"]' && view.finish
+    JSON.stringify(view.btns) === '["Все места","Поделиться маршрутом","Сохранить трек (GPX)","Карточка пути"]' && JSON.stringify(view.rows) === '["1Остановка","Проба"]' && view.finish
     && moved.target?.title === "Остановка" && JSON.stringify(moved.stops) === '["Проба"]' && JSON.stringify(moved.rows) === '["1Проба","Остановка"]'
     && moved.entry.title === "Остановка" && JSON.stringify(moved.entry.stops) === '["Проба"]', JSON.stringify({ view, moved: { target: moved.target?.title, stops: moved.stops, rows: moved.rows, entry: moved.entry } }));
   check("маршрут: «Поделиться» — ссылка Google Карт через остановки, «Сохранить трек» — GPX с точками",
     /^https:\/\/www\.google\.com\/maps\/dir\/\?api=1&destination=59\.435000,24\.770000&waypoints=/.test(files.url) && (files.gpx.match(/<wpt /g) || []).length === 2
     && /<name>1\. Проба<\/name>/.test(files.gpx) && /<(trk|rte)>/.test(files.gpx), JSON.stringify({ url: files.url, gpx: files.gpx.slice(0, 300) }));
+  // открыт список точек: карта за мной не ходит; щелчок по карте — окно места, список остаётся; значок
+  // маршрута справа — карточка пути (в ней все точки, у финиша крестик); стрелка вверх — снова список;
+  // щелчок по строке поиска — к началу списка «Куда»
+  const vHold = await run(`atlas.geo.state().hold`);
+  for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: PHONE ? 60 : 300, y: 700, button: "left", clickCount: 1 });
+  await sleep(2500);
+  const vMap = await run(`({ pop: !!document.querySelector(".maplibregl-popup .go-add:not([hidden])"), view: !!document.querySelector(".search-results:not([hidden]) .route-view") })`);
+  await run(`document.querySelectorAll(".maplibregl-popup-close-button").forEach((b) => b.click()); true`);
+  await run(`document.querySelector(".route-view-card").click(); true`);
+  await sleep(300);
+  const vCard = await run(`({ card: !document.querySelector(".search-card").hidden, list: !document.querySelector(".search-results").hidden,
+    pts: [...document.querySelectorAll(".search-card .go-pt .go-stop-x")].map((b) => b.title) })`);
+  await run(`[...document.querySelectorAll(".search-card .go-close")].find((b) => b.title === "Точки маршрута").click(); true`);
+  await sleep(300);
+  const vBack = await run(`!!document.querySelector(".search-results:not([hidden]) .route-view")`);
+  await run(`document.querySelector(".search-box input").click(); true`);
+  await sleep(200);
+  const vHome = await run(`({ list: !document.querySelector(".search-results").hidden, view: !!document.querySelector(".route-view"), icon: !!document.querySelector(".search-results .history-icon") })`);
+  check("маршрут: список точек — карта за мной не ходит, щелчок по карте — окно места, список остаётся; значок маршрута — карточка со всеми точками; стрелка вверх — список; строка поиска — к началу",
+    vHold && vMap.pop && vMap.view && vCard.card && !vCard.list && JSON.stringify(vCard.pts) === '["Убрать остановку","Убрать финиш"]' && vBack && vHome.list && !vHome.view && vHome.icon,
+    JSON.stringify({ vHold, vMap, vCard, vBack, vHome }));
+  // снова в маршрут — «назад»
+  await run(`document.querySelector(".search-results .history-icon").closest(".search-item").click(); true`);
+  await sleep(300);
   await run(`document.querySelector(".route-view-back").click(); true`);
   await sleep(200);
   const back = await run(`!document.querySelector(".route-view-head") && !!document.querySelector(".search-results .history-icon")`);
@@ -313,7 +343,7 @@ try {
   await run(`atlas.route.setTarget({ lngLat: [24.76, 59.43], title: "Проба", way: "foot" });
     localStorage.setItem("atlas.route.history", JSON.stringify(JSON.parse(localStorage.getItem("atlas.route.history") || "[]").filter((e) => !e.saved))); true`);
   check("окно места при навигации: стрелка, «Добавить», «Поделиться», «Отметить» и «⋯»; остановка в пути и на карте, отметка флажком, «Сохранить маршрут» — в список «Куда»",
-    JSON.stringify(acts.btns) === '["Сюда","Добавить в путь","Поделиться","Отметить"]' && acts.more && JSON.stringify(added.stops) === '["Остановка"]' && added.chip.length === 1 && added.marker === 1
+    JSON.stringify(acts.btns) === '["Сюда","Добавить в путь","Поделиться","Отметить"]' && acts.more && JSON.stringify(added.stops) === '["Остановка"]' && JSON.stringify(added.chip) === '["1Остановка","Проба"]' && added.marker === 1
     && marked.marks.includes("Остановка") && marked.flag === 1 && marked.on && !unmarked.marks.length && !unmarked.flag && menuOpen
     && saved?.saved && saved.title === "Проба" && saved.stops === 1 && !removed.length, JSON.stringify({ acts, added, marked, unmarked, menuOpen, saved, removed }));
   // история: карандаш — переименовать в строке; у сохранённого маршрута — значок
@@ -382,10 +412,17 @@ try {
   // «Свернуть» карточку — в строке стрелка; щелчок по ней — карточка снова
   await run(`(() => { (document.querySelector(".search-results").hidden || document.querySelector(".search-box input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))); return true; })()`);
   const held = await run(`atlas.geo.state().hold`);
-  await run(`[...${navPanel}.querySelectorAll(".go-close")].find((b) => /Свернуть/.test(b.title)).click(); true`);
-  await sleep(1500);
+  await run(`[...${navPanel}.querySelectorAll(".go-close")].find((b) => b.title === "Точки маршрута").click(); true`);
+  await sleep(500);
+  const build = await run(`({ view: !!document.querySelector(".search-results:not([hidden]) .route-view"), hold: atlas.geo.state().hold, saved: !!atlas.route.state().saved })`);
+  await tap("content/navigation");
+  const cardBack = await run(`!${navPanel}.hidden`);
+  await tap("content/navigation");
+  await sleep(1000);
   const freed = await nav();
-  check("навигация: карточка пути открыта — карта за мной не ходит; свернули — сразу ко мне", held === true && !freed.hold && freed.follow && Math.abs(freed.me.x) <= 3, JSON.stringify({ held, freed }));
+  await run(`localStorage.setItem("atlas.route.history", JSON.stringify(JSON.parse(localStorage.getItem("atlas.route.history") || "[]").filter((e) => !e.saved))); true`);
+  check("навигация: карточка пути открыта — карта за мной не ходит; стрелка вверх — точки маршрута (тоже не ходит); свернули — сразу ко мне",
+    held === true && build.view && build.hold && build.saved && cardBack && !freed.hold && freed.follow && Math.abs(freed.me.x) <= 3, JSON.stringify({ held, build, cardBack, freed }));
   const navBtn = `document.querySelector('.wheel-content .layers-circle[data-key="content/navigation"]')`;
   const folded = await run(`({ card: !${navPanel}.hidden, btn: ${navBtn}.classList.contains("on"), arrow: !!document.querySelector(".search-toggle .search-card-arrow") })`);
   await tap("content/navigation");
@@ -519,7 +556,7 @@ try {
     version: (() => { const b = document.querySelector(".maplibregl-ctrl-attrib-button"); b.click(); const a = document.querySelector(".maplibregl-ctrl-attrib");
       const r = { open: a.classList.contains("maplibregl-compact-show"), w: Math.round(a.getBoundingClientRect().width), line: a.querySelector(".attrib-version")?.textContent || "" }; b.click(); return r; })(),
     status: (() => { const s = document.getElementById("status"); return s.textContent ? "text" : getComputedStyle(s).display; })() })`);
-  check("язык подписей и шестерёнка — в столбике под логотипом; ⓘ свёрнута; пустая строка состояния спрятана", misc.lang && !misc.inSearch && !misc.attrib && misc.version.open && misc.version.w >= 260 && /^(Обновлено|Версия)/.test(misc.version.line) && (misc.status === "none" || misc.status === "text"), JSON.stringify(misc));
+  check("язык подписей и шестерёнка — в столбике под логотипом; ⓘ свёрнута; пустая строка состояния спрятана", misc.lang && !misc.inSearch && !misc.attrib && misc.version.open && misc.version.w >= 260 && /^(Обновлено|Версия).*, \d\d:\d\d$/.test(misc.version.line) && (misc.status === "none" || misc.status === "text"), JSON.stringify(misc));
   // окно настроек: только «закрыть», без «свернуть»; Esc закрывает его, как «Назад» на телефоне
   await run(settingsToggle);
   await sleep(300);

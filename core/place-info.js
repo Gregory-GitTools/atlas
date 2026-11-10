@@ -152,7 +152,7 @@ export function initPlaceInfo({ map, maplibregl }) {
   };
   // карточка пути — не меню, а висящая панель: при ней щелчок по карте открывает окно места (Грегори
   // 2026-11-10: «после выбора финиша невозможно поставить вторую точку — диалог не открывается»)
-  const anyOpen = () => popupOpen() || !!document.querySelector(".menu:not([hidden]):not(.search-card)");
+  const anyOpen = () => popupOpen() || !!document.querySelector(".menu:not([hidden]):not(.search-card):not(:has(.route-view))");
 
   map.on("click", async (e) => {
     if (e.originalEvent.target !== map.getCanvas() || !onEarth(e.point)) return;

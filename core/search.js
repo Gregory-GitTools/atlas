@@ -55,6 +55,9 @@ let foldCard = () => {}, cardSrc = null;
 export const setSearchCard = (src) => { cardSrc = src; refresh(false); };
 // свернуть карточку раздела в значок в строке поиска
 export const foldSearchCard = () => foldCard();
+// открыть подсказки режима (навигация: список точек маршрута — «стрелка вверх» карточки пути)
+let showList = () => {};
+export const showSearchList = () => showList();
 export const searchMode = () => mode;
 
 // места по тексту (Nominatim): рядом с видимой частью карты — выше; null — поиск выключен в настройках
@@ -104,7 +107,7 @@ export function initSearch({ map, maplibregl }) {
   // «Поиск места» в барабане — из режима раздела в обычный поиск: окно раздела закрыть, режим снять
   on("search-plain", () => { closeOpen("left"); setMode(null); input.value = ""; clearBtn.hidden = true; }, { replay: false });
   // открыт ли поиск (кнопка справа вверху) — карточка пути видна только с ним
-  let searchOn = false, cardShown = false;
+  let searchOn = false, cardShown = false, routeViewing = false;
   on("search-shown", (v) => { searchOn = v; refresh(false); });
 
   // ---------- режим раздела ----------
@@ -131,6 +134,9 @@ export function initSearch({ map, maplibregl }) {
     cardBox.hidden = !shown;
     const open = shown && searchOn;
     if (open !== cardShown) { cardShown = open; emit("route-card", { open }); }
+    // открыт список точек маршрута — тоже смотрим на маршрут (карта за мной не ходит)
+    const viewing = searchOn && !list.hidden && !!list.querySelector(".route-view");
+    if (viewing !== routeViewing) { routeViewing = viewing; emit("route-viewing", { open: viewing }); }
     if (withList && (!list.hidden || wantList)) suggest();
   };
   // карточку пути открыли — окно раздела уходит в строку
@@ -176,11 +182,10 @@ export function initSearch({ map, maplibregl }) {
     scroller.scrollTop = 0;
     if (!nodes.length) { close(); return; }
     list.replaceChildren(scroller, grip);
-    const was = list.hidden;
     list.hidden = false;
     if (!listBack) listBack = backable(() => { listBack = null; close(); });
     if (leftOpen) emit("panel-fold-request", { fold: true }); // подсказки — одно окно с окном раздела
-    if (was) refresh(false);
+    refresh(false); // карточка прячется; открыт ли список точек маршрута
   };
   // высота — по видимой части экрана: открылась клавиатура — список над ней, не под ней
   const vv = window.visualViewport;
@@ -302,7 +307,11 @@ export function initSearch({ map, maplibregl }) {
   // (Грегори 2026-11-05: «остаётся только окно без клавиатуры»); «Назад» на телефоне прячет клавиатуру,
   // подсказки остаются; без щелчка список сам не открывается
   // у раздела без своих подсказок (Экскурсии, Альбомы…) щелчок открывает его свёрнутое окно
+  // режим может держать вложенный список (точки маршрута) — щелчок по строке всегда ведёт к началу
+  // (Грегори 2026-11-10: «клик по окну поиска всегда отсылает в начальное окно»): mode.reset()
   input.addEventListener("click", () => {
+    if (!list.hidden && mode?.reset?.()) { suggest(); return; }
+    mode?.reset?.();
     if (!list.hidden) { close(); input.blur(); }
     else if (!mode || mode.list) { if (leftOpen) emit("panel-fold-request", { fold: true }); suggest(); }
     else if (folded) unfoldPanel();
@@ -316,7 +325,10 @@ export function initSearch({ map, maplibregl }) {
     marker = null;
     suggest();
   });
-  // щелчок мимо поиска закрывает список подсказок (карточка раздела остаётся)
-  document.addEventListener("click", (e) => e.target.isConnected && !bar.contains(e.target) && close());
+  showList = () => { if (leftOpen) emit("panel-fold-request", { fold: true }); suggest(); };
+  // щелчок мимо поиска закрывает список подсказок (карточка раздела остаётся); список точек маршрута — нет:
+  // щелчок по карте — окно места, из него точку добавляют в маршрут (Грегори 2026-11-10)
+  document.addEventListener("click", (e) => e.target.isConnected && !bar.contains(e.target)
+    && !(list.querySelector(".route-view") && e.target.closest(".maplibregl-map")) && close());
 }
 

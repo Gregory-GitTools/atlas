@@ -58,6 +58,8 @@
 .panel-btn > svg,
 .pb-btn > svg,
 .search-delete > svg,
+.search-drag > svg,
+.go-stop-x > svg,
 .search-box > button > svg,
 .search-card-btn svg,
 .go-way > svg,
@@ -634,12 +636,30 @@ html, body {
   padding-left: 4px;
 }
 
+/* ручка, карандаш и крестик строки — 34 px, как кнопки шапки (Грегори 2026-11-10: «контролы больше»);
+   в списке нечего выделять — текст правят карандашом */
 .search-drag {
-  padding: 8px 4px 8px 10px;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  margin-left: 4px;
   color: var(--muted);
   cursor: grab;
   touch-action: none;
   display: grid;
+  place-items: center;
+}
+
+.history,
+.route-view-head,
+.search-card {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.history-rename {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .search-history-row.dragging {
@@ -647,11 +667,13 @@ html, body {
 }
 
 .search-delete {
-  width: 32px;
-  height: 32px;
-  margin-right: 6px;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  margin-right: 4px;
+  padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: 8px;
   background: none;
   color: var(--muted);
   cursor: pointer;
@@ -2972,20 +2994,17 @@ body.search-hidden .panel-left {
 .go-stop-x {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  flex: none;
+  width: 34px;
+  height: 34px;
   padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: 8px;
   background: none;
   color: var(--text);
   cursor: pointer;
 }
 
-.go-stop-x svg {
-  width: 16px;
-  height: 16px;
-}
 
 /* история: значок сохранённого маршрута перед названием, переименование прямо в строке */
 .history-icon {
@@ -3168,4 +3187,38 @@ body.dock-on .dock {
   color: var(--tone-nav);
   font-size: 12px;
   font-weight: 600;
+}
+
+/* точки маршрута в карточке пути: номер остановки / флажок финиша, название, крестик */
+.go-stops {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+
+.go-pt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.go-pt-n {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  color: var(--tone-nav);
+}
+
+.go-pt-t {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.go-stop-x:hover {
+  background: var(--panel-hover);
 }

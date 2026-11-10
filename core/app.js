@@ -56,7 +56,8 @@ map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-lef
 {
   const attrib = document.querySelector(".maplibregl-ctrl-attrib");
   const line = Object.assign(document.createElement("div"), { className: "attrib-version" });
-  const day = (d) => d.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+  // дата и время обновления (Грегори 2026-11-10: «ставь ещё и время, а то непонятно»)
+  const day = (d) => `${d.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}, ${d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`;
   line.textContent = `Обновлено ${day(new Date(document.lastModified))}`;
   attrib?.prepend(line);
   let asked = false;
