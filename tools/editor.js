@@ -255,10 +255,15 @@ async function roots() {
   if (Array.isArray(saved) && saved.length) return (known = saved);
   try { return (known = window.opener?.atlasGalleryRoots?.() || []); } catch { return []; }
 }
+// Окну галереи Edge своё разрешение на запись не даёт и не спрашивает (Грегори 2026-11-11: в окне галереи
+// нет «Изменения файлов», а у окна карты — есть) — сначала доступ окна карты, где запись уже разрешена
+const openerRoot = (i) => { try { return window.opener?.atlasGalleryRoots?.()[i] || null; } catch { return null; } };
 async function locate(p, write = false) {
-  const root = (known || await roots())[p.edit.root];
+  let root = (known || await roots())[p.edit.root];
   if (!root) throw new Error("папка снимка не найдена — откройте её в «Моих альбомах» снова");
   const mode = write ? "readwrite" : "read";
+  const there = openerRoot(p.edit.root);
+  if (there && there.name === root.name && await there.queryPermission({ mode }).catch(() => "") === "granted") root = there;
   const ok = await root.queryPermission({ mode }) === "granted" ? "granted" : await root.requestPermission({ mode }).catch((e) => e);
   if (ok instanceof Error) throw new Error("браузер не успел спросить разрешение на запись — нажмите «Сохранить» ещё раз");
   if (ok !== "granted") throw new Error(write ? "браузер не дал записать в папку. Слева от адреса этого окна — значок настроек сайта → «Изменение файлов» → «Спрашивать», затем снова «Сохранить»" : "нет доступа к папке");
