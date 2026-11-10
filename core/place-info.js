@@ -150,7 +150,9 @@ export function initPlaceInfo({ map, maplibregl }) {
     const back = map.project(map.unproject(pt));
     return Math.hypot(back.x - pt.x, back.y - pt.y) < 2;
   };
-  const anyOpen = () => popupOpen() || !!document.querySelector(".menu:not([hidden])");
+  // карточка пути — не меню, а висящая панель: при ней щелчок по карте открывает окно места (Грегори
+  // 2026-11-10: «после выбора финиша невозможно поставить вторую точку — диалог не открывается»)
+  const anyOpen = () => popupOpen() || !!document.querySelector(".menu:not([hidden]):not(.search-card)");
 
   map.on("click", async (e) => {
     if (e.originalEvent.target !== map.getCanvas() || !onEarth(e.point)) return;

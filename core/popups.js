@@ -38,6 +38,14 @@ export function closeAll() {
   for (const p of [...open]) if (p.isOpen()) p.remove();
 }
 
+// Esc закрывает окно на карте (Грегори 2026-11-10: «оставить — щелчок в сторону или Esc») — раньше прочих
+// (core/back.js): сначала окно, следующий Esc — то, что под ним
+addEventListener("keydown", (e) => {
+  if (e.key !== "Escape" || e.defaultPrevented || !anyOpen()) return;
+  e.preventDefault();
+  closeAll();
+}, true);
+
 export function initPopups(map) {
   // кроме того, как навигация ведёт карту за мной (каждый замер GPS) — иначе окно не успеть прочитать
   map.on("movestart", (e) => { if (!e.navFollow) closeAll(); });

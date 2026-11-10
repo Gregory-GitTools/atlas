@@ -3101,3 +3101,71 @@ body.dock-on .dock {
   display: block;
   padding: 2px 8px 2px 28px;
 }
+
+/* маршрут в списке «Куда» (Грегори 2026-11-10): шапка — назад, значок и название, «Поделиться», «Сохранить трек»;
+   ниже его точки, как история: номер остановки, у финиша флажок */
+.route-view-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px 4px 2px;
+  border-bottom: 1px solid var(--panel-hover);
+}
+
+.route-view-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.route-view-back,
+.route-view-btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.route-view-btn {
+  color: var(--tone-nav);
+}
+
+.route-view-back:hover,
+.route-view-btn:hover {
+  background: var(--panel-hover);
+}
+
+.route-view-btn svg,
+.route-view-back svg {
+  width: 30px;
+  height: 30px;
+}
+
+.route-pt-n {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #0a5cff;
+  color: #fff;
+  font: 700 12px var(--font);
+}
+
+/* окно отметки или точки маршрута: что это (Отметка, Остановка 2, Финиш) */
+.popup-role {
+  margin-top: 2px;
+  color: var(--tone-nav);
+  font-size: 12px;
+  font-weight: 600;
+}

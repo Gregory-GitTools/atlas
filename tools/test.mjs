@@ -245,10 +245,73 @@ try {
   const menuOpen = await run(`!__pp.getElement().querySelector(".go-menu").hidden`);
   await run(`[...__pp.getElement().querySelectorAll(".go-menu .menu-item")].find((b) => b.textContent === "Сохранить маршрут").click(); true`);
   const saved = await run(`(() => { const e = JSON.parse(localStorage.getItem("atlas.route.history") || "[]")[0]; return e && { title: e.title, stops: e.stops?.length, saved: !!e.saved }; })()`);
-  await run(`__pp.remove(); localStorage.setItem("atlas.route.history", JSON.stringify(JSON.parse(localStorage.getItem("atlas.route.history") || "[]").filter((e) => !e.saved))); true`);
-  await run(`document.querySelector(".search-card .go-stop-x").click(); true`);
-  await sleep(300);
-  const removed = await run(`atlas.route.state().stops`);
+  await run(`__pp.remove(); true`);
+  // карточка пути открыта — щелчок по карте всё равно открывает окно места (Грегори 2026-11-10: «после выбора
+  // финиша невозможно поставить вторую точку»): карточка — не меню, которое первый щелчок только закрывает
+  const W = PHONE ? 390 : 1200;
+  await run(`(() => { document.querySelectorAll(".search-results").forEach((m) => (m.hidden = true)); return true; })()`);
+  const cardShown = await run(`!document.querySelector(".search-card").hidden`);
+  for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: PHONE ? W / 2 : W - 300, y: 620, button: "left", clickCount: 1 });
+  await sleep(2500);
+  const mapPop = await run(`(() => { const p = [...document.querySelectorAll(".maplibregl-popup")].pop(); const r = { open: !!p, add: !!p?.querySelector(".go-add:not([hidden])") }; document.querySelectorAll(".maplibregl-popup-close-button").forEach((b) => b.click()); return r; })()`);
+  check("навигация: при открытой карточке пути щелчок по карте открывает окно места с «Добавить»", cardShown && mapPop.open && mapPop.add, JSON.stringify({ cardShown, mapPop }));
+  // маршрут с остановкой — сам в списке «Куда» (значок маршрута); его точки — своим списком, как история:
+  // шапка «назад», «Поделиться маршрутом», «Сохранить трек»; перетащили — финиш другой, путь пересчитан
+  await run(`(() => { const i = document.querySelector(".search-box input"); i.click(); i.focus(); return true; })()`);
+  await sleep(600);
+  const view = await run(`({ btns: [...document.querySelectorAll(".route-view-head button")].map((b) => b.title),
+    rows: [...document.querySelectorAll(".route-view .search-history-row .search-item-title")].map((r) => r.textContent), finish: !!document.querySelector(".route-view .search-history-row:last-child .history-icon svg") })`);
+  const hd = await run(`(() => { const r = document.querySelector(".route-view .search-drag").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, h: r.height }; })()`);
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", x: hd.x, y: hd.y, button: "left", clickCount: 1 });
+  for (let k = 1; k <= 6; k++) await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: hd.x, y: hd.y + k * 12, button: "left", buttons: 1 });
+  await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: hd.x, y: hd.y + 72, button: "left", clickCount: 1 });
+  await sleep(600);
+  const moved = await run(`({ ...atlas.route.state(), rows: [...document.querySelectorAll(".route-view .search-history-row .search-item-title")].map((r) => r.textContent),
+    entry: (({ title, stops }) => ({ title, stops: stops.map((x) => x.title) }))(JSON.parse(localStorage.getItem("atlas.route.history"))[0]) })`);
+  const files = await run(`(() => { Object.defineProperty(navigator, "share", { value: undefined, configurable: true });
+    return { gpx: atlas.route.gpx(), url: atlas.route.routeUrl() }; })()`);
+  check("маршрут: остановка — запись со значком маршрута в «Куда», его точки — своим списком (назад, «Поделиться», GPX); перетащили — финиш другой",
+    JSON.stringify(view.btns) === '["Все места","Поделиться маршрутом","Сохранить трек (GPX)"]' && JSON.stringify(view.rows) === '["1Остановка","Проба"]' && view.finish
+    && moved.target?.title === "Остановка" && JSON.stringify(moved.stops) === '["Проба"]' && JSON.stringify(moved.rows) === '["1Проба","Остановка"]'
+    && moved.entry.title === "Остановка" && JSON.stringify(moved.entry.stops) === '["Проба"]', JSON.stringify({ view, moved: { target: moved.target?.title, stops: moved.stops, rows: moved.rows, entry: moved.entry } }));
+  check("маршрут: «Поделиться» — ссылка Google Карт через остановки, «Сохранить трек» — GPX с точками",
+    /^https:\/\/www\.google\.com\/maps\/dir\/\?api=1&destination=59\.435000,24\.770000&waypoints=/.test(files.url) && (files.gpx.match(/<wpt /g) || []).length === 2
+    && /<name>1\. Проба<\/name>/.test(files.gpx) && /<(trk|rte)>/.test(files.gpx), JSON.stringify({ url: files.url, gpx: files.gpx.slice(0, 300) }));
+  await run(`document.querySelector(".route-view-back").click(); true`);
+  await sleep(200);
+  const back = await run(`!document.querySelector(".route-view-head") && !!document.querySelector(".search-results .history-icon")`);
+  check("маршрут: «назад» — снова весь список «Куда»", back);
+  // назад к одной точке «Проба»
+  await run(`atlas.route.setTarget({ lngLat: [24.76, 59.43], title: "Проба", way: "foot" });
+    localStorage.setItem("atlas.route.history", JSON.stringify(JSON.parse(localStorage.getItem("atlas.route.history") || "[]").filter((e) => !e.saved))); true`);
+  const removed = [];
+  // отметка и точки маршрута на карте — щелчок открывает то же окно места; крестик окна удаляет, Esc — оставляет
+  const items = await run(`(async () => { const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const pop = () => { const p = [...document.querySelectorAll(".maplibregl-popup")].pop(); return p && { role: p.querySelector(".popup-role")?.textContent,
+      acts: [...p.querySelectorAll(".go-actions:not([hidden]) .go-act")].length, x: p.querySelector(".maplibregl-popup-close-button")?.title }; };
+    const close = () => document.querySelector(".maplibregl-popup .maplibregl-popup-close-button").click();
+    const r = {};
+    atlas.route.toggleMark({ lngLat: [24.765, 59.432], title: "Флажок" }); await wait(100);
+    document.querySelector(".go-mark").click(); await wait(200);
+    r.mark = pop();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); await wait(100);
+    r.esc = { open: !!document.querySelector(".maplibregl-popup"), marks: atlas.route.state().marks.length };
+    document.querySelector(".go-mark").click(); await wait(200); close(); await wait(100);
+    r.unmarked = { marks: atlas.route.state().marks.length, flags: document.querySelectorAll(".go-mark").length };
+    atlas.route.addStop({ lngLat: [24.755, 59.433], title: "Заход" }); await wait(200);
+    document.querySelector(".go-stop").click(); await wait(200);
+    r.stop = pop(); close(); await wait(200);
+    r.stops = atlas.route.state().stops.length;
+    atlas.route.addStop({ lngLat: [24.755, 59.433], title: "Заход" }); await wait(200);
+    document.querySelector(".go-flag").click(); await wait(200);
+    r.finish = pop(); close(); await wait(200);
+    r.after = { target: atlas.route.state().target?.title, stops: atlas.route.state().stops.length };
+    return r; })()`);
+  check("отметка и точки маршрута: щелчок — окно места с кнопками, крестик — удалить (остановку, финиш — финишем становится остановка), Esc — оставить",
+    items.mark?.role === "Отметка" && items.mark.acts === 4 && items.mark.x === "Снять отметку" && !items.esc.open && items.esc.marks === 1 && !items.unmarked.marks && !items.unmarked.flags
+    && items.stop?.role === "Остановка 1" && items.stop.x === "Убрать остановку" && items.stops === 0 && items.finish?.role === "Финиш" && items.after.target === "Заход" && !items.after.stops, JSON.stringify(items));
+  await run(`atlas.route.setTarget({ lngLat: [24.76, 59.43], title: "Проба", way: "foot" });
+    localStorage.setItem("atlas.route.history", JSON.stringify(JSON.parse(localStorage.getItem("atlas.route.history") || "[]").filter((e) => !e.saved))); true`);
   check("окно места при навигации: стрелка, «Добавить», «Поделиться», «Отметить» и «⋯»; остановка в пути и на карте, отметка флажком, «Сохранить маршрут» — в список «Куда»",
     JSON.stringify(acts.btns) === '["Сюда","Добавить в путь","Поделиться","Отметить"]' && acts.more && JSON.stringify(added.stops) === '["Остановка"]' && added.chip.length === 1 && added.marker === 1
     && marked.marks.includes("Остановка") && marked.flag === 1 && marked.on && !unmarked.marks.length && !unmarked.flag && menuOpen

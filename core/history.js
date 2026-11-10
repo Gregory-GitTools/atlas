@@ -24,9 +24,12 @@ export function remember(key, entry, id, size = 20) {
 // match(e) — показать только подходящие (набирают текст — подсказки из уже найденного)
 // rename(e, title) → новая запись: у строки карандаш — переименовать прямо в строке (Грегори 2026-11-09);
 // label может вернуть icon — значок перед названием (сохранённый маршрут)
-export function historyList({ key, id, label, pick, changed, match, rename }) {
+// load/save — свой список вместо settings (точки маршрута: Грегори 2026-11-10 — «такая же панель, как
+// история поиска»); clear: false — без «Очистить историю»
+export function historyList({ key, id, label, pick, changed, match, rename, load, save, clear: withClear = true }) {
+  const get = load || (() => loadList(key)), put = save || ((l) => saveList(key, l));
   const box = Object.assign(document.createElement("div"), { className: "history" });
-  const list = loadList(key).filter((e) => !match || match(e));
+  const list = get().filter((e) => !match || match(e));
   if (!list.length) return box;
   const rows = Object.assign(document.createElement("div"), { className: "history-rows" });
   for (const entry of list) {
@@ -44,7 +47,7 @@ export function historyList({ key, id, label, pick, changed, match, rename }) {
     const del = Object.assign(document.createElement("button"), { type: "button", className: "search-delete", title: "Удалить из истории", innerHTML: CLEAR });
     del.addEventListener("click", (e) => {
       e.stopPropagation(); // список перерисуется — щелчок не должен считаться «мимо»
-      saveList(key, loadList(key).filter((x) => id(x) !== id(entry)));
+      put(get().filter((x) => id(x) !== id(entry)));
       changed();
     });
     const edit = rename && Object.assign(document.createElement("button"), { type: "button", className: "search-delete search-rename", title: "Переименовать", innerHTML: EDIT });
@@ -59,7 +62,7 @@ export function historyList({ key, id, label, pick, changed, match, rename }) {
         if (done) return;
         done = true;
         const v = input.value.trim();
-        if (keep && v && v !== t) saveList(key, loadList(key).map((x) => (id(x) === id(entry) ? rename(x, v) : x)));
+        if (keep && v && v !== t) put(get().map((x) => (id(x) === id(entry) ? rename(x, v) : x)));
         changed();
       };
       input.addEventListener("keydown", (ev) => { ev.stopPropagation(); if (ev.key === "Enter") finish(true); else if (ev.key === "Escape") { ev.preventDefault(); finish(false); } });
@@ -70,8 +73,8 @@ export function historyList({ key, id, label, pick, changed, match, rename }) {
     rows.append(row);
   }
   const clear = Object.assign(document.createElement("button"), { type: "button", className: "search-history-clear", textContent: "Очистить историю" });
-  clear.addEventListener("click", (e) => { e.stopPropagation(); saveList(key, []); changed(); });
-  box.append(rows, clear);
+  clear.addEventListener("click", (e) => { e.stopPropagation(); put([]); changed(); });
+  box.append(rows, ...(withClear ? [clear] : []));
 
   function drag(e, row) {
     e.preventDefault();
@@ -92,7 +95,8 @@ export function historyList({ key, id, label, pick, changed, match, rename }) {
       row.classList.remove("dragging");
       // показаны не все (набран текст) — переставленные встают на места показанных, остальные не трогаются
       const moved = [...rows.children].map((r) => r.entry), shown = new Set(moved.map(id));
-      saveList(key, loadList(key).map((e) => (shown.has(id(e)) ? moved.shift() : e)));
+      const before = get().map(id).join("|"), after = get().map((e) => (shown.has(id(e)) ? moved.shift() : e));
+      if (after.map(id).join("|") !== before) put(after);
     };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", end);

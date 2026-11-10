@@ -8,7 +8,11 @@
 // поиска»): он шлёт route-target / route-way, отсюда — событие route с тем, что показать.
 // В каждом окне на карте при навигации — ряд кнопок (Грегори 2026-11-09): стрелка «Сюда» (точка — цель,
 // открывается окно навигации, route-open), «Добавить» (остановка по пути — перед финишем), «Поделиться»,
-// «Отметить» (флажок на карте, помнится); вверху окна «⋯» — «Сохранить маршрут» (в список «Куда»)
+// «Отметить» (флажок на карте, помнится); вверху окна «⋯» — «Сохранить маршрут» (в список «Куда»),
+// «Поделиться маршрутом» (ссылка Google Карт), «Сохранить трек» (файл GPX).
+// Маршрут с остановками — запись в списке «Куда» (Грегори 2026-11-10: «добавить точку в любой момент —
+// маршрут сразу переписывается с точками и сохраняется в истории как маршрут»): каждая правка (добавили,
+// убрали, переставили остановку, сменили способ) — событие route-edit, навигация обновляет запись
 import { register, modules, allowed } from "./modules.js";
 import { on, emit } from "./events.js";
 import { decoratePopups, closeAll, track } from "./popups.js";
@@ -96,6 +100,8 @@ export function initRoute({ map, maplibregl, status }) {
   let target = settings.get("route.target"); // { lngLat, title }
   // остановки по пути — до финиша, по порядку («Добавить» в окне места); пройденная (ближе 40 м) уходит
   let stops = [], stopMarkers = [];
+  let savedId = null; // запись маршрута в списке «Куда», к которой привязан текущий путь
+  let savedName = null, lastGpx = ""; // её своё название (переименовали) — для файла и ссылки
   const next = () => stops[0]?.lngLat || target?.lngLat;
   let me = null, marker = null, route = null, asked = 0; // route: { way, coords, distance, duration }
 
@@ -105,7 +111,7 @@ export function initRoute({ map, maplibregl, status }) {
     const d = me && target ? distance(me, next()) : null, b = me && target ? bearing(me, next()) : null;
     const way = route && WAYS.find((w) => w.id === route.way);
     emit("route", {
-      target, stops: stops.map((s) => s.title), me: !!me, canRoute: allowed(self()) && !!me && !!target, busy,
+      target, stops: stops.map((s) => s.title), saved: savedId, me: !!me, canRoute: allowed(self()) && !!me && !!target, busy,
       distance: d, side: b === null ? "" : SIDES[Math.round(b / 45) % 8], arrow: b === null ? 0 : b - map.getBearing(),
       main: d === null ? "" : `${km(d)} ${SIDES[Math.round(b / 45) % 8]}`,
       route: route && { way: route.way, title: way.title, distance: route.distance, duration: route.duration, text: `${way.title}: ${km(route.distance)} · ${time(route.duration)}`, points: route.coords.length },
@@ -154,16 +160,50 @@ export function initRoute({ map, maplibregl, status }) {
   map.on("style.load", addLayers);
   if (map.isStyleLoaded()) addLayers();
 
+  // окно отметки или точки маршрута (Грегори 2026-11-10): то же окно места с кнопками; крестик окна —
+  // удалить (отметку, остановку, финиш), оставить — щелчок мимо или Esc
+  const itemPopup = (p, role, remove, removeTitle) => {
+    closeAll();
+    const box = document.createElement("div");
+    box.append(h("div", "popup-title", p.title), ...(p.address ? [h("div", "popup-sub", p.address)] : []), h("div", "popup-role", role));
+    const popup = new maplibregl.Popup({ offset: 26, maxWidth: "280px" }).setLngLat(p.lngLat).setDOMContent(box);
+    popup.atlasRemove = { fn: remove, title: removeTitle };
+    track(popup).addTo(map);
+    return popup;
+  };
+  const pointEl = (el, open) => {
+    el.addEventListener("click", (e) => { e.stopPropagation(); open(); });
+    return el;
+  };
   const drawStops = () => {
     stopMarkers.forEach((m) => m.remove());
     stopMarkers = stops.map((s, i) => {
-      const el = h("div", "go-stop", String(i + 1));
+      const el = pointEl(h("div", "go-stop", String(i + 1)), () => {
+        const k = stops.indexOf(s);
+        if (k >= 0) itemPopup(s, `Остановка ${k + 1}`, () => { const j = stops.indexOf(s); if (j >= 0) removeStop(j); }, "Убрать остановку");
+      });
       el.title = s.title;
       return new maplibregl.Marker({ element: el }).setLngLat(s.lngLat).addTo(map);
     });
   };
+  // финиш убрали: остановки остались — последняя становится финишем; нет — точки больше нет
+  const removeFinish = () => {
+    if (!target) return;
+    if (!stops.length) { emit("route-target", null); return; }
+    const last = stops.pop(), w = route && WAYS.find((x) => x.id === route.way);
+    target = { lngLat: last.lngLat, title: last.title, address: last.address || "" };
+    marker?.setLngLat(target.lngLat);
+    drawStops();
+    route = null;
+    edited();
+    draw();
+    show();
+    if (w) ask(w, true);
+  };
   const setTarget = (t) => {
     stops = t?.stops ? t.stops.map((s) => ({ ...s })) : [];
+    savedId = t?.saved || null;
+    savedName = t?.name || null;
     target = t && { lngLat: t.lngLat, title: t.title, address: t.address };
     drawStops();
     route = null;
@@ -172,6 +212,7 @@ export function initRoute({ map, maplibregl, status }) {
     settings.set("route.target", t);
     marker?.remove();
     marker = t ? flagMarker(maplibregl).setLngLat(t.lngLat).addTo(map) : null;
+    if (marker) pointEl(marker.getElement(), () => itemPopup(target, "Финиш", removeFinish, "Убрать финиш"));
     passed = 0; passedAt = null;
     draw();
     show();
@@ -179,10 +220,18 @@ export function initRoute({ map, maplibregl, status }) {
     const w = t?.way && WAYS.find((x) => x.id === t.way);
     if (w && me) ask(w);
   };
+  // правка маршрута — в его запись в списке «Куда» (записи ещё нет — появляется)
+  const edited = () => {
+    if (!target) return;
+    savedId ||= `r${Date.now()}`;
+    emit("route-edit", { saved: savedId, lngLat: target.lngLat, title: target.title, address: target.address || "",
+      stops: stops.map((x) => ({ lngLat: x.lngLat, title: x.title })), way: route?.way || busy || null });
+  };
   // остановка по пути: точки ещё нет — она и есть цель; путь уже проложен — заново, через остановку
   const addStop = (p) => {
     if (!target) return setTarget(p);
-    stops.push({ lngLat: p.lngLat, title: p.title });
+    stops.push({ lngLat: p.lngLat, title: p.title, address: p.address || "" });
+    edited();
     drawStops();
     const w = route && WAYS.find((x) => x.id === route.way);
     route = null;
@@ -192,6 +241,7 @@ export function initRoute({ map, maplibregl, status }) {
   };
   const removeStop = (i) => {
     stops.splice(i, 1);
+    edited();
     drawStops();
     const w = route && WAYS.find((x) => x.id === route.way);
     route = null;
@@ -216,6 +266,7 @@ export function initRoute({ map, maplibregl, status }) {
       if (!r) { status("Путь не найден"); setTimeout(() => status(""), 4000); show(); return; }
       route = { way: way.id, coords: r.geometry.coordinates, distance: r.distance, duration: r.duration };
       passed = 0; passedAt = null;
+      if (savedId) edited(); // способ — тоже часть маршрута
       fitPath(map, [me, ...route.coords, target.lngLat]); // путь пришёл — весь на экран
     } catch {
       if (n !== asked) return;
@@ -248,14 +299,8 @@ export function initRoute({ map, maplibregl, status }) {
       const el = h("div", "go-mark");
       el.innerHTML = MARKED_ICON;
       el.title = m.title;
-      // щелчок по флажку — окно этого места (с теми же кнопками), карта сама окно не открывает
-      el.addEventListener("click", (e) => {
-        e.stopPropagation();
-        closeAll();
-        const box = document.createElement("div");
-        box.append(h("div", "popup-title", m.title), ...(m.address ? [h("div", "popup-sub", m.address)] : []));
-        track(new maplibregl.Popup({ offset: 26, maxWidth: "280px" }).setLngLat(m.lngLat).setDOMContent(box)).addTo(map);
-      });
+      // щелчок по флажку — окно этого места с теми же кнопками; крестик окна — снять отметку
+      pointEl(el, () => itemPopup(m, "Отметка", () => { if (isMarked(m)) toggleMark(m); }, "Снять отметку"));
       return new maplibregl.Marker({ element: el, anchor: "bottom-left", offset: [-4, 0] }).setLngLat(m.lngLat).addTo(map);
     });
   };
@@ -269,7 +314,7 @@ export function initRoute({ map, maplibregl, status }) {
   // ---------- окно места при навигации: стрелка «Сюда», «Добавить», «Поделиться», «Отметить»; «⋯» вверху ----------
   // (Грегори 2026-11-05: в других режимах окно — только сведения об объекте)
   let navOn = false;
-  on("nav", (n) => { navOn = !!n?.on; document.querySelectorAll(".go-actions, .go-more").forEach((b) => (b.hidden = !navOn)); });
+  on("nav", (n) => { navOn = !!n?.on; document.querySelectorAll(".maplibregl-popup-content:not(.go-item) > :is(.go-actions, .go-more)").forEach((b) => (b.hidden = !navOn)); });
   // место из окна: названия нет — первая часть адреса, адрес — подписью; адреса нет — координаты
   const placeOf = (popup, content) => {
     const { lng, lat } = popup.getLngLat();
@@ -285,16 +330,53 @@ export function initRoute({ map, maplibregl, status }) {
     b.addEventListener("click", (e) => { e.stopPropagation(); fn(b); });
     return b;
   };
-  const share = async (p) => {
-    const [lng, lat] = p.lngLat.map((x) => x.toFixed(5));
-    const url = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`;
+  // «Поделиться» — ссылка Google Карт (Грегори 2026-11-10): на телефоне — системное окно, иначе — в буфер
+  const ll = (p) => p.lngLat.slice().reverse().map((x) => x.toFixed(6)).join(",");
+  const send = async (title, text, url, done) => {
     try {
-      if (navigator.share) { await navigator.share({ title: p.title, text: `${p.title}
-${lat}, ${lng}`, url }); return; }
-      await navigator.clipboard.writeText(`${p.title} — ${url}`);
-      status("Ссылка на место скопирована"); setTimeout(() => status(""), 3000);
+      if (navigator.share) { await navigator.share({ title, text, url }); return; }
+      await navigator.clipboard.writeText(`${title} — ${url}`);
+      status(done); setTimeout(() => status(""), 3000);
     } catch { /* отказались от «Поделиться» */ }
   };
+  const share = (p) => send(p.title, p.title, `https://www.google.com/maps/search/?api=1&query=${ll(p)}`, "Ссылка на место скопирована");
+  // маршрут — ссылка «Как добраться» Google Карт: начало — там, где её откроют, через остановки к финишу
+  const MODES = { foot: "walking", bike: "bicycling", car: "driving" };
+  const routeUrl = (t, via, way) => "https://www.google.com/maps/dir/?api=1&destination=" + ll(t)
+    + (via.length ? "&waypoints=" + encodeURIComponent(via.map(ll).join("|")) : "") + (MODES[way] ? "&travelmode=" + MODES[way] : "");
+  const shareRoute = (p) => {
+    const t = target || p, via = target ? stops : [];
+    send(`Маршрут: ${savedName || t.title}`, via.length ? `${via.map((x) => x.title).join(" → ")} → ${t.title}` : t.title,
+      routeUrl(t, via, route?.way || null), "Ссылка на маршрут скопирована");
+  };
+  // «Сохранить трек» — файл GPX: точки маршрута (остановки и финиш) и линия пути по дорогам, если проложен;
+  // не проложен — прямые от точки к точке
+  const ESC = { "<": "&lt;", ">": "&gt;", "&": "&amp;", "\"": "&quot;" };
+  const xml = (t) => String(t).replace(/[<>&"]/g, (c) => ESC[c]);
+  const pt = (tag, [lng, lat], inner = "") => `<${tag} lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}">${inner}</${tag}>`;
+  const gpx = (p) => {
+    const t = target || p, via = target ? stops : [], all = [...via, t];
+    const name = savedName || t.title;
+    const wpts = all.map((x, i) => pt("wpt", x.lngLat, `<name>${xml(i < all.length - 1 ? `${i + 1}. ${x.title}` : x.title)}</name>`));
+    const path = target && route ? `<trk><name>${xml(name)}</name><trkseg>${route.coords.map((c) => pt("trkpt", c)).join("")}</trkseg></trk>`
+      : `<rte><name>${xml(name)}</name>${[...(me ? [{ lngLat: me }] : []), ...all].map((x) => pt("rtept", x.lngLat)).join("")}</rte>`;
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Atlas" xmlns="http://www.topografix.com/GPX/1/1">\n`
+      + `<metadata><name>${xml(name)}</name></metadata>\n${wpts.join("\n")}\n${path}\n</gpx>\n`;
+  };
+  const saveGpx = (p) => {
+    const t = target || p, text = gpx(p);
+    const file = `${(savedName || t.title).replace(/[\\/:*?"<>|]+/g, " ").trim() || "маршрут"}.gpx`;
+    const a = Object.assign(document.createElement("a"), { download: file, href: URL.createObjectURL(new Blob([text], { type: "application/gpx+xml" })) });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    lastGpx = text;
+  };
+  // название маршрута (переименованная запись в списке «Куда») — для файла и ссылки
+  on("route-name", (n) => { savedName = n || null; }, { replay: false });
+  on("route-share", () => target && shareRoute(target), { replay: false });
+  on("route-gpx", () => target && saveGpx(target), { replay: false });
   decoratePopups((popup) => {
     const content = popup.getElement()?.querySelector(".maplibregl-popup-content");
     if (!content || content.querySelector(".go-actions")) return;
@@ -320,19 +402,34 @@ ${lat}, ${lng}`, url }); return; }
     // «⋯» — рядом с крестиком: «Сохранить маршрут» (есть цель — текущий путь, нет — путь сюда)
     const menu = h("div", "go-menu menu");
     menu.hidden = true;
-    const save = h("button", "menu-item", "Сохранить маршрут");
-    save.type = "button";
-    save.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const p = placeOf(popup, content);
-      const t = target || p;
-      emit("route-save", { lngLat: t.lngLat, title: t.title, address: t.address || "", stops: target ? stops.map((x) => ({ ...x })) : [], way: route?.way || null });
-      menu.hidden = true;
-      status(`Маршрут «${t.title}» сохранён — он в списке «Куда»`); setTimeout(() => status(""), 3000);
-    });
-    menu.append(save);
+    const item = (text, fn) => {
+      const b = h("button", "menu-item", text);
+      b.type = "button";
+      b.addEventListener("click", (e) => { e.stopPropagation(); menu.hidden = true; fn(placeOf(popup, content)); });
+      return b;
+    };
+    menu.append(
+      // есть цель — текущий маршрут (его запись в списке «Куда»), нет — маршрут сюда
+      item("Сохранить маршрут", (p) => {
+        if (target) edited();
+        else emit("route-save", { lngLat: p.lngLat, title: p.title, address: p.address || "", stops: [], way: null });
+        status(`Маршрут «${savedName || (target || p).title}» сохранён — он в списке «Куда»`); setTimeout(() => status(""), 3000);
+      }),
+      item("Поделиться маршрутом", shareRoute),
+      item("Сохранить трек (GPX)", saveGpx));
     const more = button("go-more", "Ещё", MORE_ICON, () => { menu.hidden = !menu.hidden; });
-    row.hidden = more.hidden = !navOn;
+    // окно отметки или точки маршрута — кнопки и без навигации; крестик окна удаляет
+    const own = popup.atlasRemove;
+    row.hidden = more.hidden = !navOn && !own;
+    if (own) {
+      content.classList.add("go-item");
+      const x = popup.getElement().querySelector(".maplibregl-popup-close-button");
+      if (x) {
+        x.title = own.title;
+        x.setAttribute("aria-label", own.title);
+        x.addEventListener("click", () => own.fn(), { capture: true });
+      }
+    }
     content.append(row, more, menu);
     content.classList.add("has-more");
     // окно стало выше — пусть MapLibre заново выберет, куда его повернуть, чтобы не ушло за край экрана
@@ -357,5 +454,6 @@ ${lat}, ${lng}`, url }); return; }
   settings.set("route.target", null);
   show();
   // для проверки
-  return { state: () => ({ target, me, stops: stops.map((x) => x.title), marks: marks.map((m) => m.title), route: route && { way: route.way, distance: route.distance, points: route.coords.length } }), setTarget, addStop, toggleMark };
+  return { state: () => ({ target, me, saved: savedId, stops: stops.map((x) => x.title), marks: marks.map((m) => m.title), route: route && { way: route.way, distance: route.distance, points: route.coords.length } }),
+    setTarget, addStop, toggleMark, routeUrl: (p) => routeUrl(target || p, target ? stops : [], route?.way || null), gpx, lastGpx: () => lastGpx };
 }
