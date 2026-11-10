@@ -266,7 +266,11 @@ async function locate(p, write = false) {
   if (there && there.name === root.name && await there.queryPermission({ mode }).catch(() => "") === "granted") root = there;
   const ok = await root.queryPermission({ mode }) === "granted" ? "granted" : await root.requestPermission({ mode }).catch((e) => e);
   if (ok instanceof Error) throw new Error("браузер не успел спросить разрешение на запись — нажмите «Сохранить» ещё раз");
-  if (ok !== "granted") throw new Error(write ? "браузер не дал записать в папку. Слева от адреса этого окна — значок настроек сайта → «Изменение файлов» → «Спрашивать», затем снова «Сохранить»" : "нет доступа к папке");
+  if (ok !== "granted" && write) {
+    try { window.opener?.atlasGalleryAskWrite?.(p.edit.root); } catch { /* окно карты закрыто */ }
+    throw new Error(window.opener ? "в окне карты появилась кнопка «Разрешить запись в папку» — нажмите её и разрешите, затем снова «Сохранить»" : "браузер не дал записать в папку");
+  }
+  if (ok !== "granted") throw new Error("нет доступа к папке");
   const parts = p.edit.path.split("/"), name = parts.pop(), chain = [root];
   for (const s of parts) chain.push(await chain.at(-1).getDirectoryHandle(s));
   const dir = chain.at(-1);

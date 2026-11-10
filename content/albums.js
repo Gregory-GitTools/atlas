@@ -604,6 +604,21 @@ addEventListener("message", (e) => {
 });
 // для проверки (снимки выдуманной папки в тесте не уходят в IndexedDB) — доступ к своим папкам
 window.atlasGalleryRoots = () => dirs;
+// окно галереи (popup) запись в папку у Edge не спрашивает — сразу отказ (Грегори 2026-11-11), а папки
+// открыты только на чтение; спросить можно здесь, по нажатию — кнопка над картой, после неё «Сохранить» снова
+window.atlasGalleryAskWrite = (i) => {
+  const d = dirs[i];
+  if (!d) return;
+  document.querySelector(".al-write-ask")?.remove();
+  const b = h("button", "text-btn al-write-ask", `Разрешить запись в папку «${d.name}»`);
+  b.addEventListener("click", async () => {
+    const ok = await d.requestPermission({ mode: "readwrite" }).catch(() => "denied");
+    b.remove();
+    ctx?.status(ok === "granted" ? "Запись разрешена — нажмите «Сохранить» в окне снимка" : "Браузер не дал разрешения на запись");
+    setTimeout(() => ctx?.status(""), 5000);
+  });
+  document.body.append(b);
+};
 
 // «Смотреть» — сразу слайд-шоу (play); щелчок по снимку — просто галерея с него
 function gallery(a, startId, play = false) {

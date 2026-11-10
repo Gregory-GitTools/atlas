@@ -2055,6 +2055,20 @@ body.has-photo-strip .status {
   margin: 4px 6px 8px;
 }
 
+/* правка снимка просит запись в папку — кнопка над картой, на месте подсказки */
+.al-write-ask {
+  position: fixed;
+  left: 50%;
+  bottom: 140px;
+  z-index: 31;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: 9px 16px;
+  border-color: var(--tone-my);
+  box-shadow: var(--shadow);
+  font-weight: 600;
+}
+
 .al-folder {
   flex: 1;
   min-width: 0;
