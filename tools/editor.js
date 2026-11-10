@@ -246,17 +246,22 @@ const say = (text) => { note.textContent = text || ""; note.classList.toggle("sh
 
 // доступ к своей папке: из IndexedDB этого окна (так браузер даёт просить запись из него),
 // для проверки — у окна карты
+// Список папок — заранее (при открытии правки): браузер разрешает спросить запись только в первые
+// секунды после нажатия, а чтение IndexedDB, пока страница занята нейросетью («Фон»), эти секунды съедало
+// (Грегори 2026-11-10: «Не сохранилось: … User activation is required to request permissions»)
+let known = null;
 async function roots() {
   const saved = await cacheGet("albums/dirs").catch(() => null);
-  if (Array.isArray(saved) && saved.length) return saved;
-  try { return window.opener?.atlasGalleryRoots?.() || []; } catch { return []; }
+  if (Array.isArray(saved) && saved.length) return (known = saved);
+  try { return (known = window.opener?.atlasGalleryRoots?.() || []); } catch { return []; }
 }
 async function locate(p, write = false) {
-  const root = (await roots())[p.edit.root];
+  const root = (known || await roots())[p.edit.root];
   if (!root) throw new Error("папка снимка не найдена — откройте её в «Моих альбомах» снова");
   const mode = write ? "readwrite" : "read";
-  if (await root.queryPermission({ mode }) !== "granted" && await root.requestPermission({ mode }) !== "granted")
-    throw new Error(write ? "без разрешения на запись сохранить нельзя" : "нет доступа к папке");
+  const ok = await root.queryPermission({ mode }) === "granted" ? "granted" : await root.requestPermission({ mode }).catch((e) => e);
+  if (ok instanceof Error) throw new Error("браузер не успел спросить разрешение на запись — нажмите «Сохранить» ещё раз");
+  if (ok !== "granted") throw new Error(write ? "без разрешения на запись сохранить нельзя" : "нет доступа к папке");
   const parts = p.edit.path.split("/"), name = parts.pop(), chain = [root];
   for (const s of parts) chain.push(await chain.at(-1).getDirectoryHandle(s));
   const dir = chain.at(-1);
@@ -627,6 +632,7 @@ async function open(p) {
   say("");
   try {
     await ready;
+    await roots(); // свежий список папок — к нажатию «Сохранить» уже под рукой
     const where = await locate(p);
     const file = await where.file.getFile();
     const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
