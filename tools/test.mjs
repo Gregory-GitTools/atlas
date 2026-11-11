@@ -1008,6 +1008,14 @@ try {
       const tc = await run(`({ ...${as}, items: [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((b) => b.firstChild.textContent) })`);
       check("альбомы: поездка с подпапками — одна строка, дни — свои альбомы, «[Originals]» пропущены",
         tc.groups === 1 && tc.albums === 6 && tc.items.includes("Без страны (2)"), JSON.stringify(tc));
+      // просьба о записи в папку (окно галереи её не получает) — красная плашка внизу слева над шкалой, крестик закрывает
+      const ask = await run(`(() => { atlasGalleryAskWrite(0); const el = document.querySelector(".al-write-ask"), r = el.getBoundingClientRect(),
+        sc = document.querySelector(".maplibregl-ctrl-scale").getBoundingClientRect();
+        const out = { text: el.querySelector(".al-write-go").textContent, bg: getComputedStyle(el).backgroundColor, above: r.bottom <= sc.top + 1, left: r.left < innerWidth / 2,
+          inside: r.left >= 0 && r.right <= innerWidth };
+        el.querySelector(".al-write-x").click(); out.closed = !document.querySelector(".al-write-ask"); return out; })()`);
+      check("альбомы: просьба о записи — красная плашка внизу слева над шкалой, крестик закрывает",
+        /^Разрешить запись в папку/.test(ask.text) && ask.bg === "rgb(229, 57, 53)" && ask.above && ask.left && ask.inside && ask.closed, JSON.stringify(ask));
       await run(`${itemFor("Без страны (2)")}.click(); true`);
       await sleep(600);
       const rows = await run(`[...document.querySelectorAll(".al-row")].map((r) => r.textContent)`);

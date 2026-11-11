@@ -2108,18 +2108,58 @@ body.has-photo-strip .status {
   margin: 4px 6px 8px;
 }
 
-/* правка снимка просит запись в папку — кнопка над картой, на месте подсказки */
+/* правка снимка просит запись в папку — красная плашка внизу слева, над шкалой, с крестиком (Грегори 2026-11-11) */
 .al-write-ask {
   position: fixed;
-  left: 50%;
-  bottom: 140px;
+  left: calc(var(--side-l) + var(--button) + var(--gap));
+  bottom: calc(var(--gap) + var(--button) + 26px);
   z-index: 31;
-  transform: translateX(-50%);
-  max-width: calc(100vw - 32px);
-  padding: 9px 16px;
-  border-color: var(--tone-my);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: calc(100vw - var(--side-l) - var(--button) - 2 * var(--gap) - 60px);
+  padding: 4px 4px 4px 14px;
+  border-radius: 10px;
+  background: #e53935;
+  color: #fff;
   box-shadow: var(--shadow);
+}
+
+/* лента снимков внизу — над ней, где и строка состояния */
+body.has-photo-strip .al-write-ask {
+  bottom: 110px;
+}
+
+.al-write-go {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
   font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.al-write-x {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.al-write-x:hover,
+.al-write-go:hover {
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .al-folder {

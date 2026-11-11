@@ -610,15 +610,22 @@ window.atlasGalleryRoots = () => dirs;
 window.atlasGalleryAskWrite = (i) => {
   const d = dirs[i];
   if (!d) return;
+  // красная плашка внизу слева над шкалой, с крестиком — передумали (Грегори 2026-11-11: «на неудачном месте»)
   document.querySelector(".al-write-ask")?.remove();
-  const b = h("button", "text-btn al-write-ask", `Разрешить запись в папку «${d.name}»`);
+  const box = h("div", "al-write-ask");
+  const b = h("button", "al-write-go", `Разрешить запись в папку «${d.name}»`);
+  b.type = "button";
+  const x = h("button", "al-write-x");
+  Object.assign(x, { type: "button", title: "Закрыть", innerHTML: '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>' });
+  x.addEventListener("click", () => box.remove());
+  box.append(b, x);
   b.addEventListener("click", async () => {
     const ok = await d.requestPermission({ mode: "readwrite" }).catch(() => "denied");
-    b.remove();
+    box.remove();
     ctx?.status(ok === "granted" ? "Запись разрешена — нажмите «Сохранить» в окне снимка" : "Браузер не дал разрешения на запись");
     setTimeout(() => ctx?.status(""), 5000);
   });
-  document.body.append(b);
+  document.body.append(box);
 };
 
 // «Смотреть» — сразу слайд-шоу (play); щелчок по снимку — просто галерея с него
