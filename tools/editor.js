@@ -799,8 +799,11 @@ async function restore() {
   document.body.classList.add("busy");
   try {
     const where = await locate(p, true);
-    const orig = await originalOf(where);
-    if (!orig) throw new Error("исходника в «[Originals]» нет");
+    const file = await originalOf(where);
+    if (!file) throw new Error("исходника в «[Originals]» нет");
+    // в память: файл копии сейчас удалится, а показ снимка в галерее — из него (Грегори 2026-11-11:
+    // после «Оригинала» вместо снимка — пустое место)
+    const orig = new Blob([await file.arrayBuffer()], { type: file.type });
     await write(where.file, orig);
     await (await where.dir.getDirectoryHandle(ORIGINALS)).removeEntry(where.name).catch(() => {});
     const fav = !/-Albom$/i.test(where.dir.name.trim()) && await curated(where.trip, false);

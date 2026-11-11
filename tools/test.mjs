@@ -1139,8 +1139,10 @@ try {
           await srun(`document.querySelector(".edit-restore").click(); true`);
           for (let i = 0; i < 30 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
           const back = await run(fsState);
-          check("правка: «Оригинал» — снимок как был, «[Originals]» и копия в «…-Albom» убраны", e3.hasOriginal && !e3.restore
-            && back.size[0] === 400 && !back.orig && JSON.stringify(back.fav) === "[]", JSON.stringify({ e3, back }));
+          await sleep(500);
+          back.shown = await srun(`document.querySelector(".stage img").naturalWidth`);
+          check("правка: «Оригинал» — снимок как был и виден в галерее, «[Originals]» и копия в «…-Albom» убраны", e3.hasOriginal && !e3.restore
+            && back.size[0] === 400 && back.shown === 400 && !back.orig && JSON.stringify(back.fav) === "[]", JSON.stringify({ e3, back }));
           // рамка кадрирования: «Кадр» → «1:1» — квадрат во всю высоту; уголок тянется (мышью), рамка
           // двигается и упирается в край снимка; «Сохранить» — квадратный снимок
           const gsend = (method, params) => new Promise((r) => { const id = ++sid; spend.set(id, r); sws.send(JSON.stringify({ id, method, params })); });
