@@ -558,7 +558,9 @@ async function refilter() {
 }
 const syncers = [];
 const groups = Object.assign(document.createElement("div"), { className: "edit-tools" });
-const restoreBtn = button(svg("M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"), "Сбросить правку", () => (changed() ? resetAll() : restore()));
+// «Сбросить правку» — значок снимка (как был), не круговая стрелка: «Назад» рядом — тоже стрелка, их путали
+// (Грегори 2026-11-11: «различаем»)
+const restoreBtn = button(svg("M19 19H5V5h14m0-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2m-5.04 9.29-2.75 3.54-1.96-2.36L6.5 17h11z"), "Сбросить правку", () => (changed() ? resetAll() : restore()));
 restoreBtn.classList.add("edit-restore");
 const cancelBtn = button(svg("M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"), "Выйти из правки (Esc)", () => close());
 const saveBtn = button(svg("M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"), "Сохранить (Ctrl+S)", save);

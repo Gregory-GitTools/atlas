@@ -120,7 +120,10 @@ export function initLayersPanel(ctx) {
   // первой — «Поиск места» (Грегори 2026-11-06: «в верхнем барабане не хватает кнопки Лупа»): выйти из
   // режима раздела в обычный поиск мест
   const SEARCH_ENTRY = { key: "search", title: "Поиск места", icon: LUPA, tone: "maps", plain: [],
-    content: { id: "search", column: { home: () => { emit("search-plain"); setShown(shown, true); }, isOpen: () => false, close: () => {} } } };
+    content: { id: "search", column: { home: () => { emit("search-plain"); setShown(shown, true); },
+      // светится, пока строка — обычный поиск мест (Грегори 2026-11-11: «кнопка не реагирует на нажатие, другие
+      // меняются на инверсию»); крестик — спрятать строку поиска (навигация и разделы работают дальше)
+      isOpen: () => searchOn && !mode, close: () => setShown(shown, false) } } };
   // последней — «Настройки» (Грегори 2026-11-06: «настройки в верхний барабан»)
   const SETTINGS_ENTRY = { key: "settings", title: "Настройки", icon: GEAR_ICON, tone: "maps", plain: [],
     content: { id: "settings", column: { home: () => emit("settings-open"), isOpen: () => panelOpen("settings"), close: () => closePanel("settings") } } };
@@ -157,7 +160,13 @@ export function initLayersPanel(ctx) {
   const lensBtn = Object.assign(document.createElement("button"), { className: "btn glass search-toggle" });
   const controls = [arrowBtn, lensBtn];
   let shown = null, searchOn = false, mode = null, routeNow = null;
+  // «Поиск места» в барабане — светится вместе с обычным поиском (без перерисовки барабана)
+  const litSearch = () => {
+    const lit = searchOn && !mode;
+    for (const c of document.querySelectorAll('[data-key="search"]')) { c.classList.toggle("on", lit); if (c.nextSibling) c.nextSibling.hidden = !lit; }
+  };
   const paint = () => {
+    litSearch();
     arrowBtn.classList.toggle("open", shown === "layers");
     arrowBtn.title = shown === "layers" ? "Спрятать слои карты" : "Слои карты";
     // кнопка — ещё и индикатор режима строки поиска (Грегори 2026-11-04): режим есть — его значок, даже

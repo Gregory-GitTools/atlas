@@ -32,6 +32,7 @@ const CAMERA_D = "M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM9 2 7.17 4H4
 const ICON = svg(STACK_D);
 // строка «Открыть папку…» в списке — тот же плюс, что «Открыть файл…» у треков
 const OPEN_ICON = svg("M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z");
+const FOLDER_ICON = svg("M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z");
 const BACK = svg("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z", 20);
 const COLOR = "#7c4dff"; // --tone-my
 const VIDEO_RE = /\.(mov|mp4|m4v)$/i;
@@ -1266,13 +1267,19 @@ const MODE = { icon: svg(STACK_D, 20), title: "Мои альбомы", placehold
 // (Грегори, 2026-11-02: «в треках файлы выбираются на месте, для фото надо лазать по меню»)
 function countryItems() {
   const folder = !canFolders() ? [] : [{ id: "#folder", icon: OPEN_ICON, hint: "Снимки с этого компьютера никуда не отправляются",
-    title: needsAccess && dirs.length ? accessTitle() : "Добавить папку…" }];
+    title: needsAccess && dirs.length ? accessTitle() : "Добавить папку…" },
+    // свои папки — под ней, у каждой крестик «Убрать папку» (Грегори 2026-11-11: раздел папок в настройках
+    // закомментирован — убрать было негде); снимки на диске не трогаются
+    ...(needsAccess ? [] : dirs.map((d, i) => ({ id: `#dir:${i}`, icon: FOLDER_ICON, title: d.name, hint: "Своя папка со снимками",
+      remove: { title: `Убрать папку «${d.name}»`, fn: () => confirm(`Убрать папку «${d.name}» из альбомов? Снимки на диске останутся.`)
+        && forgetFolder(d, () => isOpen("albums") && !currentCountry && renderList(null)) } })))];
   const list = countries().map(([name, n]) => ({ id: name, title: `${name} (${n})`, thumb: flagUrl(isoOf(name)) || "",
     icon: isoOf(name) ? "" : ICON, selected: currentCountry === name && isOpen("albums") }));
   return [...folder, ...(list.length || !loading ? list : [{ id: "", title: busy ? "Читаю альбомы…" : "Альбомов пока нет", icon: ICON }])];
 }
 // окно выбора папки — прямо по нажатию (иначе браузер его не откроет); после выбора — снова список стран
 function chooseItem(country) {
+  if (country?.startsWith("#dir:")) return; // строка своей папки — только крестик «Убрать»
   if (country === "#folder") { (dirs.length && needsAccess ? askAccess() : pickFolder()).then(() => isOpen("albums") && !currentCountry && renderList(null)); return; }
   if (country) openCountry(country);
 }

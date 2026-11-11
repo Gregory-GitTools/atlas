@@ -26,7 +26,14 @@ const EDGE = 8;
 function keepOnScreen(popup) {
   const map = popup._map, el = popup.getElement();
   if (!map || !el?.isConnected) return;
-  const r = el.getBoundingClientRect(), c = map.getContainer().getBoundingClientRect();
+  const r = el.getBoundingClientRect(), m = map.getContainer().getBoundingClientRect();
+  // свободная часть карты: не под барабаном справа и не под строкой поиска (Грегори 2026-11-11: окно должно
+  // позволять себя закрыть — крестик уходил под кнопки барабана)
+  const c = { left: m.left, right: m.right, top: m.top, bottom: m.bottom };
+  const wheel = [...document.querySelectorAll(".wheel:not(.closed)")].map((w) => w.getBoundingClientRect()).find((w) => w.width > 0);
+  if (wheel && wheel.left - c.left > r.width + 2 * EDGE) c.right = Math.min(c.right, wheel.left);
+  const bar = !document.body.classList.contains("search-hidden") && document.querySelector(".search-box")?.getBoundingClientRect();
+  if (bar && bar.height && c.bottom - bar.bottom > r.height + 2 * EDGE) c.top = Math.max(c.top, bar.bottom);
   const dx = r.left < c.left + EDGE ? r.left - c.left - EDGE : r.right > c.right - EDGE ? Math.min(r.right - c.right + EDGE, r.left - c.left - EDGE) : 0;
   const dy = r.top < c.top + EDGE ? r.top - c.top - EDGE : r.bottom > c.bottom - EDGE ? Math.min(r.bottom - c.bottom + EDGE, r.top - c.top - EDGE) : 0;
   if (Math.abs(dx) > 1 || Math.abs(dy) > 1) map.panBy([dx, dy], { duration: 250 }, { navFollow: true });

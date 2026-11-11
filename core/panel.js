@@ -121,6 +121,16 @@ export function homeList(items, choose) {
     r.querySelector(".tr-row-title").textContent = it.title;
     if (it.thumb) r.querySelector("img").src = it.thumb;
     r.addEventListener("click", () => choose(it.id));
+    // remove: { title, fn } — крестик справа в строке (свои папки альбомов: «Убрать папку», Грегори 2026-11-11)
+    if (it.remove) {
+      const line = Object.assign(document.createElement("div"), { className: "home-line" });
+      const x = Object.assign(document.createElement("button"), { type: "button", className: "search-delete", title: it.remove.title,
+        innerHTML: '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>' });
+      x.addEventListener("click", (e) => { e.stopPropagation(); it.remove.fn(); });
+      line.append(r, x);
+      list.append(line);
+      continue;
+    }
     list.append(r);
   }
   return list;
