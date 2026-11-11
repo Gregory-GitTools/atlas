@@ -13,6 +13,7 @@
 // «album-tracks», здесь — только ссылка (раздел «Из альбомов», стрелка назад — в альбом). Правка пишется в
 // сам файл, исходник — в «[Originals]» рядом (только при первой правке), «Вернуть трек как в файле» — из него
 import { register } from "../core/modules.js";
+import { trackIcon } from "../core/icons.js";
 import { createPanel, isOpen, homeList } from "../core/panel.js";
 import { emit, on } from "../core/events.js";
 import { setSearchMode, searchMode } from "../core/search.js";
@@ -23,8 +24,8 @@ import * as settings from "../core/settings.js";
 const svg = (d, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor"><path d="${d}"/></svg>`;
 // линия трека между двумя точками
 const TRACK_D = "M6 3a3 3 0 0 0-1 5.83V12a4 4 0 0 0 4 4h6a2 2 0 0 1 2 2v.17A3 3 0 1 0 19 18a4 4 0 0 0-4-4H9a2 2 0 0 1-2-2V8.83A3 3 0 0 0 6 3zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm12 12a1 1 0 1 1 0 2 1 1 0 0 1 0-2z";
-const ICON = svg(TRACK_D);
-const ICON_SMALL = svg(TRACK_D, 18);
+const ICON = trackIcon();
+const ICON_SMALL = trackIcon(18);
 const OPEN_ICON = svg("M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z");
 const BACK = svg("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z", 20);
 const SAVE = svg("M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z", 20);
@@ -400,7 +401,7 @@ function fit(t) {
 }
 
 // ---------- панель ----------
-const panel = createPanel({ id: "tracks", title: "Мои треки", icon: svg(TRACK_D, 18), side: "left" });
+const panel = createPanel({ id: "tracks", title: "Мои треки", icon: trackIcon(18), side: "left" });
 const h = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls || "", textContent: text || "" });
 const btn = (icon, title, fn) => { const b = h("button", "pb-btn"); b.innerHTML = icon; b.title = title; b.addEventListener("click", fn); return b; };
 let searchText = "";
@@ -433,7 +434,7 @@ function renderList(query = searchText) {
     const r = h("button", "tr-row");
     const icon = h("span", "tr-icon tk-icon");
     if (x.color) icon.style.background = x.color;
-    icon.innerHTML = kindOf(x.kind) ? mdi(kindOf(x.kind)[2]) : svg(TRACK_D, 18);
+    icon.innerHTML = kindOf(x.kind) ? mdi(kindOf(x.kind)[2]) : trackIcon(18);
     const text = h("span", "tr-row-text");
     text.append(h("span", "tr-row-title", x.name), h("span", "tr-row-sub", [kindOf(x.kind)?.[1], day(x.date), km(x.dist)].filter(Boolean).join(" · ")));
     r.append(icon, text);
@@ -446,7 +447,7 @@ function renderList(query = searchText) {
     const t = tracks.get(e.key), r = h("button", "tr-row tk-album-row");
     const icon = h("span", "tr-icon tk-icon");
     if (t?.color) icon.style.background = t.color;
-    icon.innerHTML = kindOf(t?.kind) ? mdi(kindOf(t.kind)[2]) : svg(TRACK_D, 18);
+    icon.innerHTML = kindOf(t?.kind) ? mdi(kindOf(t.kind)[2]) : trackIcon(18);
     const text = h("span", "tr-row-text");
     text.append(h("span", "tr-row-title", t?.name || e.name), h("span", "tr-row-sub", [e.albumTitle, t && day(t.date), t && km(stats(t).dist)].filter(Boolean).join(" · ")));
     r.append(icon, text);
@@ -1144,7 +1145,7 @@ async function openTrack(id, keep = false) {
 }
 
 // ---------- режим в строке поиска ----------
-const MODE = { icon: svg(TRACK_D, 20), title: "Мои треки", placeholder: "Найти трек", tone: "track",
+const MODE = { icon: trackIcon(20), title: "Мои треки", placeholder: "Найти трек", tone: "track",
   filter: (text) => renderList(text), exit: () => panel.close() };
 
 async function openPanel() {

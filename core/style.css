@@ -632,8 +632,61 @@ html, body {
   align-items: center;
 }
 
-.search-history-row .search-item {
-  padding-left: 4px;
+/* строка истории — сетка: ручка слева на всю высоту, сверху название, карандаш и крестик, под ними адрес —
+   на всю ширину до края окна, с переносом (Грегори 2026-11-10: «подними кнопки справа, чтобы адрес писался
+   на всю строку»); кнопка строки — без своей коробки, её части встают в сетку, щелчок по ним — та же кнопка */
+.history .search-history-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "drag title edit del" "drag sub sub sub";
+  align-items: start;
+  cursor: pointer;
+}
+
+.history .search-history-row:hover,
+.history .search-history-row:has(.search-item.active) {
+  background: var(--panel-hover);
+}
+
+.history .search-history-row .search-item {
+  display: contents;
+}
+
+.history .search-history-row .search-drag {
+  grid-area: drag;
+  align-self: center;
+}
+
+.history .search-history-row .search-item-title {
+  grid-area: title;
+  padding: 9px 6px 2px 4px;
+  overflow-wrap: anywhere;
+}
+
+.history .search-history-row .search-item-sub {
+  grid-area: sub;
+  padding: 0 12px 8px 4px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.history .search-history-row .search-item-sub:empty {
+  padding-bottom: 4px;
+}
+
+.history .search-history-row .search-rename {
+  grid-area: edit;
+  margin: 2px 0 0;
+}
+
+.history .search-history-row .search-delete:not(.search-rename) {
+  grid-area: del;
+  margin: 2px 4px 0 0;
+}
+
+.history .search-history-row .history-rename {
+  grid-column: 2 / 4;
+  grid-row: 1;
 }
 
 /* ручка, карандаш и крестик строки — 34 px, как кнопки шапки (Грегори 2026-11-10: «контролы больше»);
@@ -3132,7 +3185,9 @@ body.dock-on .dock {
 
 .maplibregl-ctrl-attrib.maplibregl-compact-show .attrib-version {
   display: block;
-  padding: 2px 8px 2px 28px;
+  /* по левому краю — вровень с текстом источников (Грегори 2026-11-10) */
+  text-align: left;
+  padding: 2px 0;
 }
 
 /* маршрут в списке «Куда» (Грегори 2026-11-10): шапка — назад, значок и название, «Поделиться», «Сохранить трек»;

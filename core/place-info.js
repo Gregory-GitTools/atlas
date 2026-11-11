@@ -137,9 +137,31 @@ async function pointContent(lngLat) {
   return box;
 }
 
+// место из поиска при навигации — наше окно места (Сюда, Добавить, Поделиться, Отметить, ⋯) на карте
+// (Грегори 2026-11-10): карта к месту — ниже строки поиска с карточкой, окно — когда карта встала
+let showPlaceFn = () => {};
+export const showPlace = (p) => showPlaceFn(p);
+
 export function initPlaceInfo({ map, maplibregl }) {
   let popup = null;
   let click = 0;
+  showPlaceFn = ({ lngLat, title, address, bbox }) => {
+    click++;
+    closeAll();
+    emit("nav-look"); // смотрим на место — карта за мной не уходит
+    const top = Math.max(0, (document.querySelector(".search")?.getBoundingClientRect().bottom || 0) - map.getContainer().getBoundingClientRect().top);
+    const open = () => {
+      const box = document.createElement("div");
+      box.append(h("popup-title", title), ...(address ? [h("popup-sub", address)] : []));
+      popup?.remove();
+      popup = track(new maplibregl.Popup({ offset: 4, maxWidth: "280px" })).setLngLat(lngLat).setDOMContent(box).addTo(map);
+    };
+    map.once("moveend", () => setTimeout(open));
+    const pad = { top: top + 60, bottom: 60, left: 40, right: 40 };
+    const [s, n, w, e] = (bbox || []).map(Number); // boundingbox Nominatim: юг, север, запад, восток
+    if (bbox && n - s < 0.5 && e - w < 0.5) map.fitBounds([[w, s], [e, n]], { padding: pad, maxZoom: 16, duration: 1500 });
+    else map.flyTo({ center: lngLat, zoom: Math.max(map.getZoom(), bbox ? 12 : 16), offset: [0, top / 2], duration: 1500 });
+  };
 
   // значок карты в нескольких пикселях от точки
   const hit = ({ x, y }) => map.queryRenderedFeatures([[x - 8, y - 8], [x + 8, y + 8]]).find((f) =>

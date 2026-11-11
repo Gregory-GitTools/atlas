@@ -130,6 +130,7 @@ export function initSearch({ map, maplibregl }) {
     cardBox.replaceChildren(...(card ? [card] : []));
     // одно окно за раз: открыты подсказки или окно раздела — карточки нет (её стрелка — в столбике под
     // логотипом, core/layers-panel.js); в строке поиска — только лупа (Грегори 2026-11-06)
+    input.placeholder = mode?.hint?.() || mode?.placeholder || "Поиск места";
     const shown = !!card && cardOpen && list.hidden && !leftOpen;
     cardBox.hidden = !shown;
     const open = shown && searchOn;
@@ -141,7 +142,8 @@ export function initSearch({ map, maplibregl }) {
   };
   // карточку пути открыли — окно раздела уходит в строку
   const showCard = () => { close(); input.blur(); cardOpen = true; if (leftOpen) emit("panel-fold-request", { fold: true }); refresh(false); };
-  picked = showCard;
+  // выбрали в разделе — набранное стирается
+  picked = () => { input.value = ""; clearBtn.hidden = true; showCard(); };
   // стрелка пути в столбике: карточка видна — свернуть, нет — показать
   on("route-card-toggle", () => (cardShown ? foldCard() : showCard()), { replay: false });
   // в путь добавили остановку — карточку показать (с поиском)
@@ -309,7 +311,10 @@ export function initSearch({ map, maplibregl }) {
   // у раздела без своих подсказок (Экскурсии, Альбомы…) щелчок открывает его свёрнутое окно
   // режим может держать вложенный список (точки маршрута) — щелчок по строке всегда ведёт к началу
   // (Грегори 2026-11-10: «клик по окну поиска всегда отсылает в начальное окно»): mode.reset()
+  // маршрут в работе (mode.keep) — щелчок к началу не уводит: список точек маршрута, можно набирать
+  // дополнительную точку (Грегори 2026-11-10)
   input.addEventListener("click", () => {
+    if (mode?.keep?.(list.hidden)) { if (list.hidden) { if (leftOpen) emit("panel-fold-request", { fold: true }); suggest(); } return; }
     if (!list.hidden && mode?.reset?.()) { suggest(); return; }
     mode?.reset?.();
     if (!list.hidden) { close(); input.blur(); }

@@ -12,13 +12,15 @@ import { emit, on } from "../core/events.js";
 import { setSearchMode, searchMode, geocode, refreshSearchList, foldSearchList, setSearchCard, showSearchList } from "../core/search.js";
 import { historyList, remember, loadList, saveList } from "../core/history.js";
 import { WAYS, ARROW, SHARE_ICON } from "../core/route.js";
+import { showPlace } from "../core/place-info.js";
+import { trackIcon } from "../core/icons.js";
 
 const HISTORY = "route.history";
 const ICON = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2 4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>';
 // сохранённый маршрут («⋯» → «Сохранить маршрут» в окне места) — своя запись, даже к той же точке
 const id = (e) => e.saved || `${e.lngLat[0].toFixed(5)},${e.lngLat[1].toFixed(5)}`;
 // значок сохранённого маршрута в списке (Грегори 2026-11-09: «если это сохранённый маршрут — поставить отметку»)
-const ROUTE_ICON = '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M18,15A3,3 0 0,1 21,18A3,3 0 0,1 18,21C16.69,21 15.58,20.17 15.17,19H14A2,2 0 0,1 12,17V15A2,2 0 0,0 10,13H8.83C8.42,14.17 7.31,15 6,15A3,3 0 0,1 3,12A3,3 0 0,1 6,9C7.31,9 8.42,9.83 8.83,11H10A4,4 0 0,1 14,15V17H15.17C15.58,15.83 16.69,15 18,15M18,17A1,1 0 0,0 17,18A1,1 0 0,0 18,19A1,1 0 0,0 19,18A1,1 0 0,0 18,17M6,11A1,1 0 0,0 5,12A1,1 0 0,0 6,13A1,1 0 0,0 7,12A1,1 0 0,0 6,11Z"/></svg>';
+const ROUTE_ICON = trackIcon(22);
 const BACK = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/></svg>';
 const GPX_ICON = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/></svg>';
 const FINISH_ICON = '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M14.4,6L14,4H5V21H7V14H12.6L13,16H20V6H14.4Z"/></svg>';
@@ -37,8 +39,19 @@ const MODE = { icon: ICON, title: "Навигация", placeholder: "Куда",
   filter: (text) => { if (!text && results) { results = null; note = ""; } },
   submit: (text) => find(text),
   list: (q) => suggestions(q),
-  // щелчок по строке — всегда к началу списка; true — был открыт маршрут
+  // щелчок по строке — к началу списка; true — был открыт маршрут
   reset: () => { const was = !!openRoute; openRoute = null; return was; },
+  // маршрут в работе (карточка пути или список его точек) — строка поиска ищет дополнительные точки, к началу
+  // не уводит (Грегори 2026-11-10: «в режиме трека окно поиска — в режиме дополнительных точек»): щелчок —
+  // список точек маршрута и набор текста
+  // (маршрут — есть остановки или открыт список его точек; одна цель — обычный список «Куда»)
+  keep: (closed) => {
+    const listed = !!openRoute && loadList(HISTORY).some((e) => e.saved === openRoute);
+    if (!state.target || !(listed || state.stops?.length)) return false;
+    if (closed && !listed) emit("route-build");
+    return true;
+  },
+  hint: () => (state.target ? "Добавить точку" : "Куда"),
   exit: () => {} };
 // карточка пути — висящий маршрут: видна при любом режиме строки поиска (Грегори 2026-11-05: «навигация
 // работает со всеми режимами»); свёрнута — в строке крупная красная стрелка к цели
@@ -61,6 +74,15 @@ async function find(q) {
     else { results = found; note = found.length ? "" : "Ничего не найдено"; }
   } catch { note = "Поиск не удался — проверьте интернет"; results = []; }
   render();
+}
+
+// найденное место при навигации — на карте наше окно места (Сюда, Добавить, Поделиться, Отметить, ⋯; Грегори
+// 2026-11-10); выбрать в нём, что делать
+function place(t) {
+  results = null;
+  note = "";
+  foldSearchList();
+  showPlace(t);
 }
 
 function choose(t) {
@@ -136,14 +158,17 @@ function suggestions(q) {
       b.innerHTML = `<span class="search-item-title"></span><span class="search-item-sub"></span>`;
       b.firstChild.textContent = title;
       b.lastChild.textContent = rest.join(", ");
-      b.addEventListener("click", () => choose({ lngLat: [Number(r.lon), Number(r.lat)], title, address: rest.join(", ") }));
+      b.addEventListener("click", () => place({ lngLat: [Number(r.lon), Number(r.lat)], title, address: rest.join(", "), bbox: r.boundingbox }));
       out.push(b);
     }
     return out;
   }
   const entry = openRoute && !q && loadList(HISTORY).find((e) => e.saved === openRoute);
   if (entry) return routeView(entry);
-  openRoute = null;
+  // набирают текст при открытом маршруте — маршрут остаётся открытым (стёрли — снова его точки)
+  if (!q) openRoute = null;
+  // маршрут в работе — выбранное из истории место тоже окном на карте (Добавить или Сюда)
+  const pickIn = (e) => (state.target && !e.saved ? place({ lngLat: e.lngLat, title: e.title, address: e.address || "" }) : choose(e));
   const hist = historyList({ key: HISTORY, id, match: q ? (e) => `${e.name || ""} ${e.title} ${e.address || ""}`.toLowerCase().includes(q) : null,
     // подпись — адрес; координаты — только если название не они же (старые записи)
     label: (e) => {
@@ -153,7 +178,7 @@ function suggestions(q) {
       return { title: e.title, sub: via + (e.address || (e.title === c ? "" : c)) };
     },
     rename: (e, title) => (e.saved ? { ...e, name: title } : { ...e, title }),
-    pick: choose, changed: render });
+    pick: pickIn, changed: render });
   if (hist.childElementCount) out.push(hist);
   else if (!q) out.push(h("div", "search-note", "Наберите место и нажмите Enter — или «Сюда» в окне любого места на карте"));
   return out;

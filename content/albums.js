@@ -14,6 +14,7 @@
 // клетка со значком LIVE, ролик оживает в галерее. Дубликаты (2026-11-08) — одинаковые и похожие снимки в
 // своих папках, лишние копии — в папку «[Повторы]»
 import { register, isMobile } from "../core/modules.js";
+import { trackIcon } from "../core/icons.js";
 import { createPanel, isOpen, homeList } from "../core/panel.js";
 import { repoFiles, repoUrl, repoSite } from "../core/repo.js";
 import { flagUrl } from "../core/flags.js";
@@ -828,7 +829,7 @@ function renderAlbum() {
   left.append(backBtn(a), play);
   // трек из папки альбома — в «Моих треках», стрелка оттуда — назад сюда
   for (const t of a.tracks) {
-    const b = btn(svg(TRACK_D, 20), `Просмотр трека «${t.name.replace(/\.\w+$/, "")}»`, () => emit("track-open", { key: t.key, ctx }));
+    const b = btn(trackIcon(20), `Просмотр трека «${t.name.replace(/\.\w+$/, "")}»`, () => emit("track-open", { key: t.key, ctx }));
     b.classList.add("al-track");
     left.append(b);
   }
