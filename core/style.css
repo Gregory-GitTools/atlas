@@ -1019,6 +1019,19 @@ html, body {
   color: var(--muted);
 }
 
+/* кайт-спот: годится ли ветер в выбранное время — цветная метка слева, цвет как у кольца на карте */
+.wx-kite {
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 4px solid var(--kite);
+  font-weight: 600;
+}
+
+/* час, когда кайт подходит */
+.wx-row.wx-good {
+  box-shadow: inset 3px 0 0 #2e9d43;
+}
+
 /* прогноз по дням (core/forecast.js): строка дня — щелчок раскрывает часы */
 .wx-days {
   margin-top: 8px;

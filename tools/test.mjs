@@ -1937,11 +1937,29 @@ try {
       for (let i = 0; i < 30 && !(await run(`!!document.querySelector(".maplibregl-popup .wx-days")`)); i++) await sleep(500);
       const spot = await run(`(() => { const p = document.querySelector(".maplibregl-popup"); return p && { title: p.querySelector(".popup-title")?.textContent,
         now: p.querySelector(".wx-now")?.textContent, days: p.querySelectorAll(".wx-day").length, open: p.querySelectorAll(".wx-day.open").length,
-        wave: /волна/.test(p.textContent) }; })()`);
-      check("кайт-спот: в окне погода — ветер и порывы, 7 дней, день открыт", !!spot && /Ветер \d+ м\/с, порывы \d+/.test(spot.now) && spot.days >= 7 && spot.open === 1, JSON.stringify(spot));
+        wave: /волна/.test(p.textContent), kite: p.querySelector(".wx-kite")?.textContent }; })()`);
+      check("кайт-спот: в окне погода — ветер и порывы, 7 дней, день открыт", !!spot && /Ветер \d+ м\/с, порывы \d+/.test(spot.now) && spot.days >= 7 && spot.open === 1 && /^Кайт: /.test(spot.kite || ""), JSON.stringify(spot));
       await shot("89b-spot-weather");
       await run(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); true`);
     }
+    // кайт: годность ветра (сила и сторона воды) и кольца у спотов, пока включён «Ветер» (Грегори 2026-11-12)
+    const rates = await run(`import("./core/forecast.js").then(({ kiteRate: k }) => { const sea = "0000000011111111"; // вода с юга до севера через запад
+      return [k(9, 12, 270, sea), k(9, 12, 90, sea), k(9, 12, 90, null), k(3, 5, 270, sea), k(5.5, 8, 270, sea), k(15, 19, 270, sea), k(10, 24, 270, sea)].join(","); })`);
+    check("кайт: годность ветра — с воды подходит, с суши опасно, сила по порогам", rates === "good,off,good,calm,weak,strong,storm", rates);
+    const surfStats = `atlas.modules().find((m) => m.id === "layers/surf").stats()`;
+    await run(`atlas.toggle("weather/wind", true).then(() => true)`);
+    for (let i = 0; i < 30 && !(await run(`${surfStats}.rated > 0`)); i++) await sleep(500);
+    await sleep(500);
+    const ring = await run(`(() => { const s = ${surfStats}; const levels = Object.values(s.kite);
+      return { rated: s.rated, sea: s.sea, levels, layer: !!atlas.map.getLayer("surf-kite"),
+        drawn: atlas.map.queryRenderedFeatures({ layers: ["surf-kite"] }).length }; })()`);
+    check("кайт: при ветре споты в кадре оценены, кольца нарисованы, у точек списка известна сторона воды",
+      ring.rated > 0 && ring.layer && ring.sea >= 28 && ring.levels.every((l) => /^(weak|good|strong|storm|off)$/.test(l)) && (ring.levels.length === 0 || ring.drawn > 0), JSON.stringify(ring));
+    await shot("89c-kite-rings");
+    await run(`atlas.toggle("weather/wind", false).then(() => true)`);
+    await sleep(600);
+    const ringOff = await run(`({ kite: Object.keys(${surfStats}.kite).length, drawn: atlas.map.queryRenderedFeatures({ layers: ["surf-kite"] }).length })`);
+    check("кайт: ветер выключен — колец нет", ringOff.kite === 0 && ringOff.drawn === 0, JSON.stringify(ringOff));
     await shot("89-beaches-surf");
     await run(`(async () => { await atlas.toggle("layers/beaches", false); await atlas.toggle("layers/surf", false); return true; })()`);
   }

@@ -11,6 +11,7 @@
 //  • Осадки — радар RainViewer (без ключа): последний снимок и анимация за 2 часа. Бесплатно —
 //    только до зума 7, дальше картинка растягивается.
 import { register, toggle } from "../core/modules.js";
+import { emit } from "../core/events.js";
 import { track, claimLayers } from "../core/popups.js";
 import { forecastBox, WIND_COLORS } from "../core/forecast.js";
 
@@ -144,7 +145,7 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
         return s;
       }));
   };
-  const setAt = (i) => { i = Math.max(0, Math.min(slots - 1, i)); at = i === 0 ? null : start() + i * STEP_S; paintBar(); draw(); };
+  const setAt = (i) => { i = Math.max(0, Math.min(slots - 1, i)); at = i === 0 ? null : start() + i * STEP_S; paintBar(); draw(); emit("wind-time", { on: true, at }); };
   range.addEventListener("input", () => setAt(Number(range.value)));
   bar.querySelector(".wx-prev").addEventListener("click", () => setAt(Number(range.value) - 1));
   bar.querySelector(".wx-next").addEventListener("click", () => setAt(Number(range.value) + 1));
@@ -190,12 +191,14 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
       document.body.classList.add("has-wx-bar");
       paintBar();
       update();
+      emit("wind-time", { on: true, at });
     },
     disable({ map }) {
       active = false;
       bar.hidden = true;
       document.body.classList.remove("has-wx-bar");
       if (map.getLayer("wind")) map.removeLayer("wind");
+      emit("wind-time", { on: false, at: null });
     },
     // для проверки: выбрать время (номер шага, 0 — сейчас)
     setStep: (i) => setAt(i),

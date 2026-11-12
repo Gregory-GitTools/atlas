@@ -4,7 +4,8 @@
 // светлом море и песке белый теряется (Грегори, 2026-10-04). Наши значки — поверх подписей карты.
 // Щелчок — окно: вид, название, высота, описание, направления указателя, у пляжа — покрытие и
 // спасатели. Данные — QLever (core/qlever.js); у точек — теги из OSM API.
-import { forecastBox } from "../core/forecast.js";
+import { forecastBox, kiteRate, KITE_COLORS } from "../core/forecast.js";
+import * as settings from "../core/settings.js";
 import { register, modules, toggle } from "../core/modules.js";
 import { on } from "../core/events.js";
 import { track, claimLayers } from "../core/popups.js";
@@ -116,9 +117,58 @@ async function showInfo(ctx, f) {
   const spot = SPOT_KINDS.has(p.kind);
   const wait = spot && box.appendChild(Object.assign(document.createElement("div"), { className: "popup-row wx-wait", textContent: "Погода…" }));
   track(new ctx.maplibregl.Popup({ offset: 14, maxWidth: spot ? "340px" : img ? "280px" : "260px" })).setLngLat(f.geometry.coordinates).setDOMContent(box).addTo(ctx.map);
-  if (spot) wait.replaceWith(await forecastBox(f.geometry.coordinates, { inside: true }));
+  if (spot) wait.replaceWith(await forecastBox(f.geometry.coordinates, { inside: true, at: kiteState.on ? kiteState.at : null, kite: { sea: seaOf(p.osm) } }));
 }
 const SPOT_KINDS = new Set(["surfing", "kitesurfing", "windsurfing"]);
+// время ветра (полоса «Ветра»): кольца у спотов и окно спота — на это время
+const kiteState = { on: false, at: null };
+
+// сторона воды у спота: 16 румбов, в 1,2 км — вода «1» или суша «0» (core/forecast.js, seaSide). У точек
+// списка — в surf-spots.json; у остальных — по карте, когда спот в кадре крупно; помнится на устройстве
+const seaKnown = new Map(Object.entries(settings.get("spot-sea", {})));
+const seaOf = (osm) => seaKnown.get(osm) || null;
+const SEA_M = 1200, SEA_ZOOM = 11;
+function inRing(x, y, ring) {
+  let c = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+}
+// вода — слой water схемы OpenMapTiles во всех векторных источниках подложки (море, озёра, реки)
+function waterAt(polys, [x, y]) {
+  return polys.some(({ geometry: g }) => (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [])
+    .some((poly) => poly.reduce((c, ring) => c !== inRing(x, y, ring), false)));
+}
+function seaAround(map, [lon, lat]) {
+  const polys = [];
+  for (const [id, src] of Object.entries(map.getStyle()?.sources || {})) {
+    if (src.type !== "vector") continue;
+    try { polys.push(...map.querySourceFeatures(id, { sourceLayer: "water" })); } catch { /* нет слоя */ }
+  }
+  const b = map.getBounds(), k = SEA_M / 111320;
+  return Array.from({ length: 16 }, (_, i) => {
+    const a = (i * 22.5 * Math.PI) / 180;
+    const q = [lon + (k * Math.sin(a)) / Math.cos((lat * Math.PI) / 180), lat + k * Math.cos(a)];
+    return b.contains(q) ? (waterAt(polys, q) ? "1" : "0") : "?";
+  }).join("");
+}
+function learnSea(map, features) {
+  if (map.getZoom() < SEA_ZOOM || !map.areTilesLoaded()) return false;
+  const b = map.getBounds();
+  let learned = false;
+  for (const f of features) {
+    const osm = f.properties.osm;
+    if (seaKnown.has(osm) || !b.contains(f.geometry.coordinates)) continue;
+    const sea = seaAround(map, f.geometry.coordinates);
+    if (sea.includes("?")) continue;
+    seaKnown.set(osm, sea);
+    learned = true;
+  }
+  if (learned) settings.set("spot-sea", Object.fromEntries([...seaKnown].filter(([k]) => !k.startsWith("list/"))));
+  return learned;
+}
 
 // слой значков из GeoJSON: поверх подписей карты (наши значки — сверху), окно по щелчку
 function pointLayer(ctx, id, extra, source = id) {
@@ -175,18 +225,62 @@ function wireClick(ctx, id) {
 // списка Грегори в Google Картах (surf-spots.json): точка OSM ближе 300 м к точке списка не рисуется
 {
   const SPARQL = `?osm osmkey:sport ?kind . FILTER (?kind IN ("surfing", "kitesurfing", "windsurfing"))`;
-  let list = null, osmPoints = null, loading = false, ctx = null;
-  const data = () => {
+  let list = null, osmPoints = null, loading = false, ctx = null, active = false, wired = false;
+  const kite = new Map(); // osm → годность ветра в выбранное время (KITE_COLORS)
+  const spots = () => {
     const own = list || [];
     const near = ([lon, lat]) => own.some((f) => Math.hypot((lon - f.geometry.coordinates[0]) * Math.cos((lat * Math.PI) / 180), lat - f.geometry.coordinates[1]) < 0.0027);
-    return { type: "FeatureCollection", features: [...own, ...(osmPoints || []).filter((f) => !near(f.geometry.coordinates))] };
+    return [...own, ...(osmPoints || []).filter((f) => !near(f.geometry.coordinates))];
   };
+  const data = () => ({ type: "FeatureCollection", features: spots().map((f) => (kiteState.on && kite.has(f.properties.osm)
+    ? { ...f, properties: { ...f.properties, kite: kite.get(f.properties.osm) } } : f)) });
+
+  // кольцо годности ветра у спотов в кадре — пока включён «Ветер» (Грегори 2026-11-12): зелёное —
+  // подходит, жёлтое — слабовато, оранжевое — сильно, красное — опасно (шторм или с берега); нет кольца — мало ветра
+  const wx = new Map(); // osm → { t, time[], ms[], gust[], dir[] } — прогноз спота на 7 дней
+  const HOUR = 3600000, MAX_SPOTS = 100;
+  let seq = 0;
+  async function rate() {
+    if (!active || !kiteState.on) { kite.clear(); ctx?.map.getSource("surf")?.setData(data()); return; }
+    const n = ++seq, now = Date.now(), b = ctx.map.getBounds();
+    const inView = spots().filter((f) => b.contains(f.geometry.coordinates)).slice(0, MAX_SPOTS);
+    const missing = inView.filter((f) => !(wx.get(f.properties.osm)?.t > now - HOUR));
+    for (let i = 0; i < missing.length; i += 50) {
+      const part = missing.slice(i, i + 50);
+      const params = new URLSearchParams({ latitude: part.map((f) => f.geometry.coordinates[1].toFixed(3)).join(","),
+        longitude: part.map((f) => f.geometry.coordinates[0].toFixed(3)).join(","), hourly: "wind_speed_10m,wind_direction_10m,wind_gusts_10m",
+        wind_speed_unit: "ms", timeformat: "unixtime", timezone: "auto", forecast_days: 7, temporal_resolution: "hourly_3" });
+      try {
+        const res = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
+        if (!res.ok) break;
+        const d = await res.json();
+        (Array.isArray(d) ? d : [d]).forEach(({ hourly: h }, k) => wx.set(part[k].properties.osm,
+          { t: now, time: h.time, ms: h.wind_speed_10m, gust: h.wind_gusts_10m, dir: h.wind_direction_10m }));
+      } catch { break; }
+      if (n !== seq) return;
+    }
+    if (n !== seq) return;
+    const when = kiteState.at ?? now / 1000;
+    kite.clear();
+    for (const f of inView) {
+      const w = wx.get(f.properties.osm);
+      if (!w) continue;
+      const k = w.time.findIndex((t) => t + 10800 > when);
+      if (k < 0) continue;
+      const level = kiteRate(w.ms[k], w.gust[k], w.dir[k], seaOf(f.properties.osm));
+      if (level !== "calm") kite.set(f.properties.osm, level);
+    }
+    ctx.map.getSource("surf")?.setData(data());
+  }
+  let timer = 0;
+  const later = () => { clearTimeout(timer); timer = setTimeout(rate, 300); };
+  on("wind-time", (s) => { Object.assign(kiteState, s); later(); });
   const load = async () => {
     if (loading) return;
     loading = true;
     if (!list) {
       try {
-        list = (await (await fetch("surf-spots.json")).json()).map(({ name, note, lon, lat }, i) => ({ type: "Feature",
+        list = (await (await fetch("surf-spots.json")).json()).map(({ name, note, lon, lat, sea }, i) => (sea && seaKnown.set(`list/${i}`, sea), { type: "Feature",
           geometry: { type: "Point", coordinates: [lon, lat] }, properties: { kind: "kitesurfing", osm: `list/${i}`, name, note, rank: 0 } }));
       } catch { list = []; }
       ctx?.map.getSource("surf")?.setData(data());
@@ -199,19 +293,35 @@ function wireClick(ctx, id) {
       } catch { setTimeout(load, 60000); }
     }
     loading = false;
+    later();
   };
   register({
     id: "layers/surf", kind: "layer", group: "places", title: "Сёрфинг", hint: "Сёрфинг, кайт и виндсёрфинг по всему миру", icon: glyphSvg("kitesurfing"),
-    needs: ["network"], sends: "запрос мест для сёрфинга (QLever, OpenStreetMap); точка спота — погода и волна (Open-Meteo)",
+    needs: ["network"], sends: "запрос мест для сёрфинга (QLever, OpenStreetMap); точка спота — погода и волна (Open-Meteo); при включённом ветре — споты в кадре (Open-Meteo)",
     enable(c) {
-      ctx = c;
+      ctx = c; active = true;
+      // кольцо — под значком, тем же источником
+      if (!c.map.getSource("surf")) c.map.addSource("surf", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      if (!c.map.getLayer("surf-kite")) c.map.addLayer({ id: "surf-kite", type: "circle", source: "surf", filter: ["has", "kite"],
+        paint: { "circle-radius": ["interpolate", ["linear"], ["zoom"], 2, 8, 8, 12, 14, 14], "circle-color": "rgba(0,0,0,0)",
+          "circle-stroke-width": 3, "circle-stroke-color": ["match", ["get", "kite"], ...Object.entries(KITE_COLORS).flat(), "#888"] } });
+      claimLayers("surf-kite");
       pointLayer(c, "surf", { layout: { "icon-image": icon(c.map, "kitesurfing"), "symbol-sort-key": ["get", "rank"],
         "icon-size": ["interpolate", ["linear"], ["zoom"], 2, 0.6, 8, 0.9, 14, 1, 16, 1.2] } });
       c.map.getSource("surf").setData(data());
       wireClick(c, "surf");
+      if (!wired) {
+        wired = true;
+        c.map.on("moveend", () => active && kiteState.on && later());
+        // сторона воды — когда спот в кадре крупно и плитки загружены
+        c.map.on("idle", () => { if (active && learnSea(c.map, spots()) && kiteState.on) later(); });
+      }
       load();
     },
-    disable({ map }) { if (map.getLayer("surf")) map.removeLayer("surf"); },
+    disable({ map }) { active = false; for (const id of ["surf", "surf-kite"]) if (map.getLayer(id)) map.removeLayer(id); },
+    // для проверки и для расчёта стороны воды у точек списка (surf-spots.json)
+    stats: () => ({ kite: Object.fromEntries(kite), rated: wx.size, sea: seaKnown.size }),
+    seaAround: (lngLat) => seaAround(ctx.map, lngLat),
   });
 }
 
