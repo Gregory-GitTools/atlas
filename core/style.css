@@ -980,25 +980,6 @@ html, body {
 }
 
 /* прогноз ветра в окне */
-.wx-table {
-  margin: 2px 0 6px;
-  font-size: 12px;
-}
-
-.wx-row {
-  display: grid;
-  grid-template-columns: 42px 18px 64px 1fr;
-  align-items: center;
-  padding: 2px 4px;
-  border-bottom: 1px solid var(--panel-hover);
-}
-
-/* шаг, выбранный полосой времени */
-.wx-row.wx-at {
-  background: var(--active);
-  border-radius: 6px;
-}
-
 .wx-dir {
   display: inline-block;
   font-weight: 700;
@@ -1015,10 +996,6 @@ html, body {
   margin-right: 2px;
 }
 
-.wx-temp {
-  color: var(--muted);
-}
-
 /* кайт-спот: годится ли ветер в выбранное время — цветная метка слева, цвет как у кольца на карте */
 .wx-kite {
   margin-top: 4px;
@@ -1027,57 +1004,99 @@ html, body {
   font-weight: 600;
 }
 
-/* час, когда кайт подходит */
-.wx-row.wx-good {
-  box-shadow: inset 3px 0 0 #2e9d43;
+/* окно спота «Кайта в Эстонии»: описание с абзацами — прокрутка внутри, окно не выше экрана */
+.kite-desc {
+  max-height: 180px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  white-space: pre-line;
 }
 
-/* прогноз по дням (core/forecast.js): строка дня — щелчок раскрывает часы */
-.wx-days {
+.kite-dirs {
+  font-weight: 600;
+}
+
+/* оффшор по описанию и «здесь не катаются» — красным */
+.kite-off,
+.popup-sub.kite-bad {
+  color: #e31a1c;
+  font-weight: 600;
+}
+
+/* таблица прогноза по образцу Windy (core/forecast.js): шаги по 3 часа слева направо, листается вбок;
+   подписи строк закреплены слева; ветер, порывы и «Кайт» — цветные клетки; ночь затемнена; выбранный шаг — в рамке */
+.wx-grid-wrap {
   margin-top: 8px;
-  max-height: min(46vh, 360px);
-  overflow-y: auto;
+  overflow-x: auto;
   overscroll-behavior: contain;
 }
 
-.wx-day-row {
-  display: grid;
-  grid-template-columns: 78px auto;
-  gap: 0 8px;
-  width: 100%;
-  padding: 6px 4px;
-  border: none;
-  border-top: 1px solid var(--panel-hover);
-  background: none;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.wx-day-row:hover {
-  background: var(--panel-hover);
-}
-
-.wx-day-name {
-  font-weight: 600;
-}
-
-.wx-day-wind {
-  justify-self: start;
-  padding-left: 6px;
-  border-left: 4px solid transparent;
-  font-weight: 600;
-}
-
-.wx-day-more {
-  grid-column: 1 / -1;
-  color: var(--muted);
+.wx-grid {
+  border-collapse: separate;
+  border-spacing: 1px 2px;
   font-size: 12px;
 }
 
-.wx-day:not(.open) .wx-table {
-  display: none;
+.wx-grid th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding: 0 6px 0 0;
+  background: var(--panel);
+  color: var(--muted);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.wx-grid td {
+  min-width: 26px;
+  padding: 2px 0;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.wx-grid .wx-dayname {
+  padding-left: 4px;
+  border-left: 2px solid var(--panel-hover);
+  font-weight: 600;
+  text-align: left;
+}
+
+.wx-grid .wx-h {
+  color: var(--muted);
+}
+
+.wx-grid .wx-c {
+  border-radius: 3px;
+  color: #111;
+  font-weight: 600;
+}
+
+.wx-grid .wx-g {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.wx-grid .wx-k {
+  height: 14px;
+}
+
+.wx-grid .wx-rain {
+  color: #1565c0;
+}
+
+.wx-grid .wx-dark {
+  box-shadow: inset 0 0 0 40px rgba(0, 0, 0, 0.14);
+}
+
+.wx-grid .wx-at {
+  outline: 2px solid var(--text);
+  outline-offset: -1px;
+}
+
+.wx-sun {
+  color: var(--muted);
 }
 
 .wx-src {

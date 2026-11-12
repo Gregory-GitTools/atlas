@@ -1,5 +1,5 @@
-// Сторона воды у кайт-спотов списка Грегори: node tools/spot-sea.mjs
-// Открывает Atlas в Chrome без окна, подводит карту к каждой точке surf-spots.json (масштаб ~1:30 000)
+// Сторона воды у кайт-спотов: node tools/spot-sea.mjs [файл] (по умолчанию — kite-ee.json)
+// Открывает Atlas в Chrome без окна, подводит карту к каждой точке файла с lon/lat (масштаб ~1:30 000)
 // и записывает в точку поле sea — 16 знаков по румбам (С, ССВ, … ССЗ): «1» — в 1,2 км вода, «0» — суша
 // (layers/outdoor.js, seaAround). Нужен заново, когда список спотов поменялся. Только встроенное в Node.
 import { spawn } from "node:child_process";
@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const FILE = path.join(ROOT, "surf-spots.json");
+const FILE = path.resolve(ROOT, process.argv[2] || "kite-ee.json");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const CHROME = [process.env.CHROME, "C:/Program Files/Google/Chrome/Application/chrome.exe", "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
   "/usr/bin/google-chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].find((p) => p && fs.existsSync(p));
@@ -53,6 +53,7 @@ try {
   await run(`atlas.toggle("layers/surf", true).then(() => true)`);
   const spots = JSON.parse(fs.readFileSync(FILE, "utf8"));
   for (const s of spots) {
+    if (s.lon == null) continue;
     await run(`atlas.map.jumpTo({ center: [${s.lon}, ${s.lat}], zoom: 13 }); true`);
     await run(`new Promise((r) => { const t = Date.now(); const c = () => atlas.map.loaded() && atlas.map.areTilesLoaded() || Date.now() - t > 20000 ? r(true) : setTimeout(c, 300); c(); })`);
     s.sea = await run(`atlas.modules().find((m) => m.id === "layers/surf").seaAround([${s.lon}, ${s.lat}])`);
