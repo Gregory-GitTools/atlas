@@ -3,6 +3,8 @@
 // в окне кайт-спота». Open-Meteo (без ключа): ветер, порывы, температура, осадки — на 7 дней с шагом
 // 3 часа; на воде — ещё волна (Marine API: высота, направление, период). Время — местное для точки.
 // Сеть — только по вызову: модули, которые его зовут, объявляют это в своём `sends`.
+import { on, emit } from "./events.js";
+
 const API = "https://api.open-meteo.com/v1/forecast";
 const MARINE = "https://marine-api.open-meteo.com/v1/marine";
 
@@ -103,30 +105,40 @@ export async function forecastBox(lngLat, { at = null, title = null, inside = fa
     const wave = (k) => (waves && waves.wave_height[k] != null ? waves.wave_height[k] : null);
     if (title) el("div", "popup-title", title, box);
     const head = el("div", title || inside ? "wx-now wx-now-sub" : "popup-title wx-now", "", box);
-    head.append(arrow(h.wind_direction_10m[i], windColor(h.wind_speed_10m[i]), dirName(h.wind_direction_10m[i])),
-      ` Ветер ${r0(h.wind_speed_10m[i])} м/с, порывы ${r0(h.wind_gusts_10m[i])} · ${dirName(h.wind_direction_10m[i])}`);
-    el("div", "popup-sub", [`${at ? `${dayName(h.time[i])}, ${hm(h.time[i])}` : "Сейчас"}`, `${r0(h.temperature_2m[i])}°`,
-      wave(i) != null && `волна ${r1(wave(i))} м`].filter(Boolean).join(" · "), box);
+    const sub = el("div", "popup-sub", "", box);
     const light = (k) => isLight(d.daily, h.time[k]);
     const rate = (k) => (light(k) ? kiteRate(h.wind_speed_10m[k], h.wind_gusts_10m[k], h.wind_direction_10m[k], kite) : "night");
-    if (kite) {
-      const level = rate(i), land = fromLand(h.wind_direction_10m[i], kite);
-      const line = el("div", `wx-kite wx-kite-${level}`, "", box);
-      line.style.setProperty("--kite", KITE_COLORS[level] || "var(--muted)");
-      line.textContent = [`Кайт: ${KITE_TEXT[level]}`, (level === "good" || level === "strong") && land === false && "ветер с воды",
-        land == null && !kite.off && "приблизьте карту к споту — узнаю, где вода"].filter(Boolean).join(" · ");
-    }
-    // таблица по образцу Windy (Грегори 2026-11-12): шаги по 3 часа слева направо, листается вбок; строки —
-    // ветер и порывы цветными клетками, направление, температура, осадки, волна; у спота — строка «Кайт»
-    // (зелёная — подходит, оранжевая — сильно, красная — с берега или шторм, пусто — нет). Ночь — затемнена.
-    // Прошедшие шаги сегодняшнего дня не показываем; выбранное время — в рамке, таблица открывается на нём
+    const kiteLine = kite && el("div", "wx-kite", "", box);
     const nowS = Date.now() / 1000;
     const ks = h.time.map((t, k) => k).filter((k) => h.time[k] + 10800 > nowS);
+    // шапка — на выбранный шаг k: ветер и порывы, время, у спота — «Кайт: …»
+    const paintHead = (k) => {
+      head.replaceChildren(arrow(h.wind_direction_10m[k], windColor(h.wind_speed_10m[k]), dirName(h.wind_direction_10m[k])),
+        ` Ветер ${r0(h.wind_speed_10m[k])} м/с, порывы ${r0(h.wind_gusts_10m[k])} · ${dirName(h.wind_direction_10m[k])}`);
+      sub.textContent = [k === ks[0] ? "Сейчас" : `${dayName(h.time[k])}, ${hm(h.time[k])}`, `${r0(h.temperature_2m[k])}°`,
+        wave(k) != null && `волна ${r1(wave(k))} м`].filter(Boolean).join(" · ");
+      if (!kite) return;
+      const level = rate(k), land = fromLand(h.wind_direction_10m[k], kite);
+      kiteLine.className = `wx-kite wx-kite-${level}`;
+      kiteLine.style.setProperty("--kite", KITE_COLORS[level] || "var(--muted)");
+      kiteLine.textContent = [`Кайт: ${KITE_TEXT[level]}`, (level === "good" || level === "strong") && land === false && "ветер с воды",
+        land == null && !kite.off && "приблизьте карту к споту — узнаю, где вода"].filter(Boolean).join(" · ");
+    };
+    // таблица по образцу Windy (Грегори 2026-11-12): шаги по 3 часа слева направо, листается вбок; строки —
+    // у спота сверху «Кайт» (зелёная — подходит, оранжевая — сильно, красная — с берега или шторм, пусто — нет),
+    // ветер и порывы цветными клетками, направление, температура, осадки, волна. Ночь — затемнена.
+    // Прошедшие шаги сегодняшнего дня не показываем; выбранное время — в рамке. Рамка связана с ползунком
+    // «Ветра» на карте (Грегори 2026-11-12): сдвинули ползунок — рамка и шапка на это время; щелчок по
+    // столбцу — рамка сюда и ползунок на карте тоже (если «Ветер» включён)
     const wrap = el("div", "wx-grid-wrap", "", box);
     const grid = el("table", "wx-grid", "", wrap);
+    const cols = new Map(); // шаг → клетки столбца
     const row = (label, title) => { const tr = el("tr", "", "", grid); const th = el("th", "", label, tr); if (title) th.title = title; return tr; };
     const cell = (tr, k, text, cls = "") => {
-      const td = el("td", [cls, !light(k) && "wx-dark", k === i && "wx-at"].filter(Boolean).join(" "), text, tr);
+      const td = el("td", [cls, !light(k) && "wx-dark"].filter(Boolean).join(" "), text, tr);
+      td.dataset.k = k;
+      if (!cols.has(k)) cols.set(k, []);
+      cols.get(k).push(td);
       return td;
     };
     // дни: название над своими шагами
@@ -141,12 +153,7 @@ export async function forecastBox(lngLat, { at = null, title = null, inside = fa
     }
     const hours = row("Часы");
     ks.forEach((k) => cell(hours, k, hm(h.time[k]).slice(0, 2), "wx-h"));
-    const wind = row("Ветер", "Ветер, м/с");
-    ks.forEach((k) => { const td = cell(wind, k, r0(h.wind_speed_10m[k]), "wx-c"); td.style.background = windColor(h.wind_speed_10m[k]); });
-    const gust = row("Порывы", "Порывы, м/с");
-    ks.forEach((k) => { const td = cell(gust, k, r0(h.wind_gusts_10m[k]), "wx-c wx-g"); td.style.background = windColor(h.wind_gusts_10m[k]); });
-    const dir = row("Откуда", "Направление: стрелка — куда дует");
-    ks.forEach((k) => cell(dir, k, "").append(arrow(h.wind_direction_10m[k], null, dirName(h.wind_direction_10m[k]))));
+    // «Кайт» — над ветром (Грегори 2026-11-12)
     if (kite) {
       const kr = row("Кайт", "Годится ли ветер для кайта на этом споте");
       ks.forEach((k) => {
@@ -155,6 +162,12 @@ export async function forecastBox(lngLat, { at = null, title = null, inside = fa
         td.title = KITE_TEXT[level];
       });
     }
+    const wind = row("Ветер", "Ветер, м/с");
+    ks.forEach((k) => { const td = cell(wind, k, r0(h.wind_speed_10m[k]), "wx-c"); td.style.background = windColor(h.wind_speed_10m[k]); });
+    const gust = row("Порывы", "Порывы, м/с");
+    ks.forEach((k) => { const td = cell(gust, k, r0(h.wind_gusts_10m[k]), "wx-c wx-g"); td.style.background = windColor(h.wind_gusts_10m[k]); });
+    const dir = row("Откуда", "Направление: стрелка — куда дует");
+    ks.forEach((k) => cell(dir, k, "").append(arrow(h.wind_direction_10m[k], null, dirName(h.wind_direction_10m[k]))));
     const temp = row("°C");
     ks.forEach((k) => cell(temp, k, `${r0(h.temperature_2m[k])}°`));
     const rain = row("Осадки", "Осадки, мм");
@@ -163,8 +176,41 @@ export async function forecastBox(lngLat, { at = null, title = null, inside = fa
       const wv = row("Волна", "Волна, м");
       ks.forEach((k) => cell(wv, k, wave(k) != null ? r1(wave(k)) : ""));
     }
-    // открыть на выбранном шаге (или с начала)
-    requestAnimationFrame(() => { const at0 = grid.querySelector("td.wx-at"); if (at0) wrap.scrollLeft = Math.max(0, at0.offsetLeft - 70); });
+    // выбрать шаг: рамка, шапка, столбец в виду
+    let cur = null;
+    const select = (k, scroll) => {
+      if (!cols.has(k)) k = ks[0];
+      if (k === cur) return;
+      for (const td of cols.get(cur) || []) td.classList.remove("wx-at");
+      for (const td of cols.get(k)) td.classList.add("wx-at");
+      cur = k;
+      paintHead(k);
+      if (scroll) requestAnimationFrame(() => {
+        const td = cols.get(k)[0], th = grid.querySelector("th")?.offsetWidth || 50;
+        if (td.offsetLeft - th < wrap.scrollLeft || td.offsetLeft + td.offsetWidth > wrap.scrollLeft + wrap.clientWidth)
+          wrap.scrollLeft = Math.max(0, td.offsetLeft - th - 20);
+      });
+    };
+    const stepAt = (t) => { const k = h.time.findIndex((x) => x + 10800 > t); return k < 0 ? ks[0] : k; };
+    select(i, true);
+    let windOn = false;
+    grid.addEventListener("click", (e) => {
+      const td = e.target.closest("td[data-k]");
+      if (!td) return;
+      e.stopPropagation();
+      const k = Number(td.dataset.k);
+      select(k, false);
+      if (windOn) emit("wind-time-set", { at: k === ks[0] ? null : h.time[k] });
+    });
+    // ползунок «Ветра» → рамка; окно закрыли — отписаться
+    let seen = false;
+    const unsub = on("wind-time", (w) => {
+      if (!box.isConnected) { if (seen) unsub?.(); return; }
+      seen = true;
+      windOn = w.on;
+      select(stepAt(w.at ?? Date.now() / 1000), true);
+    }, { replay: false });
+    on("wind-time", (w) => { windOn = w.on; }, { replay: true })();
     if (d.daily?.sunrise?.[0]) el("div", "popup-row wx-sun", `Восход ${hm(d.daily.sunrise[0])} · закат ${hm(d.daily.sunset[0])}`, box);
     el("div", "popup-row wx-src", `Прогноз Open-Meteo, время местное${waves ? "; ≈ волна, м / период, с — Open-Meteo Marine" : ""}`, box);
   } catch {

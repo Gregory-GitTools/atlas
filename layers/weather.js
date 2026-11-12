@@ -1,8 +1,8 @@
 // Погода (Грегори, 2026-10-27: «что на счёт погоды?»; в плане — ветер для кайт-спотов и походов).
 // Два слоя:
-//  • Ветер — стрелки по сетке в кадре: куда дует, сила в м/с (Грегори, 2026-10-28: «измени
-//    показания ветра на m/s») и порывы мельче рядом; цвет по силе, как у Windy: штиль — голубой, 4–6 —
-//    зелёный, 6–9 — жёлтый (лучший кайт), 9–13 — оранжевый, 13–18 — красный, сильнее — фиолетовый.
+//  • Ветер — как у Windy (Грегори 2026-11-12: «цветная раскраска области ветра вместо стрелок»): заливка
+//    цветом силы ветра (палитра Windy, плавно между узлами сетки, под подписями карты) и тонкие белые
+//    штрихи «куда дует» в узлах; числа — в окне прогноза по щелчку.
 //    **Время — полоса внизу** (Грегори 2026-11-11: «прогноз на несколько дней с выбором времени»): 7 дней
 //    вперёд с шагом 3 часа, стрелки — на выбранное время; ‹ › — на 3 часа, «Сейчас», крестик — выключить
 //    ветер. Щелчок по стрелке — прогноз в точке по дням (core/forecast.js), на воде — с волной.
@@ -11,15 +11,28 @@
 //  • Осадки — радар RainViewer (без ключа): последний снимок и анимация за 2 часа. Бесплатно —
 //    только до зума 7, дальше картинка растягивается.
 import { register, toggle } from "../core/modules.js";
-import { emit } from "../core/events.js";
-import { track, claimLayers } from "../core/popups.js";
-import { forecastBox, WIND_COLORS } from "../core/forecast.js";
+import { emit, on } from "../core/events.js";
+import { track, claimLayers, ownHit } from "../core/popups.js";
+import { forecastBox } from "../core/forecast.js";
 
 const svg = (inner) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">${inner}</svg>`;
 const OPEN_METEO = "https://api.open-meteo.com/v1/forecast";
 const STEPS = [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20]; // шаг сетки, градусы
-const COLS = 9; // стрелок по ширине кадра
-const MAX_POINTS = 150;
+const COLS = 14; // узлов сетки по ширине кадра
+const MAX_POINTS = 200;
+const EMPTY_PNG = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).toDataURL(); // прозрачная точка — пока узлов нет
+// палитра силы ветра, м/с → цвет, как на карте Windy; между порогами — плавно
+const FILL = [[0, [98, 113, 183]], [1, [57, 97, 159]], [3, [74, 148, 169]], [5, [77, 141, 123]], [7, [83, 165, 83]], [9, [53, 159, 53]],
+  [11, [167, 157, 81]], [13, [159, 127, 58]], [15, [161, 108, 92]], [17, [129, 58, 78]], [19, [175, 80, 136]], [21, [117, 74, 147]],
+  [24, [109, 97, 163]], [27, [68, 105, 141]], [29, [92, 144, 152]]];
+export function fillColor(ms) {
+  if (!(ms > 0)) return FILL[0][1];
+  for (let k = 1; k < FILL.length; k++) {
+    const [b, cb] = FILL[k];
+    if (ms <= b) { const [a, ca] = FILL[k - 1], t = (ms - a) / (b - a); return ca.map((v, j) => Math.round(v + (cb[j] - v) * t)); }
+  }
+  return FILL.at(-1)[1];
+}
 const HOUR = 3600000;
 const STEP_S = 3 * 3600; // шаг прогноза — 3 часа
 const DAYS = 7;
@@ -37,20 +50,55 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
   const start = () => { const d = new Date(); d.setMinutes(0, 0, 0); d.setHours(d.getHours() - (d.getHours() % 3)); return d.getTime() / 1000; };
   const slots = DAYS * 8;
 
+  // штрих «куда дует»: тонкая линия с небольшим уголком на конце, остриё вверх (как линии ветра Windy)
   const arrow = (map) => {
-    if (map.hasImage("wind-arrow")) return;
+    if (map.hasImage("wind-streak")) return;
     const s = 48;
     const c = Object.assign(document.createElement("canvas"), { width: s, height: s }).getContext("2d");
-    // стрелка «куда дует», остриё вверх; SDF — чтобы красить по силе ветра
-    c.fillStyle = "#fff";
+    c.strokeStyle = "#fff";
+    c.lineWidth = 2.6;
+    c.lineCap = "round";
+    c.lineJoin = "round";
     c.beginPath();
-    c.moveTo(24, 4); c.lineTo(36, 20); c.lineTo(28, 20); c.lineTo(28, 44); c.lineTo(20, 44); c.lineTo(20, 20); c.lineTo(12, 20);
-    c.closePath();
-    c.fill();
-    map.addImage("wind-arrow", c.getImageData(0, 0, s, s), { pixelRatio: 2, sdf: true });
+    c.moveTo(24, 44); c.lineTo(24, 6);
+    c.moveTo(17, 14); c.lineTo(24, 6); c.lineTo(31, 14);
+    c.stroke();
+    map.addImage("wind-streak", c.getImageData(0, 0, s, s), { pixelRatio: 2 });
   };
 
-  const color = ["step", ["get", "ms"], WIND_COLORS[0][1], ...WIND_COLORS.slice(1).flat()];
+  // заливка: узлы сетки — правильная решётка; между ними — плавно (билинейно), картинка растягивается
+  // на прямоугольник узлов (источник image под подписями карты). Сдвиг ползунка — только перекраска
+  const CELL_PX = 12;
+  const fillCanvas = document.createElement("canvas");
+  let fillInfo = null; // для проверки: размер картинки и сумма цветов (меняется со временем ползунка)
+  function drawFill() {
+    const map = ctx?.map;
+    if (!map?.getSource("wind-fill")) return;
+    const lons = [...new Set(shown.map((p) => p[0]))].sort((a, b) => a - b), lats = [...new Set(shown.map((p) => p[1]))].sort((a, b) => b - a);
+    if (lons.length < 2 || lats.length < 2) return;
+    const t = at ?? Date.now() / 1000;
+    const v = lats.map((lat) => lons.map((lon) => { const w = cache.get(`${lat},${lon}`); return w ? valueAt(w, t).ms : null; }));
+    const W = (lons.length - 1) * CELL_PX + 1, H = (lats.length - 1) * CELL_PX + 1;
+    fillCanvas.width = W; fillCanvas.height = H;
+    const c = fillCanvas.getContext("2d"), img = c.createImageData(W, H);
+    for (let y = 0; y < H; y++) {
+      const r = Math.min(lats.length - 2, Math.floor(y / CELL_PX)), fy = y / CELL_PX - r;
+      for (let x = 0; x < W; x++) {
+        const q = Math.min(lons.length - 2, Math.floor(x / CELL_PX)), fx = x / CELL_PX - q;
+        const a = v[r][q], b = v[r][q + 1], cc = v[r + 1][q], d = v[r + 1][q + 1];
+        if (a == null || b == null || cc == null || d == null) continue;
+        const ms = (a * (1 - fx) + b * fx) * (1 - fy) + (cc * (1 - fx) + d * fx) * fy;
+        const [R0, G, B] = fillColor(ms), o = (y * W + x) * 4;
+        img.data[o] = R0; img.data[o + 1] = G; img.data[o + 2] = B; img.data[o + 3] = 255;
+      }
+    }
+    c.putImageData(img, 0, 0);
+    let sum = 0, painted = 0;
+    for (let o = 0; o < img.data.length; o += 4) if (img.data[o + 3]) { painted++; sum += img.data[o] + img.data[o + 1] * 3 + img.data[o + 2] * 7; }
+    fillInfo = { w: W, h: H, painted, sum };
+    const [w, e, n, s] = [lons[0], lons.at(-1), lats[0], lats.at(-1)];
+    map.getSource("wind-fill").updateImage({ url: fillCanvas.toDataURL(), coordinates: [[w, n], [e, n], [e, s], [w, s]] });
+  }
 
   const grid = (map) => {
     const b = map.getBounds();
@@ -60,8 +108,10 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
     let pts;
     for (;;) {
       pts = [];
-      for (let lat = Math.ceil(south / step) * step; lat <= north; lat += step) {
-        for (let lon = Math.ceil(west / step) * step; lon <= east; lon += step) pts.push([+lon.toFixed(3), +lat.toFixed(3)]);
+      // на шаг за край кадра — заливка закрывает весь экран, без полос у краёв
+      for (let lat = Math.floor(south / step) * step; lat <= Math.ceil(north / step) * step + 1e-9; lat += step) {
+        if (Math.abs(lat) > 80) continue;
+        for (let lon = Math.floor(west / step) * step; lon <= Math.ceil(east / step) * step + 1e-9; lon += step) pts.push([+lon.toFixed(3), +lat.toFixed(3)]);
       }
       if (pts.length <= MAX_POINTS || step === STEPS.at(-1)) break;
       step = STEPS[STEPS.indexOf(step) + 1];
@@ -84,7 +134,7 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
     return [{ type: "Feature", geometry: { type: "Point", coordinates: [lon, lat] },
       properties: { ms: v.ms, gust: Math.round(v.gust), dir: v.dir, rot: (v.dir + 180) % 360, label: String(Math.round(v.ms)), gl: ` ${Math.round(v.gust)}` } }];
   });
-  const draw = () => ctx?.map.getSource("wind")?.setData({ type: "FeatureCollection", features: features(shown) });
+  const draw = () => { ctx?.map.getSource("wind")?.setData({ type: "FeatureCollection", features: features(shown) }); drawFill(); };
 
   async function update() {
     if (!active) return;
@@ -151,6 +201,8 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
   bar.querySelector(".wx-next").addEventListener("click", () => setAt(Number(range.value) + 1));
   when.addEventListener("click", () => setAt(0));
   bar.querySelector(".wx-bar-x").addEventListener("click", () => toggle("weather/wind", ctx, false));
+  // щелчок по столбцу таблицы в окне спота — ползунок сюда (core/forecast.js)
+  on("wind-time-set", ({ at: t }) => { if (active) setAt(t == null ? 0 : Math.round((t - start()) / STEP_S)); }, { replay: false });
   document.body.append(bar);
 
   async function forecast(f) {
@@ -173,19 +225,22 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
       const { map } = c;
       arrow(map);
       if (!map.getSource("wind")) map.addSource("wind", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      // заливка — под подписями карты (как радар осадков), полупрозрачная
+      if (!map.getSource("wind-fill")) map.addSource("wind-fill", { type: "image", url: EMPTY_PNG, coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]] });
+      if (!map.getLayer("wind-fill")) map.addLayer({ id: "wind-fill", type: "raster", source: "wind-fill",
+        paint: { "raster-opacity": 0.6, "raster-resampling": "linear", "raster-fade-duration": 0 } },
+        map.getStyle().layers.find((l) => l.type === "symbol")?.id);
+      // штрихи — длиннее при сильном ветре, по направлению «куда дует»
       if (!map.getLayer("wind")) map.addLayer({ id: "wind", type: "symbol", source: "wind",
-        layout: { "icon-image": "wind-arrow", "icon-rotate": ["get", "rot"], "icon-rotation-alignment": "map", "icon-allow-overlap": true,
-          "icon-size": ["interpolate", ["linear"], ["get", "ms"], 0, 0.9, 15, 1.5],
-          // сила крупно, порывы мельче рядом (Грегори 2026-11-11: «порывы»)
-          "text-field": ["format", ["get", "label"], {}, ["get", "gl"], { "font-scale": 0.75 }],
-          "text-font": ["Noto Sans Bold"], "text-size": 13, "text-offset": [0, 2], "text-allow-overlap": true },
-        paint: { "icon-color": color, "icon-halo-color": "rgba(0,0,0,0.55)", "icon-halo-width": 1.5,
-          "text-color": "#fff", "text-halo-color": "rgba(0,0,0,0.75)", "text-halo-width": 1.4 } });
+        layout: { "icon-image": "wind-streak", "icon-rotate": ["get", "rot"], "icon-rotation-alignment": "map", "icon-allow-overlap": true,
+          "icon-size": ["interpolate", ["linear"], ["get", "ms"], 0, 0.6, 15, 1.2] },
+        paint: { "icon-opacity": 0.85 } });
       claimLayers("wind");
       if (!wired) {
         wired = true;
         map.on("moveend", () => { clearTimeout(timer); timer = setTimeout(update, 300); });
-        map.on("click", "wind", (e) => forecast(e.features[0]));
+        // под стрелкой значок спота или другой свой — окно открывает он, не стрелка
+        map.on("click", "wind", (e) => { if (!ownHit(map, e.point, ["wind"])) forecast(e.features[0]); });
       }
       bar.hidden = false;
       document.body.classList.add("has-wx-bar");
@@ -197,12 +252,13 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
       active = false;
       bar.hidden = true;
       document.body.classList.remove("has-wx-bar");
-      if (map.getLayer("wind")) map.removeLayer("wind");
+      for (const id of ["wind", "wind-fill"]) if (map.getLayer(id)) map.removeLayer(id);
+      if (map.getSource("wind-fill")) map.removeSource("wind-fill");
       emit("wind-time", { on: false, at: null });
     },
     // для проверки: выбрать время (номер шага, 0 — сейчас)
     setStep: (i) => setAt(i),
-    stats: () => ({ cached: cache.size, at, shown: shown.length }),
+    stats: () => ({ cached: cache.size, at, shown: shown.length, fill: fillInfo }),
   });
 }
 

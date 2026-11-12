@@ -67,8 +67,9 @@ export function initPopups(map) {
 // модуль, общее «окно места» по такому щелчку не открывается
 const own = new Set();
 export const claimLayers = (...ids) => ids.forEach((id) => own.add(id));
-export const ownHit = (map, point) => {
-  const layers = [...own].filter((id) => map.getLayer(id));
+// except — свои слои, которые не считать (стрелка ветра уступает значку спота под ней)
+export const ownHit = (map, point, except = []) => {
+  const layers = [...own].filter((id) => map.getLayer(id) && !except.includes(id));
   return layers.length > 0 && map.queryRenderedFeatures(point, { layers }).length > 0;
 };
 

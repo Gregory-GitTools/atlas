@@ -12,9 +12,10 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(ROOT, "test-output");
 const PHONE = process.argv.includes("--phone");
-// --only=photo — проверить только разделы модулей, в id которых есть это слово (быстро при отладке)
+// --only=photo — проверить только разделы модулей, в id которых есть это слово (быстро при отладке; несколько — через запятую)
 const ONLY = process.argv.find((a) => a.startsWith("--only="))?.slice(7);
-const want = (id) => !ONLY || id.includes(ONLY);
+// несколько через запятую: --only=layers/beaches,weather/wind
+const want = (id) => !ONLY || ONLY.split(",").some((o) => id.includes(o));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const CHROME = [
@@ -1943,7 +1944,28 @@ try {
         !!spot && /^Ветер для спота: [СЮЗВ]/.test(spot.dirs || "") && /Ветер \d+ м\/с, порывы \d+/.test(spot.now) && spot.days >= 7
         && spot.cols >= 48 && spot.kiteRow === spot.cols && spot.dark > 10 && /^Восход \d\d:\d\d · закат/.test(spot.sun || "") && /^Кайт: /.test(spot.kite || ""), JSON.stringify(spot));
       await shot("89b-spot-weather");
+      // «Мои споты» (Грегори 2026-11-12): звёздочка в окне спота → в списке раздела полоса на 7 дней; щелчок — карта к споту и его окно; крестик — убрать
+      const title = spot.title;
+      await run(`document.querySelector(".maplibregl-popup .popup-star").click(); true`);
+      const starOn = await run(`document.querySelector(".maplibregl-popup .popup-star").classList.contains("on")`);
       await run(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); true`);
+      await run(openLayers("content/spots"));
+      const ms = `atlas.modules().find((m) => m.id === "content/spots").stats()`;
+      for (let i = 0; i < 30 && !(await run(`${ms}.rows > 0`)); i++) await sleep(500);
+      const fav = await run(`(() => { const s = ${ms}, r = document.querySelector(".ks-row"); return { ...s, name: r?.querySelector(".ks-name")?.textContent,
+        cells: r?.querySelectorAll(".ks-strip > i").length, dark: r?.querySelectorAll(".ks-strip > i.ks-dark").length }; })()`);
+      await shot("89d-my-spots");
+      await run(`document.querySelector(".ks-row").click(); true`);
+      for (let i = 0; i < 30 && !(await run(`!!document.querySelector(".maplibregl-popup .wx-grid")`)); i++) await sleep(500);
+      const back = await run(`document.querySelector(".maplibregl-popup .popup-title")?.textContent`);
+      await run(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); true`);
+      await run(`document.querySelector(".ks-line .search-delete").click(); true`);
+      await sleep(300);
+      const left = await run(`${ms}.favorites`);
+      check("мои споты: звёздочка — в списке, полоса на 7 дней с ночью, щелчок — окно спота, крестик — убрать",
+        starOn && fav.favorites === 1 && fav.name === title && fav.cells >= 48 && fav.dark > 10 && fav.wins.length === 1 && back === title && left === 0,
+        JSON.stringify({ starOn, fav, back, left }));
+      await run(`document.querySelector('[data-panel="spots"] .panel-btn[title=Закрыть]')?.click(); true`);
     }
     // правила безопасности кайта (Грегори 2026-11-12): от 6 м/с; с берега без спасателей — запрещено; направление спота
     const rates = await run(`import("./core/forecast.js").then(({ kiteRate: k }) => { const s = { sea: "0000000011111111", dirs: "SW,W,NW" }; // вода с юга до севера через запад
@@ -1975,6 +1997,29 @@ try {
     }
     check("кайт: ползунок времени — кольца пересчитаны на выбранное время на каждом шаге",
       steps.length === 8 && steps.every((x) => x.same && [9, 12].includes(x.h) && (x.levels === "" || x.drawn > 0)), JSON.stringify(steps));
+    // окно спота и ползунок связаны (Грегори 2026-11-12): ползунок — рамка в таблице; щелчок по столбцу — ползунок; «Кайт» над «Ветром»
+    // карта могла уйти к споту («Мои споты») — точку спота взять заново
+    const spotPt2 = await run(`(() => { const f = atlas.map.queryRenderedFeatures({ layers: ["kite-ee"] }).filter((f) => f.properties.kind !== "kite-bad")
+      .map((f) => atlas.map.project(f.geometry.coordinates)).find((q) => q.x > 40 && q.x < innerWidth - 90 && q.y > 120 && q.y < innerHeight - 160); return f && [f.x, f.y]; })()`);
+    if (spotPt2) {
+      await run(`${wind}.setStep(0); true`);
+      await sleep(400);
+      for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: spotPt2[0], y: spotPt2[1], button: "left", clickCount: 1 });
+      for (let i = 0; i < 30 && !(await run(`!!document.querySelector(".maplibregl-popup .wx-grid")`)); i++) await sleep(500);
+      for (let i = 0; i < 30 && !(await run(`!!document.querySelector(".maplibregl-popup .wx-k")`)); i++) await sleep(500);
+      const link = await run(`(async () => { const p = () => [...document.querySelectorAll(".maplibregl-popup")].find((x) => x.querySelector(".wx-k")), wait = (ms) => new Promise((r) => setTimeout(r, ms));
+        if (!p()) return { none: [...document.querySelectorAll(".maplibregl-popup .popup-title")].map((t) => t.textContent) };
+        const rows = [...p().querySelectorAll(".wx-grid th")].map((t) => t.textContent).filter(Boolean);
+        ${wind}.setStep(6); await wait(300);
+        const atH = p().querySelector(".wx-h.wx-at")?.textContent, barH = new Date(${wind}.stats().at * 1000).getHours();
+        const sub = p().querySelector(".popup-sub:not(.kite-bad)")?.textContent;
+        const td = [...p().querySelectorAll(".wx-h")][10]; td.click(); await wait(300);
+        const clicked = Number(td.textContent), barAfter = new Date(${wind}.stats().at * 1000).getHours();
+        return { rows: rows.slice(0, 3), atH, barH, sub, clicked, barAfter, framed: td.classList.contains("wx-at") }; })()`);
+      check("окно спота и ползунок ветра связаны: ползунок двигает рамку, щелчок по столбцу — ползунок; «Кайт» над «Ветром»",
+        link.rows.join() === "Часы,Кайт,Ветер" && Number(link.atH) === link.barH && link.clicked === link.barAfter && link.framed, JSON.stringify(link));
+      await run(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); true`);
+    }
     await run(`${wind}.setStep(0); atlas.toggle("weather/wind", false).then(() => true)`);
     await sleep(600);
     const ringOff = await run(`({ kite: Object.keys(${eeStats}.kite).length, drawn: atlas.map.queryRenderedFeatures({ layers: ["kite-ee-kite"] }).length })`);
@@ -1995,11 +2040,16 @@ try {
       hit = [...document.querySelectorAll(".btn.glass, .wheel-toggle")].filter((x) => x.offsetParent).some((x) => { const q = x.getBoundingClientRect(); return q.right > r.left && q.left < r.right && q.bottom > r.top && q.top < r.bottom; });
       return { shown: !b.hidden, when: b.querySelector(".wx-bar-when").textContent, max: b.querySelector(".wx-range").max, ticks: b.querySelectorAll(".wx-ticks span").length,
         prev: b.querySelector(".wx-prev").disabled, hit, gust: atlas.map.queryRenderedFeatures({ layers: ["wind"] })[0]?.properties.gl }; })()`);
+    // заливка цветом силы ветра, как у Windy (Грегори 2026-11-12): картинка под подписями, перекрашивается ползунком
+    const fill0 = await run(`({ layer: !!atlas.map.getLayer("wind-fill"), below: (() => { const ls = atlas.map.getStyle().layers.map((l) => l.id); return ls.indexOf("wind-fill") < ls.indexOf("wind"); })(), ...${wind}.stats().fill })`);
     const before = await run(`JSON.stringify(atlas.map.queryRenderedFeatures({ layers: ["wind"] }).map((f) => f.properties.dir).slice(0, 8))`);
     await run(`document.querySelector(".wx-range").value = "20"; document.querySelector(".wx-range").dispatchEvent(new Event("input")); true`);
     await sleep(800);
     const later = await run(`({ at: ${wind}.stats().at, when: document.querySelector(".wx-bar-when").textContent,
       dirs: JSON.stringify(atlas.map.queryRenderedFeatures({ layers: ["wind"] }).map((f) => f.properties.dir).slice(0, 8)) })`);
+    const fill1 = await run(`${wind}.stats().fill`);
+    check("ветер: заливка цветом силы ветра под штрихами, плавная; ползунок перекрашивает", fill0.layer && fill0.below && fill0.w > 50 && fill0.painted > fill0.w * fill0.h * 0.8 && fill1.sum !== fill0.sum,
+      JSON.stringify({ fill0, fill1 }));
     check("ветер: полоса времени — 7 дней по 3 часа, «Сейчас», порывы у стрелок; сдвинул — стрелки на другое время; кнопки не закрывает",
       barNow.shown && /^Сейчас/.test(barNow.when) && barNow.max === "55" && barNow.ticks >= 6 && barNow.prev && !barNow.hit && /^ \d+$/.test(barNow.gust)
       && later.at > Date.now() / 1000 + 50 * 3600 && !/^Сейчас/.test(later.when) && later.dirs !== before, JSON.stringify({ barNow, later: { at: later.at, when: later.when }, same: later.dirs === before }));
@@ -2056,23 +2106,29 @@ try {
     const s0 = st();
     L.click(); await wait(); const s1 = st();
     const keys = [...document.querySelectorAll(".wheel-content .wheel-cell:not([hidden]) .layers-circle")].map((c) => c.ariaLabel).sort();
+    // треугольник — слои, разделы остаются (Грегори 2026-11-12: «не прятать один барабан другим»)
     A.click(); await wait(); const s2 = st();
-    A.click(); await wait(); const s3 = st();
-    // поиск открыт без барабана — щелчок прячет всё (Грегори 2026-11-06, вечер: «открыть / свернуть всё»)
+    const cells = (w) => [...document.querySelectorAll(".wheel-" + w + " .wheel-cell:not([hidden])")].map((c) => c.getBoundingClientRect());
+    const apart = Math.max(...cells("content").map((r) => r.bottom)) <= Math.min(...cells("layers").map((r) => r.top)) + 1;
+    const behind = document.querySelector(".wheel-content").classList.contains("behind");
+    // телефон: разделы под слоями — лупа поднимает их наверх
+    let up = null;
+    if (behind) { L.click(); await wait(); up = { content: !document.querySelector(".wheel-content").classList.contains("behind"), layers: document.querySelector(".wheel-layers").classList.contains("behind") }; }
+    // лупа (разделы сверху) — свернуть поиск и разделы; слои остаются
     L.click(); await wait(); const s4 = st();
-    // поиск закрыт: нижняя кнопка — барабан слоёв, наверху логотип (Грегори 2026-11-09)
-    A.click(); await wait(); const s5 = st(); A.click(); await wait();
-    // два положения: закрыто → всё → закрыто (лупа, логотипа после старта нет) → всё
+    A.click(); await wait(); const s5 = st();
+    // два положения лупы: закрыто → поиск и разделы → закрыто
     L.click(); await wait(); const c1 = st(); L.click(); await wait(); const c2 = st(); L.click(); await wait(); const c3 = st();
+    L.click(); await wait();
     const lr = L.getBoundingClientRect();
     A.click(); await wait();
-    return { s0, s1, s2, s3, s4, s5, c1, c2, c3, keys, corner: innerWidth - lr.right >= 18 && innerWidth - lr.right <= 24 && lr.top < 20 }; })()`);
-  check("кнопка справа вверху: всё закрыто — логотип, открыто — лупа; при открытом поиске нижняя кнопка сменяет барабаны туда и обратно; без поиска — слои, наверху логотип",
+    return { s0, s1, s2, apart, behind, up, s4, s5, c1, c2, c3, keys, corner: innerWidth - lr.right >= 18 && innerWidth - lr.right <= 24 && lr.top < 20 }; })()`);
+  check("барабаны: каждый своей кнопкой, один другой не прячет; компьютер — не пересекаются, телефон — нижний поднимается своей кнопкой; лупа сворачивает поиск и разделы",
     !lens.s0.search && !lens.s0.content && lens.s0.drop && !lens.s0.logo && !lens.s0.dock && lens.s1.content && lens.s1.search && lens.s1.logo && lens.s1.dock
-    && lens.s2.layers && !lens.s2.content && lens.s2.search && !lens.s3.layers && lens.s3.content && lens.s3.search && !lens.s4.search && !lens.s4.content && !lens.s4.dock
-    && lens.s5.layers && !lens.s5.search && lens.s5.drop
+    && lens.s2.layers && lens.s2.content && lens.s2.search && (PHONE ? lens.behind && lens.up?.content && lens.up?.layers : lens.apart && !lens.behind)
+    && !lens.s4.search && !lens.s4.content && lens.s4.layers && lens.s4.drop && !lens.s5.layers && !lens.s5.dock
     && lens.c1.search && lens.c1.content && lens.c1.dock && !lens.c2.search && !lens.c2.content && lens.c2.drop && !lens.c2.dock && lens.c3.search && lens.c3.content
-    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои треки", "Навигация", "Настройки", "Поиск места", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
+    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои споты", "Мои треки", "Навигация", "Настройки", "Поиск места", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико
   // крутит его, нажатие по кнопке не в центре докручивает её и открывает столбик
   await run(`document.querySelector(".sub-layers").hidden || document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })); true`);
@@ -2135,11 +2191,11 @@ try {
     return { gear: mid(gear), info: mid(document.querySelector(".maplibregl-ctrl-attrib-button")), scale: mid(document.querySelector(".maplibregl-ctrl-scale")),
       corner: [Math.round(innerWidth - t.right), Math.round(innerHeight - t.bottom)], size: Math.round(t.width),
       logo: (() => { const L = document.querySelector(".search-toggle.open:not(.idle)"), i = L?.querySelector("svg"); if (!i) return false; const a = i.getBoundingClientRect(), b = L.getBoundingClientRect();
-        return a.width >= b.width - 10 && Math.abs((a.left + a.right) / 2 - (b.left + b.right) / 2) <= 1; })(), wheelTop: Math.round(w.top), searchTop: Math.round(sb.top), phone: innerWidth <= 600 }; })()`);
+        return a.width >= b.width - 10 && Math.abs((a.left + a.right) / 2 - (b.left + b.right) / 2) <= 1; })(), wheelTop: Math.round(Math.min(...[...document.querySelectorAll(".wheel:not(.closed)")].map((x) => x.getBoundingClientRect().top), w.top)), searchTop: Math.round(sb.top), phone: innerWidth <= 600 }; })()`);
   check("раскладка: ⓘ и шкала в линию с нижней кнопкой слева (компас)", Math.abs(lay.info - lay.gear) <= 2 && Math.abs(lay.scale - lay.gear) <= 2, JSON.stringify(lay));
   check("раскладка: треугольник в правом нижнем углу, отодвинут от края, размером с кнопки", lay.corner[0] >= 18 && lay.corner[0] <= 24 && lay.corner[1] >= 6 && lay.corner[1] <= 14 && lay.size === 40, JSON.stringify(lay));
   check("раскладка: открыт поиск — на кнопке справа вверху лупа, крупно и по центру", lay.logo);
-  if (!lay.phone) check("раскладка: верх колеса — под кнопкой языка", Math.abs(lay.wheelTop - (lay.searchTop + 100)) <= 2, JSON.stringify(lay));
+  if (!lay.phone) check("раскладка: верх колеса (верхнего из открытых) — под кнопкой языка", Math.abs(lay.wheelTop - (lay.searchTop + 100)) <= 2, JSON.stringify(lay));
 } catch (err) {
   errors.push("проверка прервалась: " + err.message);
 }

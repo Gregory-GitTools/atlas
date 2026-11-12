@@ -7,7 +7,7 @@
 import { forecastBox, kiteRate, isLight, dirsRu } from "../core/forecast.js";
 import * as settings from "../core/settings.js";
 import { register, modules, toggle } from "../core/modules.js";
-import { on } from "../core/events.js";
+import { on, emit } from "../core/events.js";
 import { track, claimLayers } from "../core/popups.js";
 import { uiLanguage } from "../core/labels.js";
 import { qleverBox, cellsInView, cellLoader, osmTags } from "../core/qlever.js";
@@ -100,6 +100,18 @@ async function showInfo(ctx, f) {
   const add = (cls, text) => text && box.append(Object.assign(document.createElement("div"), { className: cls, textContent: text }));
   add("popup-title", name || kind);
   if (name) add("popup-sub", kind);
+  // звёздочка — «Мои споты» (content/spots.js, Грегори 2026-11-12): отметить спот, его ветер на неделе — в списке
+  const starable = ee ? ee.kind !== "bad" : SPOT_KINDS.has(p.kind);
+  if (starable) {
+    const [lon, lat] = f.geometry.coordinates;
+    const spotData = ee ? { key: p.osm, kind: p.kind, name: ee.name, lon, lat, dirs: ee.dirs, sea: ee.sea, off: ee.off, rescue: ee.rescue }
+      : { key: p.osm, kind: p.kind, name: name || kind, lon, lat, sea: seaOf(p.osm) };
+    const star = Object.assign(document.createElement("button"), { type: "button", className: "popup-star", innerHTML: STAR_SVG });
+    const paint = () => { const on = favKeys.has(p.osm); star.classList.toggle("on", on); star.title = on ? "Убрать из моих спотов" : "В мои споты"; };
+    star.addEventListener("click", (e) => { e.stopPropagation(); emit("kite-favorite-set", { spot: spotData, on: !favKeys.has(p.osm) }); paint(); });
+    paint();
+    box.querySelector(".popup-title").prepend(star);
+  }
   if (ee) eeInfo(ee, add, box);
   else {
     const surface = [SURFACE[tags.surface], (tags.supervised === "yes" || tags.lifeguard === "yes") && "спасатели"].filter(Boolean).join(", ");
@@ -128,6 +140,18 @@ async function showInfo(ctx, f) {
     kite: ee || { sea: seaOf(p.osm) } }));
 }
 const SPOT_KINDS = new Set(["surfing", "kitesurfing", "windsurfing"]);
+// «Мои споты»: какие отмечены (событие kite-favorites из content/spots.js) и открыть спот из списка
+const STAR_SVG = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 2.6l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.4l-5.9 3.3 1.3-6.6-4.9-4.6 6.6-.8z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>';
+let favKeys = new Set();
+on("kite-favorites", (keys) => { favKeys = new Set(keys); });
+// карта к споту, потом его окно (окна на карте закрываются при движении — открыть после перелёта)
+on("kite-spot-open", async ({ key, kind, lon, lat, ctx }) => {
+  if (!ctx) return;
+  if (key.startsWith("ee/")) await eeLoad();
+  const f = { geometry: { type: "Point", coordinates: [lon, lat] }, properties: { osm: key, kind } };
+  ctx.map.once("moveend", () => showInfo(ctx, f));
+  ctx.map.flyTo({ center: [lon, lat], zoom: Math.max(ctx.map.getZoom(), 11) });
+}, { replay: false });
 // время ветра (полоса «Ветра»): кольца у спотов и окно спота — на это время
 const kiteState = { on: false, at: null };
 
