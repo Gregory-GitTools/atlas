@@ -4,6 +4,7 @@
 // светлом море и песке белый теряется (Грегори, 2026-10-04). Наши значки — поверх подписей карты.
 // Щелчок — окно: вид, название, высота, описание, направления указателя, у пляжа — покрытие и
 // спасатели. Данные — QLever (core/qlever.js); у точек — теги из OSM API.
+import { forecastBox } from "../core/forecast.js";
 import { register, modules, toggle } from "../core/modules.js";
 import { on } from "../core/events.js";
 import { track, claimLayers } from "../core/popups.js";
@@ -111,8 +112,13 @@ async function showInfo(ctx, f) {
     row.append(Object.assign(document.createElement("a"), { href: tags.website, textContent: "Сайт", target: "_blank", rel: "noopener" }));
     box.append(row);
   }
-  track(new ctx.maplibregl.Popup({ offset: 14, maxWidth: img ? "280px" : "260px" })).setLngLat(f.geometry.coordinates).setDOMContent(box).addTo(ctx.map);
+  // кайт- и сёрф-споты — погода: ветер, порывы и волна на 7 дней (Грегори 2026-11-11: «погода в окне кайт-спота»)
+  const spot = SPOT_KINDS.has(p.kind);
+  const wait = spot && box.appendChild(Object.assign(document.createElement("div"), { className: "popup-row wx-wait", textContent: "Погода…" }));
+  track(new ctx.maplibregl.Popup({ offset: 14, maxWidth: spot ? "340px" : img ? "280px" : "260px" })).setLngLat(f.geometry.coordinates).setDOMContent(box).addTo(ctx.map);
+  if (spot) wait.replaceWith(await forecastBox(f.geometry.coordinates, { inside: true }));
 }
+const SPOT_KINDS = new Set(["surfing", "kitesurfing", "windsurfing"]);
 
 // слой значков из GeoJSON: поверх подписей карты (наши значки — сверху), окно по щелчку
 function pointLayer(ctx, id, extra, source = id) {
@@ -196,7 +202,7 @@ function wireClick(ctx, id) {
   };
   register({
     id: "layers/surf", kind: "layer", group: "places", title: "Сёрфинг", hint: "Сёрфинг, кайт и виндсёрфинг по всему миру", icon: glyphSvg("kitesurfing"),
-    needs: ["network"], sends: "запрос мест для сёрфинга (QLever, OpenStreetMap)",
+    needs: ["network"], sends: "запрос мест для сёрфинга (QLever, OpenStreetMap); точка спота — погода и волна (Open-Meteo)",
     enable(c) {
       ctx = c;
       pointLayer(c, "surf", { layout: { "icon-image": icon(c.map, "kitesurfing"), "symbol-sort-key": ["get", "rank"],

@@ -981,16 +981,22 @@ html, body {
 
 /* прогноз ветра в окне */
 .wx-table {
-  margin: 6px 0;
+  margin: 2px 0 6px;
   font-size: 12px;
 }
 
 .wx-row {
   display: grid;
-  grid-template-columns: 42px 18px 70px 1fr;
+  grid-template-columns: 42px 18px 64px 1fr;
   align-items: center;
-  padding: 2px 0;
+  padding: 2px 4px;
   border-bottom: 1px solid var(--panel-hover);
+}
+
+/* шаг, выбранный полосой времени */
+.wx-row.wx-at {
+  background: var(--active);
+  border-radius: 6px;
 }
 
 .wx-dir {
@@ -1000,8 +1006,180 @@ html, body {
   text-align: center;
 }
 
+.wx-now-sub {
+  margin-top: 6px;
+  font-weight: 600;
+}
+
+.wx-now .wx-dir {
+  margin-right: 2px;
+}
+
 .wx-temp {
   color: var(--muted);
+}
+
+/* прогноз по дням (core/forecast.js): строка дня — щелчок раскрывает часы */
+.wx-days {
+  margin-top: 8px;
+  max-height: min(46vh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.wx-day-row {
+  display: grid;
+  grid-template-columns: 78px auto;
+  gap: 0 8px;
+  width: 100%;
+  padding: 6px 4px;
+  border: none;
+  border-top: 1px solid var(--panel-hover);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.wx-day-row:hover {
+  background: var(--panel-hover);
+}
+
+.wx-day-name {
+  font-weight: 600;
+}
+
+.wx-day-wind {
+  justify-self: start;
+  padding-left: 6px;
+  border-left: 4px solid transparent;
+  font-weight: 600;
+}
+
+.wx-day-more {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.wx-day:not(.open) .wx-table {
+  display: none;
+}
+
+.wx-src {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+/* полоса времени ветра (layers/weather.js): над нижним рядом кнопок, между столбиками слева и справа —
+   кнопки не закрывает (правило 7); над лентой снимков — выше */
+.wx-bar {
+  position: fixed;
+  left: calc(var(--side-l) + var(--button) + var(--gap));
+  right: calc(var(--side-r) + var(--button) + var(--gap));
+  bottom: calc(var(--gap) + var(--button) + 12px);
+  z-index: 12;
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 4px 6px 2px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  font: 13px var(--font);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.wx-bar[hidden] {
+  display: none;
+}
+
+body.has-photo-strip .wx-bar {
+  bottom: 110px;
+}
+
+.wx-bar-top {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.wx-bar-btn {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.wx-bar-btn:hover:not(:disabled),
+.wx-bar-when:hover {
+  background: var(--panel-hover);
+}
+
+.wx-bar-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.wx-bar-x {
+  margin-left: auto;
+}
+
+.wx-bar-when {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.wx-bar-when.now {
+  color: var(--tone-weather);
+}
+
+.wx-track {
+  position: relative;
+  padding: 0 8px 14px;
+}
+
+.wx-range {
+  width: 100%;
+  margin: 2px 0;
+  accent-color: var(--tone-weather);
+  cursor: pointer;
+}
+
+.wx-ticks {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 14px;
+  pointer-events: none;
+}
+
+.wx-ticks > span {
+  position: absolute;
+  transform: translateX(-50%);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 14px;
 }
 
 /* фото щита в окне значка */

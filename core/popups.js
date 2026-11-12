@@ -34,6 +34,11 @@ function keepOnScreen(popup) {
   if (wheel && wheel.left - c.left > r.width + 2 * EDGE) c.right = Math.min(c.right, wheel.left);
   const bar = !document.body.classList.contains("search-hidden") && document.querySelector(".search-box")?.getBoundingClientRect();
   if (bar && bar.height && c.bottom - bar.bottom > r.height + 2 * EDGE) c.top = Math.max(c.top, bar.bottom);
+  // нижние полосы поверх карты (время прогноза ветра) — окно над ними
+  for (const b of document.querySelectorAll("[data-keep-clear]:not([hidden])")) {
+    const q = b.getBoundingClientRect();
+    if (q.height && q.top - c.top > r.height + 2 * EDGE) c.bottom = Math.min(c.bottom, q.top);
+  }
   const dx = r.left < c.left + EDGE ? r.left - c.left - EDGE : r.right > c.right - EDGE ? Math.min(r.right - c.right + EDGE, r.left - c.left - EDGE) : 0;
   const dy = r.top < c.top + EDGE ? r.top - c.top - EDGE : r.bottom > c.bottom - EDGE ? Math.min(r.bottom - c.bottom + EDGE, r.top - c.top - EDGE) : 0;
   if (Math.abs(dx) > 1 || Math.abs(dy) > 1) map.panBy([dx, dy], { duration: 250 }, { navFollow: true });
