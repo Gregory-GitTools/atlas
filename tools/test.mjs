@@ -1127,6 +1127,15 @@ try {
           sws.onmessage = (m) => { const d = JSON.parse(m.data); if (spend.has(d.id)) { spend.get(d.id)(d.result); spend.delete(d.id); } };
           const srun = (expr) => new Promise((r) => { const id = ++sid; spend.set(id, r); sws.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression: expr, awaitPromise: true, returnByValue: true } })); })
             .then((r) => r.result?.value);
+          // «Сохранить» и «Оригинал» не выходят из правки — она открывается снова с записанным снимком;
+          // дождаться этого и выйти, как рукой
+          const afterSave = async (n) => {
+            let stayed = false;
+            for (let i = 0; i < n && !(stayed = await srun(`galleryEditor.state().open && /Сохранено|как до правки/.test(galleryEditor.state().note) && !document.body.classList.contains("busy")`)); i++) await sleep(300);
+            await srun(`document.querySelector(".edit-btn").click(); true`);
+            for (let i = 0; i < 20 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+            return stayed;
+          };
           const ss = `({ count: document.querySelector(".count").textContent, on: document.querySelector(".play-btn").classList.contains("on"),
             full: !!document.querySelector(".full-btn svg"), music: !!document.querySelector(".music").getAttribute("src"),
             btns: [...document.querySelectorAll(".player .player-btn")].filter((b) => !b.hidden && b.querySelector("svg")).map((b) => b.className.split(" ")[1]).join(" ") })`;
@@ -1166,7 +1175,8 @@ try {
           await new Promise((r) => { const id = ++sid; spend.set(id, (res) => { fs.writeFileSync(path.join(OUT, "00-edit.png"), Buffer.from(res.data, "base64")); r(); });
             sws.send(JSON.stringify({ id, method: "Page.captureScreenshot", params: { format: "png" } })); });
           await srun(`document.querySelector(".edit-save").click(); true`);
-          for (let i = 0; i < 30 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          const stayed = await afterSave(30);
+          check("правка: после «Сохранить» правка не закрывается — снова открыта с записанным снимком", stayed);
           const fsState = `(async () => { const root = atlasGalleryRoots()[0], riga = root.items.find((i) => i.name === "20240101 Рига");
             const img = riga.items.find((i) => i.name === "r.jpg"), bmp = await createImageBitmap(img.data);
             return { size: [bmp.width, bmp.height], orig: !!riga.items.find((i) => i.name === "[Originals]")?.items.find((i) => i.name === "r.jpg"),
@@ -1179,7 +1189,7 @@ try {
           for (let i = 0; i < 20 && !(await srun(`galleryEditor.state().open`)); i++) await sleep(300);
           const e3 = await srun(`({ ...galleryEditor.state(), restore: document.querySelector(".edit-restore").disabled })`);
           await srun(`document.querySelector(".edit-restore").click(); true`);
-          for (let i = 0; i < 30 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          await afterSave(30);
           const back = await run(fsState);
           await sleep(500);
           back.shown = await srun(`document.querySelector(".stage img").naturalWidth`);
@@ -1212,7 +1222,7 @@ try {
             && Math.abs(c2.crop.w - 250) <= 3 && c2.crop.w === c2.crop.h && c2.fits
             && Math.abs(c3.crop.x + c3.crop.w - 200) <= 1 && c3.fits, JSON.stringify({ c1, c2, c3 }));
           await srun(`document.querySelector(".edit-save").click(); true`);
-          for (let i = 0; i < 30 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          await afterSave(30);
           const sq = await run(fsState);
           check("правка: сохранён кадр по рамке", Math.abs(sq.size[0] - c3.crop.w) <= 2 && sq.size[0] === sq.size[1] && sq.orig, JSON.stringify(sq));
           // перспектива: ручки по углам; левый верхний угол — вправо: снимок искажён, рамка внутри;
@@ -1242,7 +1252,7 @@ try {
             return { h: c.h, old: Math.round(lo * 10) / 10, bigger }; })()`);
           check("правка: рамка на искажённом снимке — самая большая, больше прежней (вокруг середины)", !bg.bigger && bg.h > bg.old + 1, JSON.stringify(bg));
           await srun(`document.querySelector(".edit-save").click(); true`);
-          for (let i = 0; i < 40 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          await afterSave(40);
           const ps = await run(fsState);
           check("правка: перспектива сохранена — кадр по рамке", Math.abs(ps.size[0] - p2.s2.crop.w) <= 2 && Math.abs(ps.size[1] - p2.s2.crop.h) <= 2, JSON.stringify({ ps, crop: p2.s2.crop }));
           // «Назад» (и Ctrl+Z) — по шагу; «Сбросить правку» активна с первой правки — снимок как при открытии;
@@ -1309,7 +1319,7 @@ try {
             JSON.stringify(nt.tiles) === '["Выкл","Лёгкое","Среднее","Сильное"]' && nt.drawn === 4 && cs.values.noise === "light" && cs.values.color === "bw" && cs.shown && cs.dirty
             && JSON.stringify(cs.tiles) === '["Оригинал","Авто","Контраст+","Ч/Б","Тепло"]', JSON.stringify({ nt, cs }));
           await srun(`document.querySelector(".edit-save").click(); true`);
-          for (let i = 0; i < 60 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          await afterSave(60);
           const gray = await run(`(async () => { const riga = atlasGalleryRoots()[0].items.find((i) => i.name === "20240101 Рига"), f = riga.items.find((i) => i.name === "r.jpg");
             const b = await createImageBitmap(f.data), c = Object.assign(document.createElement("canvas"), { width: b.width, height: b.height }), x = c.getContext("2d"); x.drawImage(b, 0, 0);
             const pts = [[0.5, 0.25], [0.5, 0.75]].map(([u, v]) => [...x.getImageData(Math.floor(b.width * u), Math.floor(b.height * v), 1, 1).data.slice(0, 3)]);
@@ -1341,7 +1351,7 @@ try {
             await tile("Прозрачный");
             for (let i = 0; i < 60 && (await srun(`galleryEditor.state().values.bg !== "cut" || document.body.classList.contains("busy")`)); i++) await sleep(300);
             await srun(`document.querySelector(".edit-save").click(); true`);
-            for (let i = 0; i < 60 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+            await afterSave(60);
             const cut = await run(`(async () => { const f = ${riga}.items.find((i) => i.name === "r без фона.png"), b = f && await createImageBitmap(f.data);
               const same = [...new Uint8Array(await ${riga}.items.find((i) => i.name === "r.jpg").data.arrayBuffer())].join() === ${JSON.stringify(before)};
               const r = { png: !!f, type: f && (await f.getFile()).type, size: b && [b.width, b.height], same };
@@ -1393,7 +1403,7 @@ try {
             bad: document.querySelectorAll(".edit-info input")[2].classList.contains("bad"), save: document.querySelector(".edit-save").disabled })`);
           await gsend("Page.captureScreenshot", { format: "png" }).then((res) => fs.writeFileSync(path.join(OUT, "00-info.png"), Buffer.from(res.data, "base64")));
           await srun(`document.querySelector(".edit-save").click(); true`);
-          for (let i = 0; i < 30 && (await srun(`galleryEditor.state().open`)); i++) await sleep(300);
+          await afterSave(30);
           const ms = await run(`(async () => { const { readMeta } = await import("./tools/jpeg.js"); const b = ${rigaFile};
             return { meta: await readMeta(b), size: b.size }; })()`);
           ms.tail = (await run(scan(rigaFile))) === tail0;

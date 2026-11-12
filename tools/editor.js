@@ -713,9 +713,17 @@ async function curated(trip, create) {
   return create ? trip.getDirectoryHandle(`${trip.name}-Albom`, { create: true }) : null;
 }
 
+// сохранили или вернули оригинал — правка открывается снова, уже с записанным снимком
+// (Грегори 2026-11-11: «после применения фильтров не выходи из окна редактирования»)
+async function reopen(p, text) {
+  await open(p);
+  say(text);
+  setTimeout(() => say(""), 4000);
+}
 async function save() {
   if (!dirty() || busy) return;
   const p = ed.p;
+  let again = null;
   busy = true;
   document.body.classList.add("busy");
   say("Сохраняю…");
@@ -728,8 +736,7 @@ async function save() {
       await write(await where.dir.getFileHandle(name, { create: true }), png);
       close(true);
       try { window.opener?.atlasGalleryRescan?.(); } catch { /* окно карты закрыто */ }
-      say(`Сохранено рядом: ${name}`);
-      setTimeout(() => say(""), 4000);
+      again = `Сохранено рядом: ${name}`;
       return;
     }
     // поправили только сведения — тот же снимок с новым EXIF, без пересжатия
@@ -746,11 +753,13 @@ async function save() {
       await write(await fav.getFileHandle(where.name, { create: true }), blob);
     }
     done(p, blob, "Сохранено");
+    again = "Сохранено";
   } catch (err) {
     say(`Не сохранилось: ${reason(err)}`);
   } finally {
     busy = false;
     document.body.classList.remove("busy");
+    if (again) reopen(p, again);
   }
 }
 
@@ -797,6 +806,7 @@ async function restore() {
   if (!ed.hasOriginal || busy) return;
   if (!confirm("Вернуть снимок, каким он был до правки? Правка пропадёт.")) return;
   const p = ed.p;
+  let again = false;
   busy = true;
   document.body.classList.add("busy");
   try {
@@ -811,11 +821,13 @@ async function restore() {
     const fav = !/-Albom$/i.test(where.dir.name.trim()) && await curated(where.trip, false);
     if (fav) await fav.removeEntry(where.name).catch(() => {});
     done(p, orig, "Снимок — как до правки");
+    again = true;
   } catch (err) {
     say(`Не вернулся: ${reason(err)}`);
   } finally {
     busy = false;
     document.body.classList.remove("busy");
+    if (again) reopen(p, "Снимок — как до правки");
   }
 }
 
