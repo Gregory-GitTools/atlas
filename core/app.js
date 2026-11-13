@@ -10,6 +10,7 @@ import "./touch-tip.js"; // долгое нажатие на телефоне �
 import { addScale, addGeolocate, addCompass, addStars, MAX_PITCH } from "./controls.js";
 import { initPopups } from "./popups.js";
 import { initPlaceInfo } from "./place-info.js";
+import { initForecast } from "./forecast.js";
 import { initPhotoStrip, stripState } from "./photo-strip.js";
 import { initRoute } from "./route.js";
 
@@ -99,6 +100,7 @@ window.atlas = { map, ctx, modules, toggle: (id, on) => toggle(id, ctx, on), str
 
 initPopups(map);
 initPlaceInfo(ctx);
+initForecast(ctx); // лента прогноза внизу
 initPhotoStrip(ctx);
 initSearch(ctx);
 initBasemaps(ctx);

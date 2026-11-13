@@ -6,17 +6,18 @@
 //    ветру, быстрее при сильном. Считаются в точках экрана: поле ветра на экране строится раз после
 //    остановки карты (и при смене времени), пока карту двигают — линий нет. «Меньше движения» в системе —
 //    вместо линий стрелки в узлах. Числа — в окне прогноза по щелчку (узлы сетки не видны, но щёлкаются).
-//    **Время — полоса внизу** (Грегори 2026-11-11: «прогноз на несколько дней с выбором времени»): 7 дней
-//    вперёд с шагом 3 часа, стрелки — на выбранное время; ‹ › — на 3 часа, «Сейчас», крестик — выключить
-//    ветер. Щелчок по стрелке — прогноз в точке по дням (core/forecast.js), на воде — с волной.
+//    **Время — лента прогноза внизу** (core/forecast.js; Грегори 2026-11-14: «прогноз — вместо ползунка
+//    времени, с фокусом на настоящее»): 5 дней назад и 7 вперёд по 3 часа, линии и заливка — на время
+//    выбранного столбца; лента не открыта — открывается на центр карты; её крестик выключает ветер.
+//    Щелчок по узлу — окно погоды в точке и лента на неё, на воде — с волной.
 //    Данные — Open-Meteo (без ключа, бесплатно для некоммерческого). Узлы сетки кратны шагу —
 //    при сдвиге карты те же точки, ответ запоминается на час.
 //  • Осадки — радар RainViewer (без ключа): последний снимок и анимация за 2 часа. Бесплатно —
 //    только до зума 7, дальше картинка растягивается.
-import { register, toggle } from "../core/modules.js";
+import { register } from "../core/modules.js";
 import { emit, on } from "../core/events.js";
 import { track, claimLayers, ownHit } from "../core/popups.js";
-import { forecastBox } from "../core/forecast.js";
+import { PAST, forecastOpen, forecastTime, openForecast, setForecastTime, weatherView } from "../core/forecast.js";
 
 const svg = (inner) => `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">${inner}</svg>`;
 const OPEN_METEO = "https://api.open-meteo.com/v1/forecast";
@@ -39,19 +40,15 @@ export function fillColor(ms) {
 const HOUR = 3600000;
 const STEP_S = 3 * 3600; // шаг прогноза — 3 часа
 const DAYS = 7;
-const PREV = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/></svg>';
-const NEXT = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>';
-const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
 
 // ---------- ветер ----------
 {
-  const cache = new Map(); // "lat,lon" → { t, time[], ms[], gust[], dir[] } — прогноз узла на 7 дней
+  const cache = new Map(); // "lat,lon" → { t, time[], ms[], gust[], dir[] } — прогноз узла: 5 дней назад и 7 вперёд
   let ctx = null, active = false, wired = false, timer = null, seq = 0;
   let at = null; // выбранное время (unix, с; null — сейчас)
-  // шкала времени: от начала текущего трёхчасового шага по местным часам (00, 03, 06…) на 7 дней вперёд —
-  // как шаги прогноза Open-Meteo с timezone=auto
+  // начало текущего трёхчасового шага по местным часам (00, 03, 06…) — как шаги Open-Meteo с timezone=auto
+  // (для проверки: setStep)
   const start = () => { const d = new Date(); d.setMinutes(0, 0, 0); d.setHours(d.getHours() - (d.getHours() % 3)); return d.getTime() / 1000; };
-  const slots = DAYS * 8;
 
   // штрих «куда дует»: тонкая линия с небольшим уголком на конце, остриё вверх (как линии ветра Windy)
   const arrow = (map) => {
@@ -263,7 +260,7 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
       const part = missing.slice(i, i + 50);
       const params = new URLSearchParams({ latitude: part.map((p) => p[1]).join(","), longitude: part.map((p) => p[0]).join(","),
         hourly: "wind_speed_10m,wind_direction_10m,wind_gusts_10m", wind_speed_unit: "ms", timeformat: "unixtime", timezone: "auto",
-        forecast_days: DAYS, temporal_resolution: "hourly_3" });
+        past_days: PAST, forecast_days: DAYS, temporal_resolution: "hourly_3" });
       try {
         const res = await fetch(`${OPEN_METEO}?${params}`);
         if (!res.ok) throw new Error(`Open-Meteo: ${res.status}`);
@@ -284,47 +281,14 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
     if (n === seq) draw();
   }
 
-  // ---------- полоса времени ----------
-  const bar = Object.assign(document.createElement("div"), { className: "wx-bar", hidden: true });
-  bar.dataset.keepClear = ""; // окна на карте держатся выше полосы (core/popups.js)
-  bar.innerHTML = `<div class="wx-bar-top"><button type="button" class="wx-bar-btn wx-prev" title="На 3 часа раньше">${PREV}</button>
-    <button type="button" class="wx-bar-when" title="Сейчас"></button>
-    <button type="button" class="wx-bar-btn wx-next" title="На 3 часа позже">${NEXT}</button>
-    <button type="button" class="wx-bar-btn wx-bar-x" title="Выключить ветер">${CLOSE}</button></div>
-    <div class="wx-track"><input type="range" class="wx-range" min="0" max="${slots - 1}" step="1" value="0" aria-label="Время прогноза"><div class="wx-ticks"></div></div>`;
-  const range = bar.querySelector(".wx-range"), when = bar.querySelector(".wx-bar-when"), ticks = bar.querySelector(".wx-ticks");
-  const hm = (d) => d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-  const label = (t) => { const d = new Date(t * 1000); return `${d.toLocaleDateString("ru-RU", { weekday: "short", day: "numeric", month: "short" })}, ${hm(d)}`; };
-  const paintBar = () => {
-    const i = at == null ? 0 : Math.max(0, Math.round((at - start()) / STEP_S));
-    range.value = String(i);
-    when.textContent = at == null ? `Сейчас · ${hm(new Date())}` : label(at);
-    when.classList.toggle("now", at == null);
-    bar.querySelector(".wx-prev").disabled = at == null;
-    bar.querySelector(".wx-next").disabled = i >= slots - 1;
-    // под ползунком — начало каждого дня: черта и день недели
-    ticks.replaceChildren(...Array.from({ length: slots }, (_, k) => start() + k * STEP_S)
-      .filter((t, k) => k > 0 && new Date(t * 1000).getHours() < 3)
-      .map((t) => {
-        const s = Object.assign(document.createElement("span"), { textContent: new Date(t * 1000).toLocaleDateString("ru-RU", { weekday: "short" }) });
-        s.style.left = `${(((t - start()) / STEP_S) / (slots - 1)) * 100}%`;
-        return s;
-      }));
-  };
-  const setAt = (i) => { i = Math.max(0, Math.min(slots - 1, i)); at = i === 0 ? null : start() + i * STEP_S; paintBar(); draw(); emit("wind-time", { on: true, at }); };
-  range.addEventListener("input", () => setAt(Number(range.value)));
-  bar.querySelector(".wx-prev").addEventListener("click", () => setAt(Number(range.value) - 1));
-  bar.querySelector(".wx-next").addEventListener("click", () => setAt(Number(range.value) + 1));
-  when.addEventListener("click", () => setAt(0));
-  bar.querySelector(".wx-bar-x").addEventListener("click", () => toggle("weather/wind", ctx, false));
-  // щелчок по столбцу таблицы в окне спота — ползунок сюда (core/forecast.js)
-  on("wind-time-set", ({ at: t }) => { if (active) setAt(t == null ? 0 : Math.round((t - start()) / STEP_S)); }, { replay: false });
-  document.body.append(bar);
+  // ---------- время — лента прогноза (core/forecast.js) ----------
+  on("wx-time", ({ at: t }) => { at = t; if (active) { draw(); emit("wind-time", { on: true, at }); } }, { replay: false });
 
-  async function forecast(f) {
-    const [lon, lat] = f.geometry.coordinates;
-    const box = await forecastBox([lon, lat], { at });
-    track(new ctx.maplibregl.Popup({ offset: 14, maxWidth: "340px" })).setLngLat([lon, lat]).setDOMContent(box).addTo(ctx.map);
+  // щелчок по узлу — окно погоды в точке и лента прогноза на неё
+  function forecast(f) {
+    const ll = f.geometry.coordinates;
+    track(new ctx.maplibregl.Popup({ offset: 14, maxWidth: "280px" })).setLngLat(ll).setDOMContent(weatherView(ll, null)).addTo(ctx.map);
+    openForecast(ll, null);
   }
 
   register({
@@ -332,7 +296,7 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
     kind: "layer",
     group: "weather",
     title: "Ветер",
-    hint: "Ветер на 7 дней: цвет — сила, бегущие линии — куда дует; время — полоса внизу; щелчок — прогноз по дням",
+    hint: "Ветер: цвет — сила, бегущие линии — куда дует; время — лента прогноза внизу; щелчок — погода в точке",
     icon: svg('<path d="M4 9h11a3 3 0 1 0-3-3h2a1 1 0 1 1 1 1H4zm0 4h15a3 3 0 1 1-3 3h2a1 1 0 1 0 1-1H4zm0-2h8v0H4z"/><path d="M3 11h9v2H3z"/>'),
     needs: ["network"],
     sends: "точки в кадре (Open-Meteo); у моря — ещё волна (Open-Meteo Marine)",
@@ -359,23 +323,21 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
         // под стрелкой значок спота или другой свой — окно открывает он, не стрелка
         map.on("click", "wind", (e) => { if (!ownHit(map, e.point, ["wind"])) forecast(e.features[0]); });
       }
-      bar.hidden = false;
-      document.body.classList.add("has-wx-bar");
-      paintBar();
+      // время — лента прогноза; не открыта — на центр карты
+      if (!forecastOpen()) openForecast(map.getCenter().toArray(), "Центр карты");
+      at = forecastTime();
       update();
       emit("wind-time", { on: true, at });
     },
     disable({ map }) {
       active = false;
       flow.disable();
-      bar.hidden = true;
-      document.body.classList.remove("has-wx-bar");
       for (const id of ["wind", "wind-fill"]) if (map.getLayer(id)) map.removeLayer(id);
       if (map.getSource("wind-fill")) map.removeSource("wind-fill");
       emit("wind-time", { on: false, at: null });
     },
     // для проверки: выбрать время (номер шага, 0 — сейчас)
-    setStep: (i) => setAt(i),
+    setStep: (i) => setForecastTime(i === 0 ? null : start() + i * STEP_S),
     stats: () => ({ cached: cache.size, at, shown: shown.length, fill: fillInfo, flow: flow.stats() }),
   });
 }

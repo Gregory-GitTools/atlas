@@ -2188,37 +2188,45 @@ try {
     for (let i = 0; i < 20 && !(await run(`atlas.map.getLayer("wind") && atlas.map.queryRenderedFeatures({ layers: ["wind"] }).length > 0`)); i++) await sleep(1000);
     const w = await run(`atlas.map.queryRenderedFeatures({ layers: ["wind"] }).map((f) => f.properties.ms)`);
     check("ветер: узлы сетки (щёлкаются, прогноз)", w.length > 0, `${w.length} узлов, ${w.slice(0, 5).join(", ")} м/с`);
-    // полоса времени: 7 дней по 3 часа; сдвинули — стрелки на другое время, «Сейчас» — обратно; кнопки не закрывает
+    // лента прогноза вместо ползунка (Грегори 2026-11-14): 5 прошедших дней (бледнее) и 7 вперёд по 3 часа,
+    // в рамке и в виду — сейчас; в шапке — кнопки «Ветер» (включён — затенена) и «Осадки»; кнопки карты не закрывает
     const wind = `atlas.modules().find((m) => m.id === "weather/wind")`;
+    for (let i = 0; i < 20 && !(await run(`document.querySelectorAll(".wx-bar .wx-h").length > 0`)); i++) await sleep(500);
+    await sleep(300);
     const barNow = await run(`(() => { const b = document.querySelector(".wx-bar"), r = b.getBoundingClientRect(),
       hit = [...document.querySelectorAll(".btn.glass, .wheel-toggle")].filter((x) => x.offsetParent).some((x) => { const q = x.getBoundingClientRect(); return q.right > r.left && q.left < r.right && q.bottom > r.top && q.top < r.bottom; });
-      return { shown: !b.hidden, when: b.querySelector(".wx-bar-when").textContent, max: b.querySelector(".wx-range").max, ticks: b.querySelectorAll(".wx-ticks span").length,
-        prev: b.querySelector(".wx-prev").disabled, hit, gust: atlas.map.queryRenderedFeatures({ layers: ["wind"] })[0]?.properties.gl }; })()`);
-    // заливка цветом силы ветра, как у Windy (Грегори 2026-11-12): картинка под подписями, перекрашивается ползунком
+      const hs = [...b.querySelectorAll(".wx-h")], at = b.querySelector(".wx-h.wx-at"), q = at?.getBoundingClientRect(), w = b.querySelector(".wx-grid-wrap").getBoundingClientRect();
+      return { shown: !b.hidden, name: b.querySelector(".wx-bar-name").textContent, when: b.querySelector(".wx-bar-when").textContent, cols: hs.length,
+        past: b.querySelectorAll(".wx-h.wx-past").length, atIdx: hs.indexOf(at), inView: !!q && q.left >= w.left && q.right <= w.right + 1,
+        layers: [...b.querySelectorAll(".wx-bar-layer")].map((x) => x.classList.contains("on")).join(), hit,
+        gust: atlas.map.queryRenderedFeatures({ layers: ["wind"] })[0]?.properties.gl }; })()`);
+    // заливка цветом силы ветра, как у Windy (Грегори 2026-11-12): картинка под подписями, перекрашивается со временем
     const fill0 = await run(`({ layer: !!atlas.map.getLayer("wind-fill"), below: (() => { const ls = atlas.map.getStyle().layers.map((l) => l.id); return ls.indexOf("wind-fill") < ls.indexOf("wind"); })(), ...${wind}.stats().fill })`);
     const before = await run(`JSON.stringify(atlas.map.queryRenderedFeatures({ layers: ["wind"] }).map((f) => f.properties.dir).slice(0, 8))`);
-    await run(`document.querySelector(".wx-range").value = "20"; document.querySelector(".wx-range").dispatchEvent(new Event("input")); true`);
+    // щелчок по столбцу ленты на 20 шагов вперёд — стрелки на это время
+    await run(`(() => { const hs = [...document.querySelectorAll(".wx-bar .wx-h")]; hs[hs.findIndex((x) => x.classList.contains("wx-at")) + 20].click(); return true; })()`);
     await sleep(800);
     const later = await run(`({ at: ${wind}.stats().at, when: document.querySelector(".wx-bar-when").textContent,
       dirs: JSON.stringify(atlas.map.queryRenderedFeatures({ layers: ["wind"] }).map((f) => f.properties.dir).slice(0, 8)) })`);
     const fill1 = await run(`${wind}.stats().fill`);
-    check("ветер: заливка цветом силы ветра под штрихами, плавная; ползунок перекрашивает", fill0.layer && fill0.below && fill0.w > 50 && fill0.painted > fill0.w * fill0.h * 0.8 && fill1.sum !== fill0.sum,
+    check("ветер: заливка цветом силы ветра под штрихами, плавная; время ленты перекрашивает", fill0.layer && fill0.below && fill0.w > 50 && fill0.painted > fill0.w * fill0.h * 0.8 && fill1.sum !== fill0.sum,
       JSON.stringify({ fill0, fill1 }));
-    check("ветер: полоса времени — 7 дней по 3 часа, «Сейчас», порывы у стрелок; сдвинул — стрелки на другое время; кнопки не закрывает",
-      barNow.shown && /^Сейчас/.test(barNow.when) && barNow.max === "55" && barNow.ticks >= 6 && barNow.prev && !barNow.hit && /^ \d+$/.test(barNow.gust)
-      && later.at > Date.now() / 1000 + 50 * 3600 && !/^Сейчас/.test(later.when) && later.dirs !== before, JSON.stringify({ barNow, later: { at: later.at, when: later.when }, same: later.dirs === before }));
+    check("ветер: лента прогноза — 5 дней назад и 7 вперёд по 3 часа, в рамке и в виду сейчас, кнопки «Ветер» (вкл.) и «Осадки»; столбец — стрелки на его время; кнопки не закрывает",
+      barNow.shown && barNow.name === "Центр карты" && barNow.when === "Сейчас" && barNow.cols >= 94 && barNow.past >= 40 && barNow.atIdx === barNow.past && barNow.inView
+      && barNow.layers === "true,false" && !barNow.hit && /^ [0-9]+$/.test(barNow.gust)
+      && later.at > Date.now() / 1000 + 50 * 3600 && later.when !== "Сейчас" && later.dirs !== before, JSON.stringify({ barNow, later: { at: later.at, when: later.when }, same: later.dirs === before }));
     // стрелка ближе к центру — у краёв её закрывают строка поиска и кнопки
     const p = await run(`(() => { const c = atlas.map.project(atlas.map.getCenter()); return atlas.map.queryRenderedFeatures({ layers: ["wind"] })
-      .map((f) => atlas.map.project(f.geometry.coordinates)).filter((q) => q.x > 30 && q.x < innerWidth - 70 && q.y > 80 && q.y < innerHeight - 120)
+      .map((f) => atlas.map.project(f.geometry.coordinates)).filter((q) => q.x > 30 && q.x < innerWidth - 70 && q.y > 80 && q.y < document.querySelector(".wx-bar").getBoundingClientRect().top - 40)
       .sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y))[0]; })()`);
     await clickAt(p.x, p.y);
-    for (let i = 0; i < 10 && !(await run(`document.querySelectorAll(".maplibregl-popup .wx-h").length > 0`)); i++) await sleep(500);
+    for (let i = 0; i < 10 && !(await run(`/порывы/.test(document.querySelector(".maplibregl-popup .wx-now")?.textContent || "")`)); i++) await sleep(500);
     await sleep(1200);
-    const fc = await run(`({ days: document.querySelectorAll(".maplibregl-popup .wx-dayname").length, at: document.querySelector(".maplibregl-popup .wx-h.wx-at")?.textContent,
-      bar: document.querySelector(".wx-bar-when").textContent, head: document.querySelector(".maplibregl-popup .wx-now")?.textContent,
+    const fc = await run(`({ sub: document.querySelector(".maplibregl-popup .wx-view .popup-sub")?.textContent, bar: document.querySelector(".wx-bar-when").textContent,
+      name: document.querySelector(".wx-bar-name").textContent, head: document.querySelector(".maplibregl-popup .wx-now")?.textContent,
       above: document.querySelector(".maplibregl-popup").getBoundingClientRect().bottom <= document.querySelector(".wx-bar").getBoundingClientRect().top + 1 })`);
-    check("ветер: прогноз по щелчку — таблица на 7 дней, в рамке то же время, что на полосе; окно над полосой времени",
-      fc.days >= 7 && !!fc.at && fc.bar.endsWith(`${fc.at}:00`) && /порывы/.test(fc.head) && fc.above, JSON.stringify(fc));
+    check("ветер: щелчок по узлу — окно погоды в точке на время ленты, лента — на эту точку; окно над лентой",
+      fc.sub?.includes(fc.bar.split(" · ")[1]) && fc.bar !== "Сейчас" && fc.name === "Погода в точке" && /порывы/.test(fc.head) && fc.above, JSON.stringify(fc));
     // бегущие линии (Грегори 2026-11-13: «как в Windy с анимацией»): частицы бегут, на холсте есть линии;
     // карту двигают — линий нет; узлы сетки невидимы (стрелок нет)
     await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
@@ -2235,11 +2243,11 @@ try {
       fl1.on && fl1.particles > 100 && fl1.cells > 100 && fl1.frames > fl0.frames + 5 && fl1.lit > 50 && fl1.under && fl1.arrows === 0
       && flMove.lit === 0 && flMove.after > fl1.frames, JSON.stringify({ fl0, fl1, flMove }));
     await shot("90-wind");
-    // крестик полосы — ветер выключен, полоса ушла
+    // крестик ленты — лента ушла, ветер выключен
     await run(`document.querySelector(".maplibregl-popup")?.remove(); document.querySelector(".wx-bar-x").click(); true`);
     await sleep(500);
     const off = await run(`({ bar: document.querySelector(".wx-bar").hidden, layer: !!atlas.map.getLayer("wind"), on: ${wind}.active })`);
-    check("ветер: крестик полосы времени выключает ветер", off.bar && !off.layer && !off.on, JSON.stringify(off));
+    check("ветер: крестик ленты прогноза закрывает её и выключает ветер", off.bar && !off.layer && !off.on, JSON.stringify(off));
     await run(`atlas.map.jumpTo({ center: [15, 52], zoom: 4 }); atlas.toggle("weather/radar", true).then(() => true)`);
     await sleep(3000);
     const frames = await run(`atlas.map.getStyle().layers.filter((l) => l.id.startsWith("radar-")).length`);
@@ -2247,6 +2255,56 @@ try {
     await idle();
     await shot("91-radar");
     await run(`atlas.toggle("weather/radar", false).then(() => true)`);
+  }
+
+  // погода места (Грегори 2026-11-14): под крестиком окна места — температура и осадки; щелчок — окно погоды
+  // и лента прогноза внизу, тяжёлые «Ветер» и «Осадки» сами не включаются (кнопки в шапке ленты);
+  // «Назад» — снова окно места, ленты нет
+  if (want("core/forecast")) {
+    await run(`atlas.map.jumpTo({ center: [24.75, 59.437], zoom: 11 }); true`);
+    await idle();
+    await clickAt(40, 400);
+    for (let i = 0; i < 20 && !(await run(`!!document.querySelector(".maplibregl-popup .wx-chip:not([hidden])")`)); i++) await sleep(500);
+    const chip = await run(`(() => { const c = document.querySelector(".maplibregl-popup .wx-chip"), x = document.querySelector(".maplibregl-popup-close-button");
+      const q = c?.getBoundingClientRect(), r = x?.getBoundingClientRect(), t = document.querySelector(".maplibregl-popup .popup-coords")?.getBoundingClientRect();
+      return { text: c?.textContent, under: !!q && q.top >= r.bottom - 2 && Math.abs((q.left + q.right) / 2 - (r.left + r.right) / 2) < 30, clear: !!t && t.right <= q.left + 1 }; })()`);
+    check("погода места: под крестиком окна — температура и осадки, текст не заходит под них",
+      /^-?[0-9]+°[0-9]+(,[0-9])?$/.test(chip.text) && chip.under && chip.clear, JSON.stringify(chip));
+    await run(`document.querySelector(".maplibregl-popup .wx-chip").click(); true`);
+    for (let i = 0; i < 20 && !(await run(`document.querySelectorAll(".wx-bar .wx-h").length > 0 && /Ветер/.test(document.querySelector(".maplibregl-popup .wx-now")?.textContent || "")`)); i++) await sleep(500);
+    await sleep(500);
+    const wx = await run(`(() => { const b = document.querySelector(".wx-bar"), hs = [...b.querySelectorAll(".wx-h")];
+      return { back: document.querySelector(".maplibregl-popup .wx-back")?.textContent, now: document.querySelector(".maplibregl-popup .wx-now")?.textContent,
+        sub: document.querySelector(".maplibregl-popup .wx-view .popup-sub")?.textContent, actions: !!document.querySelector(".maplibregl-popup .go-actions")?.offsetParent,
+        bar: !b.hidden, name: b.querySelector(".wx-bar-name").textContent, past: b.querySelectorAll(".wx-h.wx-past").length, atIdx: hs.indexOf(b.querySelector(".wx-h.wx-at")),
+        heavy: !!atlas.map.getLayer("wind") || atlas.map.getStyle().layers.some((l) => l.id.startsWith("radar-")),
+        above: document.querySelector(".maplibregl-popup").getBoundingClientRect().bottom <= b.getBoundingClientRect().top + 1 }; })()`);
+    check("погода места: щелчок — окно погоды с «Назад», лента на место (сейчас в рамке, прошлое есть); ветер и осадки не включились",
+      wx.back === "Место" && /порывы/.test(wx.now) && /^Сейчас · -?[0-9]+°/.test(wx.sub) && !wx.actions && wx.bar && wx.name === "Погода в точке"
+      && wx.past >= 40 && wx.atIdx === wx.past && !wx.heavy && wx.above, JSON.stringify(wx));
+    await shot("92-place-weather");
+    // столбец ленты — окно погоды на его время; кнопка «Ветер» в шапке — включает и выключает слой, лента остаётся
+    await run(`(() => { const hs = [...document.querySelectorAll(".wx-bar .wx-h")]; hs[hs.findIndex((x) => x.classList.contains("wx-at")) + 8].click(); return true; })()`);
+    await sleep(300);
+    const picked = await run(`document.querySelector(".maplibregl-popup .wx-view .popup-sub")?.textContent`);
+    await run(`document.querySelector('.wx-bar-layer[data-id="weather/wind"]').click(); true`);
+    for (let i = 0; i < 20 && !(await run(`!!atlas.map.getLayer("wind")`)); i++) await sleep(300);
+    const windBtn = await run(`({ layer: !!atlas.map.getLayer("wind"), on: document.querySelector('.wx-bar-layer[data-id="weather/wind"]').classList.contains("on"),
+      name: document.querySelector(".wx-bar-name").textContent, at: atlas.modules().find((m) => m.id === "weather/wind").stats().at })`);
+    await run(`document.querySelector('.wx-bar-layer[data-id="weather/wind"]').click(); true`);
+    await sleep(600);
+    const windOff = await run(`({ layer: !!atlas.map.getLayer("wind"), bar: !document.querySelector(".wx-bar").hidden })`);
+    check("погода места: столбец ленты — окно на это время; «Ветер» в шапке ленты включает слой на это время и выключает, лента остаётся",
+      !/^Сейчас/.test(picked) && windBtn.layer && windBtn.on && windBtn.name === "Погода в точке" && windBtn.at > Date.now() / 1000 + 12 * 3600
+      && !windOff.layer && windOff.bar, JSON.stringify({ picked, windBtn, windOff }));
+    // «Назад» — окно места с кнопками, лента ушла, время — снова сейчас
+    await run(`document.querySelector(".maplibregl-popup .wx-back").click(); true`);
+    await sleep(300);
+    const back = await run(`({ coords: !!document.querySelector(".maplibregl-popup .popup-coords"), chip: !!document.querySelector(".maplibregl-popup .wx-chip"),
+      actions: !!document.querySelector(".maplibregl-popup .go-actions")?.offsetParent, bar: !document.querySelector(".wx-bar").hidden,
+      when: document.querySelector(".wx-bar-when").textContent })`);
+    check("погода места: «Назад» — снова окно места, ленты нет", back.coords && back.chip && back.actions && !back.bar && back.when === "Сейчас", JSON.stringify(back));
+    await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
   }
 
   // «Скачать район» (core/offline.js, sw.js): маленький район — кнопка в настройках, пакет в списке, плитки

@@ -3,8 +3,10 @@
 // описание из Википедии; щелчок по пустому месту — координаты (щелчок по ним копирует) и адрес.
 // Мимо глобуса, по звёздам, — ничего. Первый щелчок при открытом окне или списке только
 // закрывает их. Окна на карте закрываются, как только карта двинулась (правило travel-earth).
+// Под крестиком окна — температура и осадки (core/forecast.js): щелчок — погода места и лента прогноза.
 // Служба: отправляет в сеть координаты щелчка и название места
 import { register, modules, allowed } from "./modules.js";
+import { weatherChip } from "./forecast.js";
 import { uiLanguage } from "./labels.js";
 import { emit } from "./events.js";
 import { track, anyOpen as popupOpen, closeAll, ownHit, clicksCaptured } from "./popups.js";
@@ -13,7 +15,7 @@ register({
   id: "core/place-info",
   kind: "service",
   title: "Окно места",
-  sends: "координаты щелчка и название места (OpenStreetMap, Википедия)",
+  sends: "координаты щелчка и название места (OpenStreetMap, Википедия); погода в точке (Open-Meteo)",
 });
 const self = () => modules("service").find((m) => m.id === "core/place-info");
 
@@ -137,6 +139,14 @@ async function pointContent(lngLat) {
   return box;
 }
 
+// температура и осадки под крестиком окна места (Грегори 2026-11-14)
+const withWeather = (box, lngLat, title) => {
+  if (!allowed(self())) return box;
+  box.classList.add("wx-host");
+  box.prepend(weatherChip(Array.isArray(lngLat) ? lngLat : [lngLat.lng, lngLat.lat], title));
+  return box;
+};
+
 // место из поиска при навигации — наше окно места (Сюда, Добавить, Поделиться, Отметить, ⋯) на карте
 // (Грегори 2026-11-10): карта к месту — ниже строки поиска с карточкой, окно — когда карта встала
 let showPlaceFn = () => {};
@@ -153,6 +163,7 @@ export function initPlaceInfo({ map, maplibregl }) {
     const open = () => {
       const box = document.createElement("div");
       box.append(h("popup-title", title), ...(address ? [h("popup-sub", address)] : []));
+      withWeather(box, lngLat, title);
       popup?.remove();
       popup = track(new maplibregl.Popup({ offset: 4, maxWidth: "280px" })).setLngLat(lngLat).setDOMContent(box).addTo(map);
     };
@@ -189,11 +200,11 @@ export function initPlaceInfo({ map, maplibregl }) {
     const n = ++click;
     const content = f ? await featureContent(f) : await pointContent(e.lngLat);
     if (n !== click) return; // пока ждали ответа, щёлкнули ещё раз
+    const ll = f?.geometry.type === "Point" ? f.geometry.coordinates : [e.lngLat.lng, e.lngLat.lat];
     popup?.remove();
     popup = track(new maplibregl.Popup({ offset: f ? 12 : 4, maxWidth: "280px" }))
-      .setLngLat(f?.geometry.type === "Point" ? f.geometry.coordinates : e.lngLat)
-      .setDOMContent(content).addTo(map);
-    emit("place", { lngLat: f?.geometry.type === "Point" ? f.geometry.coordinates : [e.lngLat.lng, e.lngLat.lat], title: f?.properties.name || "" });
+      .setLngLat(ll).setDOMContent(withWeather(content, ll, f?.properties.name || "")).addTo(map);
+    emit("place", { lngLat: ll, title: f?.properties.name || "" });
   });
 
   // над тем, о чём щелчок что-то покажет, — стрелка вместо ладони; раз за кадр, не при перетаскивании
