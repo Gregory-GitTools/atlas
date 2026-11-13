@@ -121,6 +121,7 @@ let geoQueue = Promise.resolve();
 async function geocodeOnce(query, near, box = 0) {
   // кэш — по запросу и окрестности: одно и то же название в разных поездках — разные места
   const key = `geo/${query.toLowerCase()}${near ? `@${near.map((v) => v.toFixed(1)).join(",")}` : ""}${box ? `#${box}` : ""}`;
+  geoKeys?.add(key);
   const hit = await cacheGet(key).catch(() => undefined);
   if (hit !== undefined) return hit;
   const run = geoQueue.then(async () => {
@@ -168,6 +169,26 @@ async function geocodeTour(t) {
     drawTour();
   }
 }
+// «Скачать район» (core/offline.js): экскурсии страны района — места регионов, городов и остановок
+// находятся заранее, их записи (geo/…) поездка сохраняет у себя; без сети экскурсия стоит на карте
+let geoKeys = null;
+on("trip-prepare", (job) => job.tasks.push((async () => {
+  await load();
+  const mine = [...tours.values()].filter((t) => countryOf(t).toLowerCase() === (job.country || "").toLowerCase());
+  geoKeys = new Set();
+  try {
+    for (const t of mine) {
+      if (job.stopped) break;
+      if (t.region && t.point === undefined) t.point = await geocode(t.region).catch(() => null);
+      else if (t.region) await geocode(t.region).catch(() => null);
+      if (t.city) t.cityPoint = await geocode([t.city, t.country].filter(Boolean).join(", ")).catch(() => null);
+      for (const sec of t.sections) if (sec.place) sec.point = await geocode(sec.place, t.point, t.region, t.cityPoint).catch(() => null);
+    }
+    if (openTour) drawTour();
+    return { keys: [...geoKeys], tours: mine.length };
+  } finally { geoKeys = null; }
+})()), { replay: false });
+
 const stopPoint = async (t, sec) => {
   if (sec.point === undefined && sec.place) { sec.point = await geocode(sec.place, t.point, t.region, t.cityPoint).catch(() => null); drawTour(); }
   return sec.point;

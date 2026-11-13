@@ -4,10 +4,14 @@
 // открылась без сети. Всё лежит в Cache Storage «atlas-trip»; отдаёт сервис-воркер (sw.js): скачанная
 // плитка берётся с устройства и в сети (роуминг дорогой), стиль и описание карты — сначала из сети.
 // Спутник (Esri), CARTO и тропы Waymarked не скачиваются: их условия не разрешают хранить плитки.
-// Пакеты: список в настройках ("trips"), ключи каждого — в IndexedDB ("trip/<id>"); удаление пакета не
+// Вместе с картой — тексты всех экскурсий и разговорников (около 1 МБ) и места остановок экскурсий страны
+// района (их находит content/tours.js по событию trip-prepare): копии записей хранилища — «trip/<ключ>»,
+// их не стирает «Очистить историю просмотра». Пакеты: список в настройках ("trips"), ключи каждого — в IndexedDB ("trip/<id>"); удаление пакета не
 // трогает плитки, нужные другому пакету
 import * as settings from "./settings.js";
-import { cacheGet, cacheSet, cacheDelete, persist } from "./storage.js";
+import { cacheGet, cacheSet, cacheDelete, persist, keepForTrip } from "./storage.js";
+import { repoFiles, repoText } from "./repo.js";
+import { emit } from "./events.js";
 
 export const TRIP_CACHE = "atlas-trip";
 const APP_CACHE = "atlas-app"; // тот же, что в sw.js
@@ -111,13 +115,29 @@ async function placeName(map) {
     const j = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&accept-language=ru&lat=${c.lat.toFixed(4)}&lon=${c.lng.toFixed(4)}`, { signal: ctl.signal }).then((r) => r.json());
     const a = j.address || {};
     const name = a.city || a.town || a.village || a.municipality || a.county || a.state;
-    if (name) return a.country && name !== a.country ? `${name}, ${a.country}` : name;
+    if (name) return { title: a.country && name !== a.country ? `${name}, ${a.country}` : name, country: a.country || "" };
   } catch { /* без названия */ }
-  return `Район ${c.lat.toFixed(2)}, ${c.lng.toFixed(2)}`;
+  return { title: `Район ${c.lat.toFixed(2)}, ${c.lng.toFixed(2)}`, country: "" };
 }
 
 let job = null; // идёт скачивание: { done, total, stop }
-export const downloading = () => job && { done: job.done, total: job.total };
+export const downloading = () => job && { done: job.done, total: job.total, phase: job.phase };
+
+// экскурсии и разговорники: тексты всех (повторно не качаются — помнятся по хэшу) и места остановок
+// экскурсий страны района; вернуть ключи записей хранилища, которые сохранены копией у поездки
+async function texts(box, country) {
+  const keys = ["repo/tree"];
+  const files = [...(await repoFiles("Экскурсии").catch(() => [])), ...(await repoFiles("Языки").catch(() => []))].filter((f) => /\.(md|txt)$/i.test(f.name));
+  await Promise.all(files.map((f) => repoText(f).then(() => keys.push(`repo/text/${f.sha}`)).catch(() => {})));
+  const ev = { box, country, tasks: [], stopped: false };
+  job.ev = ev;
+  emit("trip-prepare", ev);
+  let tours = 0;
+  for (const r of await Promise.allSettled(ev.tasks)) if (r.status === "fulfilled" && r.value) { keys.push(...r.value.keys); tours += r.value.tours || 0; }
+  const kept = [];
+  for (const k of keys) if (await keepForTrip(k).catch(() => false)) kept.push(k);
+  return { kept, files: files.length, tours };
+}
 
 // скачать видимый район; onProgress() — после каждой порции
 export async function downloadArea(map, onProgress) {
@@ -126,7 +146,13 @@ export async function downloadArea(map, onProgress) {
   try {
     await persist();
     const box = viewBox(map);
-    const [tiles, files, title] = await Promise.all([plan(map, box), appFiles(), placeName(map)]);
+    job.phase = "Готовлю экскурсии и разговорники";
+    onProgress?.();
+    const [tiles, files, place] = await Promise.all([plan(map, box), appFiles(), placeName(map)]);
+    const { title, country } = place;
+    const extra = await texts(box, country);
+    if (job.stopped) return null;
+    job.phase = "";
     job.total = tiles.length + files.length;
     onProgress?.();
     const trip = await caches.open(TRIP_CACHE), app = await caches.open(APP_CACHE);
@@ -155,21 +181,21 @@ export async function downloadArea(map, onProgress) {
     await Promise.all(Array.from({ length: 6 }, lane));
     if (job.stopped) { await dropKeys(keys); return null; }
     const id = Date.now().toString(36);
-    await cacheSet(`trip/${id}`, keys);
-    const item = { id, title, box, tiles: keys.length, bytes, failed, saved: new Date().toISOString() };
+    await cacheSet(`trip/${id}`, [...keys, ...extra.kept.map((k) => `idb:${k}`)]);
+    const item = { id, title, country, box, tiles: keys.length, bytes, failed, texts: extra.files, tours: extra.tours, saved: new Date().toISOString() };
     settings.set("trips", [...trips(), item]);
     return item;
   } finally { job = null; onProgress?.(); }
 }
 
-export const stopDownload = () => { if (job) job.stopped = true; };
+export const stopDownload = () => { if (job) { job.stopped = true; if (job.ev) job.ev.stopped = true; } };
 
 // убрать ключи, которых нет в других пакетах
 async function dropKeys(keys, except = null) {
   const keep = new Set();
   for (const t of trips()) if (t.id !== except) for (const k of (await cacheGet(`trip/${t.id}`)) || []) keep.add(k);
   const trip = await caches.open(TRIP_CACHE);
-  await Promise.all(keys.filter((k) => !keep.has(k)).map((k) => trip.delete(k)));
+  await Promise.all(keys.filter((k) => !keep.has(k)).map((k) => (k.startsWith("idb:") ? cacheDelete(`trip/${k.slice(4)}`) : trip.delete(k))));
 }
 
 export async function removeTrip(id) {

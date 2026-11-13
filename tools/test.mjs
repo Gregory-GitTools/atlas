@@ -2159,7 +2159,7 @@ try {
     check("без сети: «Скачать район на карте» в настройках, активна", ui.has && ui.on && ui.title === "Карта без сети", JSON.stringify(ui));
     await run(`document.querySelector(".trip-dl").click(); true`);
     let prog = "";
-    for (let i = 0; i < 120 && (await run(`import("./core/offline.js").then((o) => o.trips().length)`)) === before; i++) { if (!prog) prog = await run(`document.querySelector(".trip-prog")?.textContent || ""`); await sleep(1000); }
+    for (let i = 0; i < 300 && (await run(`import("./core/offline.js").then((o) => o.trips().length)`)) === before; i++) { if (!prog) prog = await run(`document.querySelector(".trip-prog")?.textContent || ""`); await sleep(1000); }
     const r = await run(`(async () => { const o = await import("./core/offline.js"); const t = o.trips().at(-1);
       const keys = (await (await caches.open("atlas-trip")).keys()).map((q) => q.url), app = (await (await caches.open("atlas-app")).keys()).map((q) => q.url);
       const tile = keys.find((k) => k.includes("/planet/_/14/") && k.endsWith(".pbf"));
@@ -2172,12 +2172,22 @@ try {
     check("без сети: файлы программы и библиотеки на устройстве", r.app > 30 && r.lib && r.nav && r.index, `${r.app} файлов`);
     check("без сети: скачанная плитка отдаётся с устройства и при новом выпуске карты", r.ctl && r.fake > 0, `${r.fake} байт`);
     await shot("97-offline-settings");
+    // экскурсии и разговорники: копии текстов и мест остановок у поездки переживают «Очистить историю просмотра»
+    const tx = await run(`(async () => { const o = await import("./core/offline.js"), st = await import("./core/storage.js"); const t = o.trips().at(-1);
+      const list = (await st.cacheGet("trip/" + t.id)) || [], idb = list.filter((k) => k.startsWith("idb:")).map((k) => k.slice(4));
+      const text = idb.find((k) => k.startsWith("repo/text/")), geo = idb.filter((k) => k.startsWith("geo/")).length;
+      await st.clearViewCache();
+      const after = text && await st.cacheGet(text);
+      return { texts: t.texts, tours: t.tours, country: t.country, kept: idb.length, geo, survives: typeof after === "string" && after.length > 0, sub: [...document.querySelectorAll(".trip-list .set-item-sub")].map((e) => e.textContent).at(-1) }; })()`);
+    check("без сети: экскурсии и разговорники — тексты у поездки, переживают очистку истории", tx.texts > 50 && tx.kept > 50 && tx.survives && tx.country === "Эстония", JSON.stringify(tx));
+    check("без сети: экскурсии страны — места остановок найдены заранее", tx.tours === 0 || tx.geo > 0, JSON.stringify(tx));
     await run(`atlas.map.jumpTo({ center: [10, 50], zoom: 5 }); new Promise((r) => setTimeout(() => r(true), 800))`);
     const big = await run(`({ off: document.querySelector(".trip-dl").disabled, why: document.querySelector(".trip-why").textContent, dim: +getComputedStyle(document.querySelector(".trip-dl")).opacity })`);
     check("без сети: большой район — кнопка неактивна и блёклая, сказано почему", big.off && big.dim < 0.6 && big.why.includes("Приблизьте"), JSON.stringify(big));
     await run(`(async () => { [...document.querySelectorAll(".trip-list .text-btn")].filter((b) => b.textContent === "Удалить").at(-1).click(); for (let i = 0; i < 30 && document.querySelector(".trip-list")?.children.length > ${before}; i++) await new Promise((r) => setTimeout(r, 200)); return true; })()`);
-    const gone = await run(`(async () => ({ list: (await import("./core/offline.js")).trips().length, keys: (await (await caches.open("atlas-trip")).keys()).length }))()`);
-    check("без сети: «Удалить» убирает район и его плитки", gone.list === before && (before > 0 || gone.keys === 0), JSON.stringify(gone));
+    const gone = await run(`(async () => { const st = await import("./core/storage.js"); return { list: (await import("./core/offline.js")).trips().length, keys: (await (await caches.open("atlas-trip")).keys()).length,
+      copies: await new Promise((r) => { const q = indexedDB.open("atlas"); q.onsuccess = () => { const k = q.result.transaction("cache").objectStore("cache").getAllKeys(); k.onsuccess = () => r(k.result.filter((x) => String(x).startsWith("trip/repo/")).length); }; }) }; })()`);
+    check("без сети: «Удалить» убирает район, его плитки и копии текстов", gone.list === before && (before > 0 || gone.keys === 0 && gone.copies === 0), JSON.stringify(gone));
     await run(`document.querySelector('[data-panel="settings"] .panel-btn[title=Закрыть]').click(); true`);
   }
 

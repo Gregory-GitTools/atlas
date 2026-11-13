@@ -30,6 +30,8 @@
 //   kite-favorites — ключи «Моих спотов» (content/spots.js) · kite-favorite-set — отметить/снять { spot, on }
 //   kite-spot-open — показать спот из «Моих спотов»: карта к нему и его окно { key, kind, lon, lat, ctx }
 //   search-show — показать строку поиска и барабан разделов (окно раздела открыли не из барабана)
+//   trip-prepare — «Скачать район» собирает своё у модулей { box, country, tasks, stopped }: модуль кладёт в
+//                tasks обещание { keys } — ключи записей хранилища, которые поездка сохранит у себя (content/tours.js)
 
 const handlers = new Map();
 const last = new Map();

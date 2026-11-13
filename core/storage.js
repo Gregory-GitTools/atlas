@@ -29,7 +29,20 @@ const tx = async (mode, fn) => {
 };
 
 // кэш «ключ → значение» для модулей; ключ с приставкой модуля: "geo:Tallinn", "exif:…"
-export const cacheGet = (key) => tx("readonly", (s) => s.get(key));
+// нет записи — берётся копия из скачанной поездки ("trip/<ключ>", core/offline.js): её не стирает
+// «Очистить историю просмотра», и без сети экскурсии, разговорники и места остановок остаются
+const getRaw = (key) => tx("readonly", (s) => s.get(key));
+export const cacheGet = async (key) => {
+  const v = await getRaw(key);
+  return v === undefined && !String(key).startsWith("trip/") ? getRaw(`trip/${key}`) : v;
+};
+// сохранить копию записи для скачанной поездки; вернуть, удалось ли
+export async function keepForTrip(key) {
+  const v = await getRaw(key);
+  if (v === undefined) return (await getRaw(`trip/${key}`)) !== undefined;
+  await cacheSet(`trip/${key}`, v);
+  return true;
+}
 export const cacheSet = (key, value) => tx("readwrite", (s) => s.put(value, key));
 export const cacheDelete = (key) => tx("readwrite", (s) => s.delete(key));
 

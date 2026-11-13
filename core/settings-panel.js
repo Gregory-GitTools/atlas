@@ -111,7 +111,7 @@ export function initSettingsPanel(ctx) {
     const job = downloading(), big = !fits(ctx.map), net = !offline() && navigator.onLine;
     dl.disabled = !!job || big || !net;
     stop.hidden = !job;
-    prog.textContent = job ? `Скачивается: ${job.total ? Math.floor((job.done / job.total) * 100) : 0} %` : "";
+    prog.textContent = !job ? "" : job.phase ? `${job.phase}…` : `Скачивается: ${job.total ? Math.floor((job.done / job.total) * 100) : 0} %`;
     why.textContent = !net ? "Нужен интернет." : big ? "Приблизьте карту: район для скачивания — примерно до 100 км." : "";
   };
   ctx.map.on("moveend", () => !panel.el.hidden && tripState());
@@ -143,9 +143,9 @@ export function initSettingsPanel(ctx) {
       });
       del.addEventListener("click", async () => { del.disabled = true; await removeTrip(t.id); render(); });
       btns.append(show, del);
-      list.append(netRow(t.title, `${formatBytes(t.bytes)} · ${new Date(t.saved).toLocaleDateString("ru")}`, btns));
+      list.append(netRow(t.title, `${formatBytes(t.bytes)}${t.tours ? ` · экскурсий: ${t.tours}` : ""} · ${new Date(t.saved).toLocaleDateString("ru")}`, btns));
     }
-    box.append(row, why, list, h("p", "set-hint", "Скачивается то, что видно на карте сейчас: карта до отдельных домов и тропинок, высоты — если включены тени или горизонтали, и сама программа. Без сети она откроется и покажет этот район; скачанное берётся с устройства и в сети, чтобы не тратить роуминг. Спутник, тропы, погода и поиск — только в сети."));
+    box.append(row, why, list, h("p", "set-hint", "Скачивается то, что видно на карте сейчас: карта до отдельных домов и тропинок, высоты — если включены тени или горизонтали, и сама программа. Вместе с ней — все экскурсии и разговорники, а у экскурсий этой страны — места остановок. Без сети она откроется и покажет этот район; скачанное берётся с устройства и в сети, чтобы не тратить роуминг. Спутник, тропы, погода, поиск и снимки в слайд-шоу экскурсий — только в сети."));
     return box;
   }
 
