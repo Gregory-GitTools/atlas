@@ -11,7 +11,7 @@ import { register } from "../core/modules.js";
 import { emit, on } from "../core/events.js";
 import { setSearchMode, searchMode, geocode, refreshSearchList, foldSearchList, setSearchCard, showSearchList } from "../core/search.js";
 import { historyList, remember, loadList, saveList } from "../core/history.js";
-import { WAYS, ARROW, SHARE_ICON } from "../core/route.js";
+import { WAYS, ARROW, SHARE_ICON, START_ICON, FINISH_ICON as FINISH_BIG } from "../core/route.js";
 import { showPlace } from "../core/place-info.js";
 import { trackIcon } from "../core/icons.js";
 
@@ -23,7 +23,9 @@ const id = (e) => e.saved || `${e.lngLat[0].toFixed(5)},${e.lngLat[1].toFixed(5)
 const ROUTE_ICON = trackIcon(22);
 const BACK = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/></svg>';
 const GPX_ICON = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/></svg>';
-const FINISH_ICON = '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M14.4,6L14,4H5V21H7V14H12.6L13,16H20V6H14.4Z"/></svg>';
+// старт и финиш — те же значки, что у кнопок «Старт» и «Финиш» в окне места
+const FINISH_ICON = FINISH_BIG.replace(/width="\d+" height="\d+"/, 'width="20" height="20"');
+const START_SMALL = START_ICON.replace(/width="\d+" height="\d+"/, 'width="20" height="20"');
 const h = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls || "", textContent: text || "" });
 
 let navOn = false, state = {}, results = null, note = "", ctx = null;
@@ -47,7 +49,7 @@ const MODE = { icon: ICON, title: "Навигация", placeholder: "Куда",
   // (маршрут — есть остановки или открыт список его точек; одна цель — обычный список «Куда»)
   keep: (closed) => {
     const listed = !!openRoute && loadList(HISTORY).some((e) => e.saved === openRoute);
-    if (!state.target || !(listed || state.stops?.length)) return false;
+    if (!state.target || !(listed || (state.points?.length || 0) > 1)) return false;
     if (closed && !listed) emit("route-build");
     return true;
   },
@@ -108,7 +110,7 @@ function targetCard() {
   arrow.hidden = !state.me;
   arrow.style.transform = `rotate(${state.arrow || 0}deg)`;
   const text = h("div", "go-text");
-  text.append(h("div", "go-main", state.me ? state.main : t.title), h("div", "go-sub", state.me ? t.title : "Включите навигацию — покажу, куда идти"));
+  text.append(h("div", "go-main", state.me ? state.main : t.title), h("div", "go-sub", state.me ? t.title : (state.points?.length || 0) > 1 ? `Маршрут: ${state.points.length} точк${state.points.length < 5 ? "и" : "ек"}` : "Включите навигацию — покажу, куда идти"));
   // «стрелка вверх» — к построению маршрута: список его точек (Грегори 2026-11-10); свернуть карточку —
   // кнопкой «Навигация» в барабане
   const fold = h("button", "go-close");
@@ -126,12 +128,13 @@ function targetCard() {
     b.addEventListener("click", () => emit("route-way", { way: w.id }));
     ways.append(b);
   }
-  const way = h("div", "nav-way", state.busy ? `${WAYS.find((w) => w.id === state.busy).title}: ищу путь…` : state.route?.text || (state.me ? "Путь по дорогам и тропам — выберите, как добираться" : ""));
+  const way = h("div", "nav-way", state.busy ? `${WAYS.find((w) => w.id === state.busy).title}: ищу путь…` : state.route?.text || (state.canRoute ? (state.me && state.points?.length ? "Путь от меня по дорогам и тропам — выберите, как добираться" : "Путь по дорогам и тропам — выберите, как добираться") : ""));
   // точки маршрута по порядку: остановки с номером и финиш с флажком, крестик убирает любую — путь
   // перестраивается (Грегори 2026-11-10: «финиш тоже должен быть в списке и его можно удалить»)
   const stopsRow = h("div", "go-stops");
-  const pt = (badge, title, xTitle, fn) => {
+  const pt = (badge, title, xTitle, fn, passed) => {
     const row = h("div", "go-pt");
+    row.classList.toggle("go-passed", !!passed);
     const b = h("span", "go-pt-n");
     b.innerHTML = badge;
     const x = h("button", "go-stop-x");
@@ -140,9 +143,12 @@ function targetCard() {
     row.append(b, h("span", "go-pt-t", title), x);
     stopsRow.append(row);
   };
-  (state.stops || []).forEach((title, i) => pt(`<b class="route-pt-n">${i + 1}</b>`, title, "Убрать остановку", () => emit("route-stop-remove", i)));
-  pt(FINISH_ICON, t.title, "Убрать финиш", () => emit("route-finish-remove"));
-  card.append(top, ...(state.stops?.length ? [stopsRow] : []), ways, way);
+  for (const p of state.points || []) {
+    if (p.role === "start") pt(START_SMALL, p.title, "Убрать старт", () => emit("route-start-remove"), p.done);
+    else if (p.role === "finish") pt(FINISH_ICON, p.title, "Убрать финиш", () => emit("route-finish-remove"), p.done);
+    else pt(`<b class="route-pt-n">${p.n}</b>`, p.title, "Убрать остановку", () => emit("route-stop-remove", p.n - 1), p.done);
+  }
+  card.append(top, ...((state.points?.length || 0) > 1 ? [stopsRow] : []), ways, way);
   return card;
 }
 
@@ -174,7 +180,7 @@ function suggestions(q) {
     label: (e) => {
       const c = `${e.lngLat[1].toFixed(5)}, ${e.lngLat[0].toFixed(5)}`;
       const via = e.stops?.length ? `через ${e.stops.map((s) => s.title).join(", ")} · ` : "";
-      if (e.saved) return { title: e.name || e.title, sub: `${e.stops?.length ? "через " + e.stops.map((s) => s.title).join(", ") + " → " : ""}${e.title}`, icon: ROUTE_ICON };
+      if (e.saved) return { title: e.name || e.title, sub: `${e.start ? e.start.title + " → " : ""}${e.stops?.length ? "через " + e.stops.map((s) => s.title).join(", ") + " → " : ""}${e.title}`, icon: ROUTE_ICON };
       return { title: e.title, sub: via + (e.address || (e.title === c ? "" : c)) };
     },
     rename: (e, title) => (e.saved ? { ...e, name: title } : { ...e, title }),
@@ -205,7 +211,7 @@ function routeView(entry) {
     btn("route-view-btn route-view-card", "Карточка пути", ROUTE_ICON, () => { activate(); emit("route-card-show"); }));
   const pid = (p) => `${p.lngLat[0].toFixed(5)},${p.lngLat[1].toFixed(5)}`;
   const current = () => loadList(HISTORY).find((e) => e.saved === entry.saved) || entry;
-  const points = () => { const e = current(); return [...(e.stops || []), { lngLat: e.lngLat, title: e.title, address: e.address || "" }]; };
+  const points = () => { const e = current(); return [...(e.start ? [e.start] : []), ...(e.stops || []), { lngLat: e.lngLat, title: e.title, address: e.address || "" }]; };
   const list = historyList({ id: pid, clear: false, load: points,
     save: (pts) => {
       const e = current(), was = active();
@@ -214,16 +220,19 @@ function routeView(entry) {
         openRoute = null;
         if (was) emit("route-target", null);
       } else {
-        const last = pts[pts.length - 1];
-        const next = { ...e, lngLat: last.lngLat, title: last.title, address: last.address || "", stops: pts.slice(0, -1).map((x) => ({ lngLat: x.lngLat, title: x.title })) };
+        // старт был — первая точка списка остаётся стартом; последняя — финиш
+        const last = pts[pts.length - 1], first = e.start && pts.length > 1 ? pts[0] : null;
+        const next = { ...e, lngLat: last.lngLat, title: last.title, address: last.address || "", start: first ? { lngLat: first.lngLat, title: first.title, address: first.address || "" } : undefined,
+          stops: pts.slice(first ? 1 : 0, -1).map((x) => ({ lngLat: x.lngLat, title: x.title })) };
         saveList(HISTORY, loadList(HISTORY).map((x) => (x.saved === e.saved ? next : x)));
         if (was) emit("route-target", { ...next, way: state.route?.way || state.busy || e.way || null });
       }
       setTimeout(() => render()); // номера точек — заново
     },
     label: (p) => {
-      const pts = points(), i = pts.findIndex((x) => pid(x) === pid(p)), last = i === pts.length - 1;
-      return { title: p.title, sub: last ? "Финиш" : p.address || "", icon: last ? FINISH_ICON : `<b class="route-pt-n">${i + 1}</b>` };
+      const pts = points(), i = pts.findIndex((x) => pid(x) === pid(p)), last = i === pts.length - 1, first = i === 0 && !!current().start;
+      const n = i + (current().start ? 0 : 1);
+      return { title: p.title, sub: last ? "Финиш" : first ? "Старт" : p.address || "", icon: last ? FINISH_ICON : first ? START_SMALL : `<b class="route-pt-n">${n}</b>` };
     },
     rename: (p, title) => ({ ...p, title }),
     pick: (p) => { activate(); emit("route-focus", p); },
@@ -234,7 +243,8 @@ function routeView(entry) {
 
 function openPanel(c) {
   if (c) ctx = c;
-  if (!navOn) emit("nav-switch", { on: true }); // кнопка раздела включает навигацию (только она)
+  // раздел — составить маршрут и без навигации (Грегори 2026-11-13: программа сама ничего не включает);
+  // где я — кнопкой «Навигация» слева внизу
   results = null;
   note = "";
   emit("search-show");
@@ -242,6 +252,9 @@ function openPanel(c) {
   render();
 }
 
+// кнопка в барабане светится, пока включена навигация или открыт её раздел
+const lit = () => navOn || searchMode() === MODE;
+let litWas = false;
 on("route", (s) => { state = s; render(false); });
 // навигацию включили (кнопкой слева внизу, в барабане или сама при запуске) — строка поиска в режиме
 // навигации (если в ней не другой раздел); выключили — режим снят
@@ -249,16 +262,19 @@ on("nav", ({ on: v }) => {
   if (navOn === v) return;
   navOn = v;
   if (v && (!searchMode() || searchMode() === MODE)) setSearchMode(MODE);
-  if (!v && searchMode() === MODE) setSearchMode(null);
-  // навигацию выключили — и точка снимается (Грегори 2026-11-05: «сбросил маршрут — обязательно сбросить точку»)
-  if (!v && state.target) emit("route-target", null);
-  emit("module", { id: "content/navigation", on: v }); // барабан перерисует кнопку
+  // навигацию выключили — точка «Сюда» снимается (Грегори 2026-11-05: «сбросил маршрут — обязательно сбросить
+  // точку»); маршрут из нескольких точек остаётся — его составляют и без навигации (2026-11-13)
+  const planned = (state.points?.length || 0) > 1 || !!state.saved;
+  if (!v && state.target && !planned) emit("route-target", null);
+  if (!v && searchMode() === MODE && !planned) setSearchMode(null);
+  emit("module", { id: "content/navigation", on: lit() }); // барабан перерисует кнопку
 });
 // другой раздел ушёл из строки поиска, а навигация включена — снова режим навигации
 // Выбрали «Поиск места» в барабане — строка остаётся обычным поиском (навигация при этом работает), пока
 // не нажмут «Навигация» снова
 let plain = false;
 on("search-plain", () => { plain = true; }, { replay: false });
+on("search-mode", () => { if (lit() !== litWas) { litWas = lit(); emit("module", { id: "content/navigation", on: litWas }); } }, { replay: false });
 on("search-mode", (m) => { if (m) plain = false; if (!m && navOn && !plain) setTimeout(() => navOn && !plain && !searchMode() && setSearchMode(MODE)); }, { replay: false });
 // карточка пути видна — карта за мной не ходит, на экране весь оставшийся путь (route-show); спрятали —
 // сразу ко мне (Грегори 2026-11-06: «карточку закрыли — позиционируем без задержки; открыли — опять весь
@@ -280,7 +296,11 @@ on("route-viewing", ({ open }) => {
 }, { replay: false });
 // «Сохранить маршрут» — наверх списка «Куда», своей записью со значком маршрута
 // «Добавить» в окне места: открыт список точек маршрута — он и остаётся (точка в нём уже есть), иначе — карточка
-on("route-added", () => { if (!document.querySelector(".search-results:not([hidden]) .route-view")) emit("route-card-show"); }, { replay: false });
+// раздел ещё не открыт — открывается (строка поиска «Добавить точку», карточка пути)
+on("route-added", () => {
+  if (searchMode() !== MODE) openPanel();
+  if (!document.querySelector(".search-results:not([hidden]) .route-view")) emit("route-card-show");
+}, { replay: false });
 on("route-save", (r) => remember(HISTORY, { ...r, saved: `r${Date.now()}` }, id, 40), { replay: false });
 // правка маршрута (добавили или убрали остановку, сменили способ) — в его запись; записи нет — наверх списка;
 // своё название (переименовали) остаётся
@@ -307,9 +327,9 @@ register({
   column: {
     home: (c) => { plain = false; openPanel(c); },
     // светится, пока навигация включена (Грегори: «нужна для индикации режима навигации»)
-    isOpen: () => navOn,
-    // крестик кнопки — выключить навигацию и закрыть окно
-    close: () => { emit("nav-switch", { on: false }); if (searchMode() === MODE) setSearchMode(null); },
+    isOpen: () => lit(),
+    // крестик кнопки — выключить навигацию, убрать маршрут с карты (он в списке «Куда») и закрыть окно
+    close: () => { emit("nav-switch", { on: false }); emit("route-target", null); if (searchMode() === MODE) setSearchMode(null); },
   },
   // для проверки
   stats: () => ({ navOn, open: searchMode() === MODE, target: state.target?.title || null, results: results?.length ?? null }),

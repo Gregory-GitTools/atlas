@@ -359,12 +359,12 @@ try {
     r.after = { target: atlas.route.state().target?.title, stops: atlas.route.state().stops.length };
     return r; })()`);
   check("отметка и точки маршрута: щелчок — окно места с кнопками, крестик — удалить (остановку, финиш — финишем становится остановка), Esc — оставить",
-    items.mark?.role === "Отметка" && items.mark.acts === 4 && items.mark.x === "Снять отметку" && !items.esc.open && items.esc.marks === 1 && !items.unmarked.marks && !items.unmarked.flags
+    items.mark?.role === "Отметка" && items.mark.acts === 6 && items.mark.x === "Снять отметку" && !items.esc.open && items.esc.marks === 1 && !items.unmarked.marks && !items.unmarked.flags
     && items.stop?.role === "Остановка 1" && items.stop.x === "Убрать остановку" && items.stops === 0 && items.finish?.role === "Финиш" && items.after.target === "Заход" && !items.after.stops, JSON.stringify(items));
   await run(`atlas.route.setTarget({ lngLat: [24.76, 59.43], title: "Проба", way: "foot" });
     localStorage.setItem("atlas.route.history", JSON.stringify(JSON.parse(localStorage.getItem("atlas.route.history") || "[]").filter((e) => !e.saved))); true`);
-  check("окно места при навигации: стрелка, «Добавить», «Поделиться», «Отметить» и «⋯»; остановка в пути и на карте, отметка флажком, «Сохранить маршрут» — в список «Куда»",
-    JSON.stringify(acts.btns) === '["Сюда","Добавить в путь","Поделиться","Отметить"]' && acts.more && JSON.stringify(added.stops) === '["Остановка"]' && JSON.stringify(added.chip) === '["1Остановка","Проба"]' && added.marker === 1
+  check("окно места: стрелка, «Старт», «Добавить», «Финиш», «Поделиться», «Отметить» и «⋯»; остановка в пути и на карте, отметка флажком, «Сохранить маршрут» — в список «Куда»",
+    JSON.stringify(acts.btns) === '["Сюда","Старт","Добавить в путь","Финиш","Поделиться","Отметить"]' && acts.more && JSON.stringify(added.stops) === '["Остановка"]' && JSON.stringify(added.chip) === '["1Остановка","Проба"]' && added.marker === 1
     && marked.marks.includes("Остановка") && marked.flag === 1 && marked.on && !unmarked.marks.length && !unmarked.flag && menuOpen
     && saved?.saved && saved.title === "Проба" && saved.stops === 1 && !removed.length, JSON.stringify({ acts, added, marked, unmarked, menuOpen, saved, removed }));
   // история: карандаш — переименовать в строке; у сохранённого маршрута — значок
@@ -386,16 +386,58 @@ try {
   const off = await run(`({ ...atlas.route.state(), on: ${wheelNav}?.classList.contains("on"), nav: ${navStats}.navOn })`);
   check("навигация: кнопка в барабане светится, пока навигация включена; выключили — путь и точка сняты",
     lit.on && lit.nav && !off.on && !off.nav && !off.route && !off.target, JSON.stringify({ lit, off }));
-  // «Сюда» — только при навигации; без неё окно на карте — только сведения
+  // без навигации кнопки маршрута в окне места — есть, «Сюда» видна и неактивна (Грегори 2026-11-13)
   const noHere = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
-    const p = track(new atlas.ctx.maplibregl.Popup()).setLngLat([24.76, 59.43]).setHTML('<div class="popup-title">Проба</div>').addTo(atlas.map);
-    const b = p.getElement().querySelector(".go-here"); const r = { has: !!b, visible: !!b && !b.hidden && b.offsetParent !== null }; p.remove(); return r; })()`);
-  check("«Сюда» в окне на карте — только при включённой навигации", !noHere.visible, JSON.stringify(noHere));
-  // кнопка в барабане включает навигацию снова
+    const p = track(new atlas.ctx.maplibregl.Popup({ maxWidth: "280px" })).setLngLat([24.76, 59.43]).setHTML('<div class="popup-title">Проба</div>').addTo(atlas.map);
+    const q = (c) => p.getElement().querySelector(c);
+    const r = { visible: !!q(".go-here") && q(".go-here").offsetParent !== null, disabled: q(".go-here")?.disabled, start: q(".go-begin") && !q(".go-begin").disabled,
+      finish: q(".go-end") && !q(".go-end").disabled, add: q(".go-add") && !q(".go-add").disabled };
+    const row = q(".go-actions").getBoundingClientRect(), box = p.getElement().getBoundingClientRect();
+    r.fits = row.right <= box.right + 1 && [...p.getElement().querySelectorAll(".go-act")].every((b) => Math.abs(b.getBoundingClientRect().top - row.top) < 2);
+    p.remove(); return r; })()`);
+  check("окно места без навигации: «Сюда» видна и неактивна, «Старт», «Добавить», «Финиш» работают; ряд в одну строку",
+    noHere.visible && noHere.disabled && noHere.start && noHere.finish && noHere.add && noHere.fits, JSON.stringify(noHere));
+  // планирование дома: первая точка — метка; «Финиш» — маршрут (запись в «Куда» со стартом); «+» — перед
+  // финишем; новый «Старт» заменяет прежний; способ — путь по точкам маршрута, без меня; программа сама не прокладывает
+  const plan = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const press = async (title, ll, cls) => { const p = track(new atlas.ctx.maplibregl.Popup()).setLngLat(ll).setHTML('<div class="popup-title">' + title + '</div>').addTo(atlas.map);
+      await wait(100); p.getElement().querySelector(cls).click(); await wait(200); };
+    const hist = () => JSON.parse(localStorage.getItem("atlas.route.history") || "[]").filter((e) => e.saved);
+    const r = {};
+    await press("Альфа", [24.70, 59.40], ".go-begin");
+    r.one = { start: atlas.route.state().start, recs: hist().length, marker: !!document.querySelector(".go-start"), mode: atlas.modules().find((m) => m.id === "content/navigation").stats().open };
+    await press("Бета", [24.80, 59.42], ".go-end");
+    await press("Гамма", [24.75, 59.41], ".go-add");
+    await press("Дельта", [24.71, 59.405], ".go-begin");
+    const st = atlas.route.state(), rec = hist()[0];
+    r.built = { start: st.start, stops: st.stops, finish: st.target?.title, route: !!st.route, rec: rec && { start: rec.start?.title, stops: rec.stops.map((x) => x.title), title: rec.title },
+      card: [...document.querySelectorAll(".search-card .go-pt .go-stop-x")].map((b) => b.title) };
+    document.querySelector(".search-card .go-way").click();
+    for (let t = 0; t < 40 && !atlas.route.state().route; t++) await wait(250);
+    r.path = atlas.route.state().route;
+    return r; })()`);
+  check("маршрут без навигации: Старт — метка; Финиш — запись в «Куда» со стартом; «+» — перед финишем; новый Старт заменяет прежний; способ — путь по точкам, без меня",
+    plan.one.start === "Альфа" && !plan.one.recs && plan.one.marker && plan.one.mode
+    && plan.built.start === "Дельта" && JSON.stringify(plan.built.stops) === '["Гамма"]' && plan.built.finish === "Бета" && !plan.built.route
+    && plan.built.rec?.start === "Дельта" && JSON.stringify(plan.built.rec.stops) === '["Гамма"]' && plan.built.rec.title === "Бета"
+    && JSON.stringify(plan.built.card) === '["Убрать старт","Убрать остановку","Убрать финиш"]'
+    && plan.path?.way === "foot" && plan.path.fromMe === false, JSON.stringify(plan));
+  // кнопка в барабане открывает раздел (маршрут) и сама навигацию не включает; где я — кнопкой слева внизу
+  await run(`atlas.route.setTarget(null);
+    localStorage.setItem("atlas.route.history", JSON.stringify(JSON.parse(localStorage.getItem("atlas.route.history") || "[]").filter((e) => !e.saved))); true`);
+  await run(`(async () => { (await import(new URL("core/search.js", location.href))).setSearchMode(null); return true; })()`);
+  await run(`${exitModeNav}`);
+  await sleep(300);
+  const dark = await run(`({ on: ${wheelNav}?.classList.contains("on"), open: ${navStats}.open })`);
+  await run(`(() => { if (document.body.classList.contains("search-hidden")) document.querySelector(".search-toggle").click(); return true; })()`);
+  await sleep(300);
   await run(`${wheelNav}.click(); true`);
-  await sleep(2500);
-  const relit = await run(`({ geo: atlas.geo.state().on, on: ${wheelNav}?.classList.contains("on") })`);
-  check("навигация: кнопка в барабане включает навигацию", relit.geo && relit.on, JSON.stringify(relit));
+  await sleep(800);
+  const relit = await run(`({ geo: atlas.geo.state().on, on: ${wheelNav}?.classList.contains("on"), open: ${navStats}.open })`);
+  check("навигация: кнопка в барабане открывает раздел и светится, навигацию сама не включает", !dark.on && !dark.open && !relit.geo && relit.on && relit.open, JSON.stringify({ dark, relit }));
+  await run(`document.querySelector(".geo-btn").click(); true`);
+  for (let i = 0; i < 20 && !(await run(`!!atlas.route.state().me`)); i++) await sleep(250);
   // поиск места в окне навигации (Enter) — точка; история точек: свернуть, удалить
   await run(`(() => { const i = document.querySelector(".search-box input"); i.value = "Kadriorg"; i.dispatchEvent(new Event("input")); i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return true; })()`);
   for (let i = 0; i < 20 && !(await run(`${navList}.querySelectorAll(".search-scroll > .search-item:not(.search-everywhere)").length`)); i++) await sleep(500);

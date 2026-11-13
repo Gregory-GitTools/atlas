@@ -102,22 +102,42 @@ export const time = (s) => { const m = Math.max(1, Math.round(s / 60)); return m
 const h = (tag, cls, text = "") => Object.assign(document.createElement(tag), { className: cls, textContent: text });
 const line = (coords) => ({ type: "FeatureCollection", features: coords ? [{ type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: {} }] : [] });
 
+// маршрут для планирования дома (Грегори 2026-11-13: «сижу дома, планирую маршрут в Альпах»): Старт → точки → Финиш,
+// старт и финиш — по желанию. Первая точка — просто метка; «+» вписывает точку перед финишем; новый Старт/Финиш
+// заменяет прежний, путь пересчитывается. «Моё место» в маршрут не пишется: путь от меня — только если навигация
+// включена, и только по нажатию способа (пешком, вело, авто) — программа сама ничего не начинает и не спрашивает.
+// «Сюда» при готовом маршруте — новый маршрут: эта точка, затем заготовленный (сам заготовленный не трогается).
+// Пройденные точки гаснут только в этой поездке, запись маршрута остаётся целой.
+const START = `<svg viewBox="0 0 30 30" width="30" height="30"><circle cx="15" cy="15" r="13" fill="#2e9d43" stroke="#fff" stroke-width="2.5"/><path d="M12 9.5v11l9-5.5z" fill="#fff"/></svg>`;
+export const START_ICON = icon("M10,16.5L16,12L10,7.5V16.5M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z");
+export const FINISH_ICON = icon("M14.4,6H20V16H13L12.6,14H7V21H5V4H14L14.4,6M14,14H16V12H18V10H16V8H14V10L13,8V6H11V8H9V6H7V8H9V10H7V12H9V10H11V12H13V10L14,12V14M11,10V8H13V10H11M14,10H16V12H14V10Z");
+
 export function initRoute({ map, maplibregl, status }) {
-  let target = settings.get("route.target"); // { lngLat, title }
-  // остановки по пути — до финиша, по порядку («Добавить» в окне места); пройденная (ближе 40 м) уходит
-  let stops = [], stopMarkers = [];
+  let target = settings.get("route.target"); // финиш: { lngLat, title }
+  let start = null; // старт: { lngLat, title }
+  // остановки по пути — между стартом и финишем, по порядку («Добавить» в окне места)
+  let stops = [], stopMarkers = [], startMarker = null;
+  let done = 0; // пройдено точек с начала — только в этой поездке
   let savedId = null; // запись маршрута в списке «Куда», к которой привязан текущий путь
   let savedName = null, lastGpx = ""; // её своё название (переименовали) — для файла и ссылки
-  const next = () => stops[0]?.lngLat || target?.lngLat;
-  let me = null, marker = null, route = null, asked = 0; // route: { way, coords, distance, duration }
+  const all = () => [start, ...stops, target].filter(Boolean);
+  const last = () => target || stops[stops.length - 1] || start || null;
+  const ahead = () => all().slice(done);
+  const next = () => ahead()[0]?.lngLat;
+  const same = (a, b) => !!a && !!b && Math.abs(a.lngLat[0] - b.lngLat[0]) < 1e-5 && Math.abs(a.lngLat[1] - b.lngLat[1]) < 1e-5;
+  const pt = (p) => ({ lngLat: p.lngLat, title: p.title, address: p.address || "" });
+  let me = null, marker = null, route = null, asked = 0; // route: { way, coords, distance, duration, fromMe }
 
   // что показать окну навигации: точка, где я, расстояние, сторона, стрелка относительно экрана, путь
   let busy = null; // способ, для которого ищем путь
   const show = () => {
-    const d = me && target ? distance(me, next()) : null, b = me && target ? bearing(me, next()) : null;
+    const nx = me && next(), d = nx ? distance(me, nx) : null, b = nx ? bearing(me, nx) : null;
     const way = route && WAYS.find((w) => w.id === route.way);
+    const pts = all();
     emit("route", {
-      target, stops: stops.map((s) => s.title), saved: savedId, me: !!me, canRoute: allowed(self()) && !!me && !!target, busy,
+      target: last(), start, finish: target, saved: savedId, me: !!me, busy, stops: stops.map((s) => s.title),
+      points: pts.map((p, i) => ({ title: p.title, role: p === start ? "start" : p === target ? "finish" : "stop", n: stops.indexOf(p) + 1, done: i < done })),
+      canRoute: allowed(self()) && (pts.length > 1 || (!!me && pts.length > 0)),
       distance: d, side: b === null ? "" : SIDES[Math.round(b / 45) % 8], arrow: b === null ? 0 : b - map.getBearing(),
       main: d === null ? "" : `${km(d)} ${SIDES[Math.round(b / 45) % 8]}`,
       route: route && { way: route.way, title: way.title, distance: route.distance, duration: route.duration, text: `${way.title}: ${km(route.distance)} · ${time(route.duration)}`, points: route.coords.length },
@@ -127,9 +147,9 @@ export function initRoute({ map, maplibregl, status }) {
   // пройденное стирается: путь — от ближайшей ко мне точки (Грегори 2026-11-06: «показывать только
   // оставшийся путь»); ищем вперёд от прежней ближайшей — назад по пути не прыгает
   let passed = 0, passedAt = null;
-  const ahead = () => {
+  const restPath = () => {
     if (!route) return null;
-    if (me && (!passedAt || distance(passedAt, me) > 5)) {
+    if (me && route.fromMe && (!passedAt || distance(passedAt, me) > 5)) {
       passedAt = me;
       let best = passed, bd = Infinity;
       for (let i = passed; i < route.coords.length; i++) { const d = distance(me, route.coords[i]); if (d < bd) { bd = d; best = i; } }
@@ -137,11 +157,12 @@ export function initRoute({ map, maplibregl, status }) {
     }
     return route.coords.slice(passed);
   };
+  // пунктир: от меня через оставшиеся точки (навигация включена) или просто по точкам маршрута
   const draw = () => {
-    const pts = target ? [me, ...stops.map((s) => s.lngLat), target.lngLat].filter(Boolean) : [];
+    const pts = me ? [me, ...ahead().map((p) => p.lngLat)] : all().map((p) => p.lngLat);
     map.getSource("go-line")?.setData(line(pts.length > 1 ? pts.slice(1).flatMap((p, i) => arc(pts[i], p)) : null));
-    const rest = target && ahead();
-    map.getSource("go-route")?.setData(line(rest && me ? [me, ...rest] : rest));
+    const rest = restPath();
+    map.getSource("go-route")?.setData(line(rest && me && route.fromMe ? [me, ...rest] : rest));
   };
   const addLayers = () => {
     if (map.getSource("go-line")) return;
@@ -181,7 +202,9 @@ export function initRoute({ map, maplibregl, status }) {
     el.addEventListener("click", (e) => { e.stopPropagation(); open(); });
     return el;
   };
-  const drawStops = () => {
+  // точки на карте: старт — зелёный кружок, остановки — синие с номером, финиш — флажок; пройденные — бледнее
+  const drawPoints = () => {
+    const passed_ = new Set(all().slice(0, done));
     stopMarkers.forEach((m) => m.remove());
     stopMarkers = stops.map((s, i) => {
       const el = pointEl(h("div", "go-stop", String(i + 1)), () => {
@@ -189,91 +212,126 @@ export function initRoute({ map, maplibregl, status }) {
         if (k >= 0) itemPopup(s, `Остановка ${k + 1}`, () => { const j = stops.indexOf(s); if (j >= 0) removeStop(j); }, "Убрать остановку");
       });
       el.title = s.title;
+      el.classList.toggle("go-passed", passed_.has(s));
       return new maplibregl.Marker({ element: el }).setLngLat(s.lngLat).addTo(map);
     });
+    startMarker?.remove();
+    startMarker = null;
+    if (start) {
+      const el = pointEl(h("div", "go-start"), () => start && itemPopup(start, "Старт", removeStart, "Убрать старт"));
+      el.innerHTML = START;
+      el.title = start.title;
+      el.classList.toggle("go-passed", passed_.has(start));
+      startMarker = new maplibregl.Marker({ element: el }).setLngLat(start.lngLat).addTo(map);
+    }
+    marker?.remove();
+    marker = target ? flagMarker(maplibregl).setLngLat(target.lngLat).addTo(map) : null;
+    if (marker) pointEl(marker.getElement(), () => target && itemPopup(target, "Финиш", removeFinish, "Убрать финиш"));
   };
-  // финиш убрали: остановки остались — последняя становится финишем; нет — точки больше нет
-  const removeFinish = () => {
-    if (!target) return;
-    if (!stops.length) { emit("route-target", null); return; }
-    const last = stops.pop(), w = route && WAYS.find((x) => x.id === route.way);
-    target = { lngLat: last.lngLat, title: last.title, address: last.address || "" };
-    marker?.setLngLat(target.lngLat);
-    drawStops();
+  // любая правка точек: запись в «Куда», точки, пунктир; путь уже проложен — заново тем же способом
+  const changed = () => {
+    const w = route && WAYS.find((x) => x.id === route.way);
     route = null;
+    done = Math.min(done, Math.max(0, all().length - 1));
+    passed = 0; passedAt = null;
     edited();
+    drawPoints();
     draw();
     show();
     if (w) ask(w, true);
   };
+  // финиш убрали: остановки остались — последняя становится финишем; нет — остаётся старт; нет и его — пусто
+  const removeFinish = () => {
+    if (!target) return;
+    if (!stops.length && !start) { emit("route-target", null); return; }
+    const l = stops.pop();
+    target = l ? pt(l) : null;
+    changed();
+  };
+  const removeStart = () => {
+    if (!start) return;
+    if (!stops.length && !target) { emit("route-target", null); return; }
+    start = null;
+    changed();
+  };
+  // точка или запись маршрута из списка «Куда» (null — убрать всё); путь сам не прокладывается
   const setTarget = (t) => {
+    start = t?.start ? pt(t.start) : null;
     stops = t?.stops ? t.stops.map((s) => ({ ...s })) : [];
     savedId = t?.saved || null;
     savedName = t?.name || null;
     target = t && { lngLat: t.lngLat, title: t.title, address: t.address };
-    drawStops();
     route = null;
     busy = null;
     asked++;
+    done = 0;
     settings.set("route.target", t);
-    marker?.remove();
-    marker = t ? flagMarker(maplibregl).setLngLat(t.lngLat).addTo(map) : null;
-    if (marker) pointEl(marker.getElement(), () => itemPopup(target, "Финиш", removeFinish, "Убрать финиш"));
+    drawPoints();
     passed = 0; passedAt = null;
     draw();
     show();
-    // сохранённый маршрут — и путь тем же способом, если знаю, где я
-    const w = t?.way && WAYS.find((x) => x.id === t.way);
-    if (w && me) ask(w);
   };
-  // правка маршрута — в его запись в списке «Куда» (записи ещё нет — появляется)
-  const edited = () => {
-    if (!target) return;
+  // правка маршрута — в его запись в списке «Куда» (записи ещё нет — появляется). Одна точка — ещё метка, не
+  // маршрут (force — «Сохранить маршрут», «Точки маршрута»)
+  const edited = (force = false) => {
+    const pts = all();
+    if (!pts.length || (pts.length < 2 && !force)) return;
     savedId ||= `r${Date.now()}`;
-    emit("route-edit", { saved: savedId, lngLat: target.lngLat, title: target.title, address: target.address || "",
-      stops: stops.map((x) => ({ lngLat: x.lngLat, title: x.title })), way: route?.way || busy || null });
+    const fin = target || (stops.length ? stops[stops.length - 1] : start);
+    const mid = target ? stops : stops.slice(0, -1);
+    emit("route-edit", { saved: savedId, ...(start && fin !== start ? { start: pt(start) } : {}), lngLat: fin.lngLat, title: fin.title, address: fin.address || "",
+      stops: mid.map((x) => ({ lngLat: x.lngLat, title: x.title })), way: route?.way || busy || null });
   };
-  // остановка по пути: точки ещё нет — она и есть цель; путь уже проложен — заново, через остановку
+  // «Старт» / «Финиш» — новая заменяет прежнюю; «+» — перед финишем (нет финиша — в конец)
+  const setStart = (p) => { if (same(p, start)) return; stops = stops.filter((s) => !same(s, p)); start = pt(p); changed(); };
+  const setFinish = (p) => { if (same(p, target)) return; stops = stops.filter((s) => !same(s, p)); target = pt(p); changed(); };
   const addStop = (p) => {
-    if (!target) return setTarget(p);
-    stops.push({ lngLat: p.lngLat, title: p.title, address: p.address || "" });
-    edited();
-    drawStops();
-    const w = route && WAYS.find((x) => x.id === route.way);
-    route = null;
-    draw();
-    show();
-    if (w) ask(w, true);
+    if (all().some((x) => same(x, p))) return;
+    stops.push(pt(p));
+    changed();
   };
   const removeStop = (i) => {
     stops.splice(i, 1);
-    edited();
-    drawStops();
-    const w = route && WAYS.find((x) => x.id === route.way);
-    route = null;
-    draw();
-    show();
-    if (w) ask(w, true);
+    if (!all().length) { emit("route-target", null); return; }
+    changed();
+  };
+  // «Сюда»: маршрута нет или одна точка — она цель (путь от меня); готовый маршрут — новый: эта точка, затем
+  // заготовленный (Грегори 2026-11-13: «может попаду в старт, может нужно будет круг»); «Сюда» на первой
+  // точке маршрута — сам маршрут, от меня
+  const here = (p) => {
+    const pts = all();
+    if (pts.length < 2) { setTarget(p); emit("route-open", p); return; }
+    done = 0;
+    if (same(p, pts[0])) { draw(); show(); emit("route-added"); return; }
+    start = pt(p);
+    target = pts[pts.length - 1];
+    stops = pts.slice(0, -1);
+    savedId = null; savedName = null;
+    emit("route-name", null);
+    changed();
+    emit("route-added");
   };
 
-  // путь по дорогам: один запрос по нажатию; пока ждали — сменили точку или способ — ответ не нужен
+  // путь по дорогам: один запрос по нажатию; пока ждали — сменили точку или способ — ответ не нужен. Навигация
+  // включена — от меня к началу и дальше по маршруту; выключена — по точкам маршрута
   const ask = async (way, again = false) => {
-    if (!me || !target || !allowed(self())) return;
+    const pts = me ? [me, ...ahead().map((p) => p.lngLat)] : all().map((p) => p.lngLat);
+    if (pts.length < 2 || !allowed(self())) return;
     if (route?.way === way.id && !again) { route = null; draw(); show(); return; } // второе нажатие — убрать путь
     const n = ++asked;
     busy = way.id;
     show();
     try {
-      const via = [me, ...stops.map((s) => s.lngLat), target.lngLat].map((p) => p.map((x) => x.toFixed(6)).join(",")).join(";");
+      const via = pts.map((p) => p.map((x) => x.toFixed(6)).join(",")).join(";");
       const res = await fetch(`${OSRM}/routed-${way.id}/route/v1/driving/${via}?overview=full&geometries=geojson`);
       const r = res.ok ? (await res.json()).routes?.[0] : null;
       if (n !== asked) return;
       busy = null;
       if (!r) { status("Путь не найден"); setTimeout(() => status(""), 4000); show(); return; }
-      route = { way: way.id, coords: r.geometry.coordinates, distance: r.distance, duration: r.duration };
+      route = { way: way.id, coords: r.geometry.coordinates, distance: r.distance, duration: r.duration, fromMe: !!me };
       passed = 0; passedAt = null;
       if (savedId) edited(); // способ — тоже часть маршрута
-      fitPath(map, [me, ...route.coords, target.lngLat]); // путь пришёл — весь на экран
+      fitPath(map, [...(me ? [me] : []), ...route.coords]); // путь пришёл — весь на экран
     } catch {
       if (n !== asked) return;
       busy = null;
@@ -285,10 +343,14 @@ export function initRoute({ map, maplibregl, status }) {
 
   // навигацию выключили — проложенный путь убирается (точка остаётся; Грегори 2026-11-04)
   on("me", (p) => {
+    const had = !!me;
     me = p?.lngLat || null;
-    if (!me && route) { route = null; asked++; }
-    // дошёл до остановки — она пройдена, дальше — к следующей
-    if (me && stops.length && distance(me, stops[0].lngLat) < 40) { stops.shift(); drawStops(); }
+    if (!me && route?.fromMe) { route = null; asked++; }
+    // дошёл до точки — она пройдена (бледнеет), дальше — к следующей; сам маршрут не меняется
+    const pts = all();
+    if (me && done < pts.length - 1 && distance(me, pts[done].lngLat) < 40) { done++; drawPoints(); }
+    // «Сюда» без места неактивна (Грегори 2026-11-13)
+    if (had !== !!me) document.querySelectorAll(".go-here").forEach((b) => (b.disabled = !me));
     draw();
     show();
   });
@@ -317,10 +379,8 @@ export function initRoute({ map, maplibregl, status }) {
   };
   drawMarks();
 
-  // ---------- окно места при навигации: стрелка «Сюда», «Добавить», «Поделиться», «Отметить»; «⋯» вверху ----------
-  // (Грегори 2026-11-05: в других режимах окно — только сведения об объекте)
-  let navOn = false;
-  on("nav", (n) => { navOn = !!n?.on; document.querySelectorAll(".maplibregl-popup-content:not(.go-item) > :is(.go-actions, .go-more)").forEach((b) => (b.hidden = !navOn)); });
+  // ---------- окно места: «Сюда», «Старт», «Добавить», «Финиш», «Поделиться», «Отметить»; «⋯» вверху ----------
+  // Кнопки — всегда (Грегори 2026-11-13: маршрут составляется и без навигации); «Сюда» без моего места неактивна
   // место из окна: названия нет — первая часть адреса, адрес — подписью; адреса нет — координаты
   const placeOf = (popup, content) => {
     const { lng, lat } = popup.getLngLat();
@@ -351,7 +411,7 @@ export function initRoute({ map, maplibregl, status }) {
   const routeUrl = (t, via, way) => "https://www.google.com/maps/dir/?api=1&destination=" + ll(t)
     + (via.length ? "&waypoints=" + encodeURIComponent(via.map(ll).join("|")) : "") + (MODES[way] ? "&travelmode=" + MODES[way] : "");
   const shareRoute = (p) => {
-    const t = target || p, via = target ? stops : [];
+    const pts = all().length ? all() : [p], t = pts[pts.length - 1], via = pts.slice(0, -1);
     send(`Маршрут: ${savedName || t.title}`, via.length ? `${via.map((x) => x.title).join(" → ")} → ${t.title}` : t.title,
       routeUrl(t, via, route?.way || null), "Ссылка на маршрут скопирована");
   };
@@ -359,18 +419,18 @@ export function initRoute({ map, maplibregl, status }) {
   // не проложен — прямые от точки к точке
   const ESC = { "<": "&lt;", ">": "&gt;", "&": "&amp;", "\"": "&quot;" };
   const xml = (t) => String(t).replace(/[<>&"]/g, (c) => ESC[c]);
-  const pt = (tag, [lng, lat], inner = "") => `<${tag} lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}">${inner}</${tag}>`;
+  const gpt = (tag, [lng, lat], inner = "") => `<${tag} lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}">${inner}</${tag}>`;
   const gpx = (p) => {
-    const t = target || p, via = target ? stops : [], all = [...via, t];
+    const pts = all().length ? all() : [p], t = pts[pts.length - 1];
     const name = savedName || t.title;
-    const wpts = all.map((x, i) => pt("wpt", x.lngLat, `<name>${xml(i < all.length - 1 ? `${i + 1}. ${x.title}` : x.title)}</name>`));
-    const path = target && route ? `<trk><name>${xml(name)}</name><trkseg>${route.coords.map((c) => pt("trkpt", c)).join("")}</trkseg></trk>`
-      : `<rte><name>${xml(name)}</name>${[...(me ? [{ lngLat: me }] : []), ...all].map((x) => pt("rtept", x.lngLat)).join("")}</rte>`;
+    const wpts = pts.map((x, i) => gpt("wpt", x.lngLat, `<name>${xml(i < pts.length - 1 ? `${i + 1}. ${x.title}` : x.title)}</name>`));
+    const path = all().length && route ? `<trk><name>${xml(name)}</name><trkseg>${route.coords.map((c) => gpt("trkpt", c)).join("")}</trkseg></trk>`
+      : `<rte><name>${xml(name)}</name>${[...(me && !start ? [{ lngLat: me }] : []), ...pts].map((x) => gpt("rtept", x.lngLat)).join("")}</rte>`;
     return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Atlas" xmlns="http://www.topografix.com/GPX/1/1">\n`
       + `<metadata><name>${xml(name)}</name></metadata>\n${wpts.join("\n")}\n${path}\n</gpx>\n`;
   };
   const saveGpx = (p) => {
-    const t = target || p, text = gpx(p);
+    const t = last() || p, text = gpx(p);
     const file = `${(savedName || t.title).replace(/[\\/:*?"<>|]+/g, " ").trim() || "маршрут"}.gpx`;
     const a = Object.assign(document.createElement("a"), { download: file, href: URL.createObjectURL(new Blob([text], { type: "application/gpx+xml" })) });
     document.body.append(a);
@@ -381,30 +441,25 @@ export function initRoute({ map, maplibregl, status }) {
   };
   // название маршрута (переименованная запись в списке «Куда») — для файла и ссылки
   on("route-name", (n) => { savedName = n || null; }, { replay: false });
-  on("route-share", () => target && shareRoute(target), { replay: false });
-  on("route-gpx", () => target && saveGpx(target), { replay: false });
+  on("route-share", () => last() && shareRoute(last()), { replay: false });
+  on("route-gpx", () => last() && saveGpx(last()), { replay: false });
   decoratePopups((popup) => {
     const content = popup.getElement()?.querySelector(".maplibregl-popup-content");
     if (!content || content.querySelector(".go-actions")) return;
     const row = h("div", "go-actions");
-    const go = button("go-act go-here", "Сюда", NAV_ARROW, () => {
-      const p = placeOf(popup, content);
-      closeAll();
-      setTarget(p);
-      emit("route-open", p);
-    });
-    const add = button("go-act go-add", "Добавить в путь", ADD_ICON, () => {
-      const p = placeOf(popup, content);
-      closeAll();
-      if (target) { addStop(p); emit("route-added"); } else { setTarget(p); emit("route-open", p); }
-    });
+    const act = (cls, title, html, fn) => button(`go-act ${cls}`, title, html, () => { const p = placeOf(popup, content); closeAll(); fn(p); });
+    const go = act("go-here", "Сюда", NAV_ARROW, (p) => { if (me) here(p); });
+    go.disabled = !me;
+    const begin = act("go-begin", "Старт", START_ICON, (p) => { setStart(p); emit("route-added"); });
+    const add = act("go-add", "Добавить в путь", ADD_ICON, (p) => { addStop(p); emit("route-added"); });
+    const end = act("go-end", "Финиш", FINISH_ICON, (p) => { setFinish(p); emit("route-added"); });
     const mark = button("go-act go-flagit", "Отметить", MARK_ICON, (b) => {
       toggleMark(placeOf(popup, content));
       paintMark(b);
     });
     const paintMark = (b) => { const on_ = isMarked(placeOf(popup, content)); b.innerHTML = on_ ? MARKED_ICON : MARK_ICON; b.classList.toggle("on", on_); b.title = on_ ? "Снять отметку" : "Отметить"; };
     paintMark(mark);
-    row.append(go, add, button("go-act go-share", "Поделиться", SHARE_ICON, () => share(placeOf(popup, content))), mark);
+    row.append(go, begin, add, end, button("go-act go-share", "Поделиться", SHARE_ICON, () => share(placeOf(popup, content))), mark);
     // «⋯» — рядом с крестиком: «Сохранить маршрут» (есть цель — текущий путь, нет — путь сюда)
     const menu = h("div", "go-menu menu");
     menu.hidden = true;
@@ -417,16 +472,15 @@ export function initRoute({ map, maplibregl, status }) {
     menu.append(
       // есть цель — текущий маршрут (его запись в списке «Куда»), нет — маршрут сюда
       item("Сохранить маршрут", (p) => {
-        if (target) edited();
+        if (all().length) edited(true);
         else emit("route-save", { lngLat: p.lngLat, title: p.title, address: p.address || "", stops: [], way: null });
-        status(`Маршрут «${savedName || (target || p).title}» сохранён — он в списке «Куда»`); setTimeout(() => status(""), 3000);
+        status(`Маршрут «${savedName || (last() || p).title}» сохранён — он в списке «Куда»`); setTimeout(() => status(""), 3000);
       }),
       item("Поделиться маршрутом", shareRoute),
       item("Сохранить трек (GPX)", saveGpx));
     const more = button("go-more", "Ещё", MORE_ICON, () => { menu.hidden = !menu.hidden; });
     // окно отметки или точки маршрута — кнопки и без навигации; крестик окна удаляет
     const own = popup.atlasRemove;
-    row.hidden = more.hidden = !navOn && !own;
     if (own) {
       content.classList.add("go-item");
       const x = popup.getElement().querySelector(".maplibregl-popup-close-button");
@@ -446,8 +500,9 @@ export function initRoute({ map, maplibregl, status }) {
   on("route-target", (t) => setTarget(t), { replay: false });
   on("route-stop-remove", (i) => removeStop(i), { replay: false });
   on("route-finish-remove", () => removeFinish(), { replay: false });
+  on("route-start-remove", () => removeStart(), { replay: false });
   // «стрелка вверх» карточки — к построению маршрута: у пути появляется своя запись (route-edit)
-  on("route-build", () => edited(), { replay: false });
+  on("route-build", () => edited(true), { replay: false });
   // щелчок по точке в списке маршрута — показать её; карта за мной при этом не идёт
   on("route-focus", (p) => {
     emit("nav-look");
@@ -458,10 +513,10 @@ export function initRoute({ map, maplibregl, status }) {
   // карточку пути открыли — весь оставшийся путь на экран; есть сеть — путь заново от того места, где я
   // (Грегори 2026-11-06: «что будет в середине маршрута? пересчитывать при открытии карточки»)
   on("route-show", () => {
-    if (!target) return;
+    if (!all().length) return;
     const w = route && WAYS.find((x) => x.id === route.way);
-    if (w && me && navigator.onLine && allowed(self())) { ask(w, true); return; }
-    fitPath(map, [me, ...stops.map((x) => x.lngLat), ...(ahead() || []), target.lngLat]);
+    if (w && me && route.fromMe && navigator.onLine && allowed(self())) { ask(w, true); return; }
+    fitPath(map, [me, ...ahead().map((x) => x.lngLat), ...(restPath() || [])]);
   }, { replay: false });
 
   // при запуске точки нет (Грегори 2026-11-05): навигация не включается, точка — в истории окна навигации
@@ -469,6 +524,7 @@ export function initRoute({ map, maplibregl, status }) {
   settings.set("route.target", null);
   show();
   // для проверки
-  return { state: () => ({ target, me, saved: savedId, stops: stops.map((x) => x.title), marks: marks.map((m) => m.title), route: route && { way: route.way, distance: route.distance, points: route.coords.length } }),
-    setTarget, addStop, toggleMark, routeUrl: (p) => routeUrl(target || p, target ? stops : [], route?.way || null), gpx, lastGpx: () => lastGpx };
+  return { state: () => ({ target, start: start?.title || null, me, saved: savedId, done, stops: stops.map((x) => x.title), marks: marks.map((m) => m.title), route: route && { way: route.way, distance: route.distance, points: route.coords.length, fromMe: route.fromMe } }),
+    setTarget, addStop, setStart, setFinish, here, toggleMark, gpx, lastGpx: () => lastGpx,
+    routeUrl: (p) => { const pts = all().length ? all() : [p]; return routeUrl(pts[pts.length - 1], pts.slice(0, -1), route?.way || null); } };
 }

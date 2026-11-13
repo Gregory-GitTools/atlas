@@ -3298,8 +3298,11 @@ body.search-hidden .panel-left {
    «Отметить»; кнопки как в карточке пути, значки почти во всю кнопку. Вверху, левее крестика, — «⋯» */
 .go-actions {
   display: flex;
-  gap: 4px;
+  flex-wrap: nowrap;
+  gap: 2px;
   margin-top: 8px;
+  /* шесть кнопок (Сюда, Старт, Добавить, Финиш, Поделиться, Отметить) — ряд занимает и поле под «⋯» */
+  margin-right: -56px;
 }
 
 .go-actions[hidden],
@@ -3311,8 +3314,8 @@ body.search-hidden .panel-left {
 .go-more {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   padding: 0;
   border: none;
   border-radius: 8px;
@@ -3327,12 +3330,34 @@ body.search-hidden .panel-left {
 }
 
 .go-act > svg {
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
 }
 
 .go-here {
   color: var(--tone-nav);
+}
+
+.go-act:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: none;
+}
+
+.go-begin {
+  color: #2e9d43;
+}
+
+/* старт маршрута на карте — зелёный кружок с треугольником «вперёд» */
+.go-start {
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+}
+
+/* пройденная точка маршрута — бледнее (только в этой поездке) */
+.go-passed {
+  opacity: 0.45;
 }
 
 .go-flagit.on {
