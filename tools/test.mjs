@@ -2173,8 +2173,8 @@ try {
     check("без сети: скачанная плитка отдаётся с устройства и при новом выпуске карты", r.ctl && r.fake > 0, `${r.fake} байт`);
     await shot("97-offline-settings");
     await run(`atlas.map.jumpTo({ center: [10, 50], zoom: 5 }); new Promise((r) => setTimeout(() => r(true), 800))`);
-    const big = await run(`({ off: document.querySelector(".trip-dl").disabled, why: document.querySelector(".trip-why").textContent })`);
-    check("без сети: большой район — кнопка неактивна, сказано почему", big.off && big.why.includes("Приблизьте"), JSON.stringify(big));
+    const big = await run(`({ off: document.querySelector(".trip-dl").disabled, why: document.querySelector(".trip-why").textContent, dim: +getComputedStyle(document.querySelector(".trip-dl")).opacity })`);
+    check("без сети: большой район — кнопка неактивна и блёклая, сказано почему", big.off && big.dim < 0.6 && big.why.includes("Приблизьте"), JSON.stringify(big));
     await run(`(async () => { [...document.querySelectorAll(".trip-list .text-btn")].filter((b) => b.textContent === "Удалить").at(-1).click(); for (let i = 0; i < 30 && document.querySelector(".trip-list")?.children.length > ${before}; i++) await new Promise((r) => setTimeout(r, 200)); return true; })()`);
     const gone = await run(`(async () => ({ list: (await import("./core/offline.js")).trips().length, keys: (await (await caches.open("atlas-trip")).keys()).length }))()`);
     check("без сети: «Удалить» убирает район и его плитки", gone.list === before && (before > 0 || gone.keys === 0), JSON.stringify(gone));

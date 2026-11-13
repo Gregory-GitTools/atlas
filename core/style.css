@@ -413,6 +413,19 @@ html, body {
   background: var(--panel-hover);
 }
 
+/* неактивная — видно сразу (Грегори 2026-11-13: «кнопка не реагирует» — выглядела как активная) */
+.text-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  background: var(--panel);
+}
+
+/* почему «Скачать район» неактивна — заметно, рядом с кнопкой */
+.trip-why:not(:empty) {
+  margin: 4px 0 0;
+  color: #b3261e;
+}
+
 /* установка */
 .install-row {
   display: flex;
