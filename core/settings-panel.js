@@ -3,7 +3,8 @@
 // реестра — новый модуль появляется здесь сам
 import { createPanel } from "./panel.js";
 import { on, emit } from "./events.js";
-import { modules, available, toggle, onRegister, isBlocked, setBlocked, offline, setOffline } from "./modules.js";
+import { modules, available, toggle, onRegister, isBlocked, setBlocked, offline, setOffline, isMobile } from "./modules.js";
+import { downloadArea, downloading, stopDownload, trips, removeTrip, fits } from "./offline.js";
 import * as settings from "./settings.js";
 import { usage, models, removeModel, formatBytes, persist, viewCache, clearViewCache } from "./storage.js";
 import { installSection, openedForInstall } from "./install.js";
@@ -67,6 +68,9 @@ export function initSettingsPanel(ctx) {
     }
     body.push(net);
 
+    // карта без сети (ROADMAP «Скачать поездку», первая часть): скачивается то, что видно на карте
+    body.push(h("h3", "set-title", "Карта без сети"), tripSection());
+
     // данные
     body.push(h("h3", "set-title", "Загруженные данные"));
     const u = await usage();
@@ -89,13 +93,60 @@ export function initSettingsPanel(ctx) {
     vclear.addEventListener("click", async () => { vclear.disabled = true; await clearViewCache().catch(() => {}); render(); });
     vrow.append(h("span", "set-hint", vc.n ? `Запомнено при просмотре: ${formatBytes(vc.bytes)}` : "Запомненного при просмотре нет"), vclear);
     body.push(vrow, h("p", "set-hint", "Найденные на карте снимки, тропы, места экскурсий и сведения о ваших снимках программа помнит неделю, чтобы знакомые места открывались без интернета и быстрее. Хранится это внутри браузера на этом устройстве, отдельной папки на диске нет. Ваши треки и выбранные папки очистка не трогает. Сами картинки браузер держит в своём временном хранилище и удаляет сам."));
-    if (!u.persisted && list.length) {
+    if (!u.persisted && (list.length || trips().length)) {
       const keep = h("button", "text-btn", "Не удалять скачанное при нехватке места");
       keep.addEventListener("click", async () => { await persist(); render(); });
       body.push(keep);
     }
 
     panel.body.replaceChildren(...body);
+  }
+
+  // «Скачать район на карте»: кнопка видна всегда; неактивна без сети, во время скачивания и когда
+  // район слишком велик (тогда под ней — почему). Ход скачивания обновляется на месте, без перерисовки окна
+  let tripUi = null;
+  const tripState = () => {
+    if (!tripUi) return;
+    const { dl, stop, prog, why } = tripUi;
+    const job = downloading(), big = !fits(ctx.map), net = !offline() && navigator.onLine;
+    dl.disabled = !!job || big || !net;
+    stop.hidden = !job;
+    prog.textContent = job ? `Скачивается: ${job.total ? Math.floor((job.done / job.total) * 100) : 0} %` : "";
+    why.textContent = !net ? "Нужен интернет." : big ? "Приблизьте карту: район для скачивания — примерно до 100 км." : "";
+  };
+  ctx.map.on("moveend", () => !panel.el.hidden && tripState());
+  function tripSection() {
+    const box = h("div", "trip-box");
+    const row = h("div", "set-row");
+    const dl = h("button", "text-btn trip-dl", "Скачать район на карте");
+    const stop = h("button", "text-btn", "Остановить");
+    const prog = h("span", "set-hint trip-prog"), why = h("p", "set-hint trip-why");
+    dl.addEventListener("click", async () => {
+      const done = downloadArea(ctx.map, tripState);
+      tripState();
+      const item = await done.catch((err) => { ctx.status(`Не скачалось: ${err.message}`); return null; });
+      if (item) ctx.status(`Скачано: ${item.title}, ${formatBytes(item.bytes)}`);
+      if (!panel.el.hidden) render();
+    });
+    stop.addEventListener("click", () => stopDownload());
+    row.append(dl, prog, stop);
+    tripUi = { dl, stop, prog, why };
+    tripState();
+    const list = h("div", "set-list trip-list");
+    for (const t of trips()) {
+      const btns = h("div", "set-row");
+      const show = h("button", "text-btn", "Показать"), del = h("button", "text-btn", "Удалить");
+      show.addEventListener("click", () => {
+        const [w, s, e, n] = t.box;
+        if (isMobile()) panel.close();
+        ctx.map.fitBounds([[w, s], [e, n]], { padding: 20 });
+      });
+      del.addEventListener("click", async () => { del.disabled = true; await removeTrip(t.id); render(); });
+      btns.append(show, del);
+      list.append(netRow(t.title, `${formatBytes(t.bytes)} · ${new Date(t.saved).toLocaleDateString("ru")}`, btns));
+    }
+    box.append(row, why, list, h("p", "set-hint", "Скачивается то, что видно на карте сейчас: карта до отдельных домов и тропинок, высоты — если включены тени или горизонтали, и сама программа. Без сети она откроется и покажет этот район; скачанное берётся с устройства и в сети, чтобы не тратить роуминг. Спутник, тропы, погода и поиск — только в сети."));
+    return box;
   }
 
   const netRow = (title, what, control) => {

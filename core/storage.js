@@ -35,7 +35,7 @@ export const cacheDelete = (key) => tx("readwrite", (s) => s.delete(key));
 
 // запомненное при просмотре (найденные снимки Commons, тропы, места экскурсий, сведения о снимках,
 // списки файлов): сколько записей и примерно сколько места; своё (треки, доступ к папкам) — не в счёт
-const MINE = /^(tracks\/|albums\/dirs?$)/;
+const MINE = /^(tracks\/|trip\/|albums\/dirs?$)/;
 export async function viewCache() {
   const d = await db();
   return new Promise((resolve, reject) => {

@@ -2147,6 +2147,40 @@ try {
     await run(`atlas.toggle("weather/radar", false).then(() => true)`);
   }
 
+  // «Скачать район» (core/offline.js, sw.js): маленький район — кнопка в настройках, пакет в списке, плитки
+  // в «atlas-trip» (ключ OpenFreeMap без номера выпуска — плитка с чужим выпуском отдаётся с устройства),
+  // шрифты, значки, файлы программы и библиотеки; большой район — кнопка неактивна с подсказкой; удалить
+  if (want("core/offline")) {
+    await run(`atlas.map.jumpTo({ center: [24.745, 59.437], zoom: 15, pitch: 0, bearing: 0 }); navigator.serviceWorker.ready.then(() => true)`);
+    await idle();
+    await run(`document.querySelector('[data-panel="settings"]').hidden ? (async () => { (await import("./core/events.js")).emit("settings-open"); await new Promise((r) => setTimeout(r, 800)); return true; })() : true`);
+    const before = await run(`import("./core/offline.js").then((o) => o.trips().length)`);
+    const ui = await run(`(() => { const b = document.querySelector(".trip-dl"); return { has: !!b, on: !!b && !b.disabled, title: b?.closest(".panel-body")?.querySelector(".trip-box")?.previousElementSibling?.textContent }; })()`);
+    check("без сети: «Скачать район на карте» в настройках, активна", ui.has && ui.on && ui.title === "Карта без сети", JSON.stringify(ui));
+    await run(`document.querySelector(".trip-dl").click(); true`);
+    let prog = "";
+    for (let i = 0; i < 120 && (await run(`import("./core/offline.js").then((o) => o.trips().length)`)) === before; i++) { if (!prog) prog = await run(`document.querySelector(".trip-prog")?.textContent || ""`); await sleep(1000); }
+    const r = await run(`(async () => { const o = await import("./core/offline.js"); const t = o.trips().at(-1);
+      const keys = (await (await caches.open("atlas-trip")).keys()).map((q) => q.url), app = (await (await caches.open("atlas-app")).keys()).map((q) => q.url);
+      const tile = keys.find((k) => k.includes("/planet/_/14/") && k.endsWith(".pbf"));
+      const fake = tile && await fetch(tile.replace("/_/", "/00000000_zz_test/")).then((x) => x.ok && x.arrayBuffer()).then((b) => b && b.byteLength).catch(() => 0);
+      await new Promise((r) => setTimeout(r, 600));
+      return { title: t?.title, tiles: t?.tiles, bytes: t?.bytes, n: keys.length, tile: !!tile, fake, glyph: keys.some((k) => k.includes("/fonts/")), sprite: keys.some((k) => k.includes("/sprites/")),
+        app: app.length, lib: app.some((u) => u.includes("maplibre-gl.mjs")), nav: app.some((u) => u.endsWith("/content/navigation.js")), index: app.some((u) => u.endsWith("/index.html")),
+        ctl: !!navigator.serviceWorker.controller, row: [...document.querySelectorAll(".trip-list .set-item-title")].map((e) => e.textContent), dl: !document.querySelector(".trip-dl").disabled }; })()`);
+    check("без сети: район скачан — плитки, шрифты, значки, в списке с названием", r.tiles > 10 && r.bytes > 0 && r.tile && r.glyph && r.sprite && r.row.includes(r.title) && r.dl, JSON.stringify({ ...r, prog }));
+    check("без сети: файлы программы и библиотеки на устройстве", r.app > 30 && r.lib && r.nav && r.index, `${r.app} файлов`);
+    check("без сети: скачанная плитка отдаётся с устройства и при новом выпуске карты", r.ctl && r.fake > 0, `${r.fake} байт`);
+    await shot("97-offline-settings");
+    await run(`atlas.map.jumpTo({ center: [10, 50], zoom: 5 }); new Promise((r) => setTimeout(() => r(true), 800))`);
+    const big = await run(`({ off: document.querySelector(".trip-dl").disabled, why: document.querySelector(".trip-why").textContent })`);
+    check("без сети: большой район — кнопка неактивна, сказано почему", big.off && big.why.includes("Приблизьте"), JSON.stringify(big));
+    await run(`(async () => { [...document.querySelectorAll(".trip-list .text-btn")].filter((b) => b.textContent === "Удалить").at(-1).click(); for (let i = 0; i < 30 && document.querySelector(".trip-list")?.children.length > ${before}; i++) await new Promise((r) => setTimeout(r, 200)); return true; })()`);
+    const gone = await run(`(async () => ({ list: (await import("./core/offline.js")).trips().length, keys: (await (await caches.open("atlas-trip")).keys()).length }))()`);
+    check("без сети: «Удалить» убирает район и его плитки", gone.list === before && (before > 0 || gone.keys === 0), JSON.stringify(gone));
+    await run(`document.querySelector('[data-panel="settings"] .panel-btn[title=Закрыть]').click(); true`);
+  }
+
   await run(`document.querySelector('[data-panel=settings]') ? true : false`).then((has) => check("панель «settings» есть", has));
   // «Слои»: столбик разделов (Места, Тропы, Дороги, Рельеф, Погода, Пляжи и сёрфинг), подменю у кружка
   await run(`atlas.toggle("layers/railways", true).then(() => true)`);
