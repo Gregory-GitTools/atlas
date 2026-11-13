@@ -2085,7 +2085,7 @@ try {
     await run(`atlas.map.jumpTo({ center: [24.7, 59.45], zoom: 9 }); atlas.toggle("weather/wind", true).then(() => true)`);
     for (let i = 0; i < 20 && !(await run(`atlas.map.getLayer("wind") && atlas.map.queryRenderedFeatures({ layers: ["wind"] }).length > 0`)); i++) await sleep(1000);
     const w = await run(`atlas.map.queryRenderedFeatures({ layers: ["wind"] }).map((f) => f.properties.ms)`);
-    check("ветер: стрелки", w.length > 0, `${w.length} стрелок, ${w.slice(0, 5).join(", ")} м/с`);
+    check("ветер: узлы сетки (щёлкаются, прогноз)", w.length > 0, `${w.length} узлов, ${w.slice(0, 5).join(", ")} м/с`);
     // полоса времени: 7 дней по 3 часа; сдвинули — стрелки на другое время, «Сейчас» — обратно; кнопки не закрывает
     const wind = `atlas.modules().find((m) => m.id === "weather/wind")`;
     const barNow = await run(`(() => { const b = document.querySelector(".wx-bar"), r = b.getBoundingClientRect(),
@@ -2117,6 +2117,21 @@ try {
       above: document.querySelector(".maplibregl-popup").getBoundingClientRect().bottom <= document.querySelector(".wx-bar").getBoundingClientRect().top + 1 })`);
     check("ветер: прогноз по щелчку — таблица на 7 дней, в рамке то же время, что на полосе; окно над полосой времени",
       fc.days >= 7 && !!fc.at && fc.bar.endsWith(`${fc.at}:00`) && /порывы/.test(fc.head) && fc.above, JSON.stringify(fc));
+    // бегущие линии (Грегори 2026-11-13: «как в Windy с анимацией»): частицы бегут, на холсте есть линии;
+    // карту двигают — линий нет; узлы сетки невидимы (стрелок нет)
+    await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
+    const fl0 = await run(`${wind}.stats().flow`);
+    await sleep(1500);
+    const fl1 = await run(`(() => { const c = document.querySelector(".wind-flow"), g = c.getContext("2d"), d = g.getImageData(0, 0, c.width, c.height).data;
+      let lit = 0; for (let i = 3; i < d.length; i += 4 * 7) if (d[i] > 40) lit++;
+      return { ...${wind}.stats().flow, lit, under: c.previousElementSibling === atlas.map.getCanvas(), arrows: atlas.map.getPaintProperty("wind", "icon-opacity") }; })()`);
+    const flMove = await run(`(async () => { atlas.map.panBy([40, 0], { duration: 600 }); await new Promise((r) => setTimeout(r, 300));
+      const c = document.querySelector(".wind-flow"), d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+      let lit = 0; for (let i = 3; i < d.length; i += 4 * 7) if (d[i] > 40) lit++;
+      await new Promise((r) => setTimeout(r, 1500)); return { lit, after: ${wind}.stats().flow.frames }; })()`);
+    check("ветер: бегущие линии — частицы бегут по полю ветра, при движении карты спрятаны; стрелок нет",
+      fl1.on && fl1.particles > 100 && fl1.cells > 100 && fl1.frames > fl0.frames + 5 && fl1.lit > 50 && fl1.under && fl1.arrows === 0
+      && flMove.lit === 0 && flMove.after > fl1.frames, JSON.stringify({ fl0, fl1, flMove }));
     await shot("90-wind");
     // крестик полосы — ветер выключен, полоса ушла
     await run(`document.querySelector(".maplibregl-popup")?.remove(); document.querySelector(".wx-bar-x").click(); true`);

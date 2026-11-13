@@ -1,8 +1,11 @@
 // Погода (Грегори, 2026-10-27: «что на счёт погоды?»; в плане — ветер для кайт-спотов и походов).
 // Два слоя:
-//  • Ветер — как у Windy (Грегори 2026-11-12: «цветная раскраска области ветра вместо стрелок»): заливка
-//    цветом силы ветра (палитра Windy, плавно между узлами сетки, под подписями карты) и тонкие белые
-//    штрихи «куда дует» в узлах; числа — в окне прогноза по щелчку.
+//  • Ветер — как у Windy (Грегори 2026-11-12: «цветная раскраска области ветра вместо стрелок»; 2026-11-13:
+//    «штрихи невнятно — как Windy с анимацией, иначе просто стрелки»): заливка цветом силы ветра (палитра
+//    Windy, плавно между узлами сетки, под подписями карты) и **бегущие белые линии** — частицы плывут по
+//    ветру, быстрее при сильном. Считаются в точках экрана: поле ветра на экране строится раз после
+//    остановки карты (и при смене времени), пока карту двигают — линий нет. «Меньше движения» в системе —
+//    вместо линий стрелки в узлах. Числа — в окне прогноза по щелчку (узлы сетки не видны, но щёлкаются).
 //    **Время — полоса внизу** (Грегори 2026-11-11: «прогноз на несколько дней с выбором времени»): 7 дней
 //    вперёд с шагом 3 часа, стрелки — на выбранное время; ‹ › — на 3 часа, «Сейчас», крестик — выключить
 //    ветер. Щелчок по стрелке — прогноз в точке по дням (core/forecast.js), на воде — с волной.
@@ -134,7 +137,120 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
     return [{ type: "Feature", geometry: { type: "Point", coordinates: [lon, lat] },
       properties: { ms: v.ms, gust: Math.round(v.gust), dir: v.dir, rot: (v.dir + 180) % 360, label: String(Math.round(v.ms)), gl: ` ${Math.round(v.gust)}` } }];
   });
-  const draw = () => { ctx?.map.getSource("wind")?.setData({ type: "FeatureCollection", features: features(shown) }); drawFill(); };
+  const draw = () => { ctx?.map.getSource("wind")?.setData({ type: "FeatureCollection", features: features(shown) }); drawFill(); flow.field(); };
+
+  // ---------- бегущие линии ветра ----------
+  const calm = matchMedia("(prefers-reduced-motion: reduce)");
+  const flow = (() => {
+    const cv = Object.assign(document.createElement("canvas"), { className: "wind-flow" });
+    const g = cv.getContext("2d");
+    let field = null, parts = [], raf = 0, moving = false, frames = 0, W = 0, H = 0, dpr = 1, cell = 10, cols = 0, rows = 0;
+    const MAX_AGE = 90;
+    // скорость в точке экрана (точек экрана за кадр), билинейно по клеткам поля
+    const ui = (x, y) => {
+      const fx = x / cell, fy = y / cell, i = Math.floor(fx), j = Math.floor(fy);
+      if (i < 0 || j < 0 || i >= cols - 1 || j >= rows - 1) return null;
+      const k = j * cols + i, a = field[k], b = field[k + 1], c = field[k + cols], d = field[k + cols + 1];
+      if (!a || !b || !c || !d) return null;
+      const tx = fx - i, ty = fy - j;
+      return [(a[0] * (1 - tx) + b[0] * tx) * (1 - ty) + (c[0] * (1 - tx) + d[0] * tx) * ty,
+        (a[1] * (1 - tx) + b[1] * tx) * (1 - ty) + (c[1] * (1 - tx) + d[1] * tx) * ty];
+    };
+    const spawn = (p) => { p.x = Math.random() * W; p.y = Math.random() * H; p.age = Math.floor(Math.random() * MAX_AGE); return p; };
+    const tick = () => {
+      raf = 0;
+      if (!active || moving || !field || calm.matches) return;
+      // прежние следы тают — получаются хвосты
+      g.globalCompositeOperation = "destination-in";
+      g.fillStyle = "rgba(0,0,0,0.86)";
+      g.fillRect(0, 0, cv.width, cv.height);
+      g.globalCompositeOperation = "source-over";
+      g.strokeStyle = "rgba(255,255,255,0.8)";
+      g.lineWidth = 1.2 * dpr;
+      g.beginPath();
+      for (const p of parts) {
+        const v = p.age++ < MAX_AGE && ui(p.x, p.y);
+        if (!v) { spawn(p); p.age = 0; continue; }
+        const nx = p.x + v[0], ny = p.y + v[1];
+        g.moveTo(p.x * dpr, p.y * dpr);
+        g.lineTo(nx * dpr, ny * dpr);
+        p.x = nx; p.y = ny;
+      }
+      g.stroke();
+      frames++;
+      raf = requestAnimationFrame(tick);
+    };
+    const run = () => { if (!raf && active && !moving && field && !calm.matches) raf = requestAnimationFrame(tick); };
+    // поле на экране: в каждой клетке — куда и как быстро плывут линии (через проекцию карты — верно и на
+    // глобусе, и в 3D)
+    const build = () => {
+      const map = ctx?.map;
+      field = null;
+      if (!map || !active) return;
+      const lons = [...new Set(shown.map((p) => p[0]))].sort((a, b) => a - b), lats = [...new Set(shown.map((p) => p[1]))].sort((a, b) => a - b);
+      if (lons.length < 2 || lats.length < 2) return;
+      const t = at ?? Date.now() / 1000;
+      const node = new Map(shown.map(([lon, lat]) => { const w = cache.get(`${lat},${lon}`); return [`${lat},${lon}`, w ? valueAt(w, t) : null]; }));
+      // ветер «куда дует» в м/с: на восток, на север
+      const uv = (lon, lat) => {
+        const q = lons.findIndex((x, n) => n < lons.length - 1 && lon >= x && lon <= lons[n + 1]);
+        const r = lats.findIndex((y, n) => n < lats.length - 1 && lat >= y && lat <= lats[n + 1]);
+        if (q < 0 || r < 0) return null;
+        const vs = [[lats[r], lons[q]], [lats[r], lons[q + 1]], [lats[r + 1], lons[q]], [lats[r + 1], lons[q + 1]]].map(([y, x]) => node.get(`${y},${x}`));
+        if (vs.some((v) => !v || v.ms == null)) return null;
+        const c = vs.map((v) => { const a = (v.dir * Math.PI) / 180; return [-v.ms * Math.sin(a), -v.ms * Math.cos(a)]; });
+        const tx = (lon - lons[q]) / (lons[q + 1] - lons[q]), ty = (lat - lats[r]) / (lats[r + 1] - lats[r]);
+        return [0, 1].map((m) => (c[0][m] * (1 - tx) + c[1][m] * tx) * (1 - ty) + (c[2][m] * (1 - tx) + c[3][m] * tx) * ty);
+      };
+      const phone = innerWidth <= 600;
+      cell = phone ? 14 : 10;
+      const box = map.getContainer();
+      W = box.clientWidth; H = box.clientHeight; dpr = Math.min(2, devicePixelRatio || 1);
+      if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+      cols = Math.ceil(W / cell) + 1; rows = Math.ceil(H / cell) + 1;
+      const f = new Array(cols * rows).fill(null);
+      for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+        const x = i * cell, y = j * cell, ll = map.unproject([x, y]);
+        const back = map.project(ll);
+        if (Math.abs(back.x - x) > 2 || Math.abs(back.y - y) > 2) continue; // мимо глобуса
+        const w = uv(ll.lng, ll.lat);
+        if (!w) continue;
+        const ms = Math.hypot(w[0], w[1]);
+        if (ms < 0.05) { f[j * cols + i] = [0, 0]; continue; }
+        // шаг по ветру примерно на 10 точек экрана — куда он ведёт на экране
+        const right = map.unproject([x + 10, y]);
+        const deg = Math.max(1e-6, Math.hypot(right.lng - ll.lng, right.lat - ll.lat));
+        const d = deg / ms;
+        const q = map.project([ll.lng + (w[0] * d) / Math.max(0.2, Math.cos((ll.lat * Math.PI) / 180)), Math.max(-89.9, Math.min(89.9, ll.lat + w[1] * d))]);
+        const dx = q.x - x, dy = q.y - y, len = Math.hypot(dx, dy) || 1;
+        const sp = 0.2 + ms * 0.09; // точек экрана за кадр: 10 м/с — около 1,1
+        f[j * cols + i] = [(dx / len) * sp, (dy / len) * sp];
+      }
+      field = f;
+      const n = Math.round((W * H) / (phone ? 900 : 500));
+      parts = Array.from({ length: Math.min(phone ? 900 : 3000, n) }, () => spawn({}));
+      g.clearRect(0, 0, cv.width, cv.height);
+      run();
+    };
+    let wiredFlow = false;
+    const arrows = (map) => { if (map.getLayer("wind")) map.setPaintProperty("wind", "icon-opacity", calm.matches ? 0.85 : 0); };
+    return {
+      field: () => { if (active && !moving) build(); },
+      enable(map) {
+        map.getCanvas().after(cv); // над картой, под значками и окнами
+        arrows(map);
+        if (!wiredFlow) {
+          wiredFlow = true;
+          map.on("movestart", () => { moving = true; cancelAnimationFrame(raf); raf = 0; g.clearRect(0, 0, cv.width, cv.height); });
+          map.on("moveend", () => { moving = false; if (active) build(); });
+          map.on("resize", () => { if (active) build(); });
+          calm.addEventListener?.("change", () => { arrows(map); g.clearRect(0, 0, cv.width, cv.height); run(); });
+        }
+      },
+      disable() { cancelAnimationFrame(raf); raf = 0; field = null; parts = []; g.clearRect(0, 0, cv.width, cv.height); cv.remove(); },
+      stats: () => ({ particles: parts.length, frames, cells: field ? field.filter(Boolean).length : 0, on: !!cv.parentNode }),
+    };
+  })();
 
   async function update() {
     if (!active) return;
@@ -216,7 +332,7 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
     kind: "layer",
     group: "weather",
     title: "Ветер",
-    hint: "Ветер на 7 дней: стрелка — куда дует, число — м/с и порывы; время — полоса внизу; щелчок — прогноз по дням",
+    hint: "Ветер на 7 дней: цвет — сила, бегущие линии — куда дует; время — полоса внизу; щелчок — прогноз по дням",
     icon: svg('<path d="M4 9h11a3 3 0 1 0-3-3h2a1 1 0 1 1 1 1H4zm0 4h15a3 3 0 1 1-3 3h2a1 1 0 1 0 1-1H4zm0-2h8v0H4z"/><path d="M3 11h9v2H3z"/>'),
     needs: ["network"],
     sends: "точки в кадре (Open-Meteo); у моря — ещё волна (Open-Meteo Marine)",
@@ -228,14 +344,15 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
       // заливка — под подписями карты (как радар осадков), полупрозрачная
       if (!map.getSource("wind-fill")) map.addSource("wind-fill", { type: "image", url: EMPTY_PNG, coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]] });
       if (!map.getLayer("wind-fill")) map.addLayer({ id: "wind-fill", type: "raster", source: "wind-fill",
-        paint: { "raster-opacity": 0.6, "raster-resampling": "linear", "raster-fade-duration": 0 } },
+        paint: { "raster-opacity": 0.72, "raster-resampling": "linear", "raster-fade-duration": 0 } },
         map.getStyle().layers.find((l) => l.type === "symbol")?.id);
       // штрихи — длиннее при сильном ветре, по направлению «куда дует»
       if (!map.getLayer("wind")) map.addLayer({ id: "wind", type: "symbol", source: "wind",
         layout: { "icon-image": "wind-streak", "icon-rotate": ["get", "rot"], "icon-rotation-alignment": "map", "icon-allow-overlap": true,
           "icon-size": ["interpolate", ["linear"], ["get", "ms"], 0, 0.6, 15, 1.2] },
-        paint: { "icon-opacity": 0.85 } });
+        paint: { "icon-opacity": calm.matches ? 0.85 : 0 } });
       claimLayers("wind");
+      flow.enable(map);
       if (!wired) {
         wired = true;
         map.on("moveend", () => { clearTimeout(timer); timer = setTimeout(update, 300); });
@@ -250,6 +367,7 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
     },
     disable({ map }) {
       active = false;
+      flow.disable();
       bar.hidden = true;
       document.body.classList.remove("has-wx-bar");
       for (const id of ["wind", "wind-fill"]) if (map.getLayer(id)) map.removeLayer(id);
@@ -258,7 +376,7 @@ const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 
     },
     // для проверки: выбрать время (номер шага, 0 — сейчас)
     setStep: (i) => setAt(i),
-    stats: () => ({ cached: cache.size, at, shown: shown.length, fill: fillInfo }),
+    stats: () => ({ cached: cache.size, at, shown: shown.length, fill: fillInfo, flow: flow.stats() }),
   });
 }
 
