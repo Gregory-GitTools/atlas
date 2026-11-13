@@ -87,8 +87,9 @@ export async function setBlocked(id, blocked, ctx) {
   await applyNetwork(ctx);
 }
 
-// keep — выключение не по воле пользователя (запрет сети): панели помнят, что модуль был включён
-export async function toggle(id, ctx, on, { keep = false } = {}) {
+// keep — выключение не по воле пользователя (запрет сети): панели помнят, что модуль был включён;
+// by — включил другой модуль («Горнолыжные спуски» — «Транспорт»): панель запоминает его как включённый
+export async function toggle(id, ctx, on, { keep = false, by } = {}) {
   const mod = registry.get(id);
   if (!mod || !available(mod)) return false;
   on ??= !mod.active;
@@ -99,7 +100,7 @@ export async function toggle(id, ctx, on, { keep = false } = {}) {
   }
   await (on ? mod.enable : mod.disable)?.(ctx);
   mod.active = on;
-  emit("module", { id, on, keep, ctx });
+  emit("module", { id, on, keep, by, ctx });
   return on;
 }
 

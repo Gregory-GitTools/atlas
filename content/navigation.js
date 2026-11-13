@@ -14,6 +14,8 @@ import { historyList, remember, loadList, saveList } from "../core/history.js";
 import { WAYS, ARROW, SHARE_ICON, START_ICON, FINISH_ICON as FINISH_BIG } from "../core/route.js";
 import { showPlace } from "../core/place-info.js";
 import { trackIcon } from "../core/icons.js";
+import { countryAt } from "../core/borders.js";
+import { flagUrl } from "../core/flags.js";
 
 const HISTORY = "route.history";
 const ICON = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2 4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>';
@@ -32,17 +34,19 @@ let navOn = false, state = {}, results = null, note = "", ctx = null;
 // открытый маршрут (его saved): вместо списка «Куда» — его точки, как история (Грегори 2026-11-10: «при клике
 // на маршрут — такая же панель со списком, но с другим значком; двигать и менять местами точки»)
 let openRoute = null;
+// открытая страна списка «Куда» (Грегори 2026-11-13: «группирую маршруты по странам — как в альбомах, с флажками»)
+let openCountry = null;
 
 // строка поиска «Куда»: подсказки — история точек (при наборе — подходящие), Enter — найти место;
 // цель — своя карточка над подсказками
-const CLOSE = '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>';
-const FOLD = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg>';
+const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+const FOLD = '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M6 15l6-6 6 6"/></svg>';
 const MODE = { icon: ICON, title: "Навигация", placeholder: "Куда", tone: "nav",
   filter: (text) => { if (!text && results) { results = null; note = ""; } },
   submit: (text) => find(text),
   list: (q) => suggestions(q),
   // щелчок по строке — к началу списка; true — был открыт маршрут
-  reset: () => { const was = !!openRoute; openRoute = null; return was; },
+  reset: () => { const was = !!openRoute || !!openCountry; openRoute = null; openCountry = null; return was; },
   // маршрут в работе (карточка пути или список его точек) — строка поиска ищет дополнительные точки, к началу
   // не уводит (Грегори 2026-11-10: «в режиме трека окно поиска — в режиме дополнительных точек»): щелчок —
   // список точек маршрута и набор текста
@@ -132,7 +136,8 @@ function targetCard() {
   // точки маршрута по порядку: остановки с номером и финиш с флажком, крестик убирает любую — путь
   // перестраивается (Грегори 2026-11-10: «финиш тоже должен быть в списке и его можно удалить»)
   const stopsRow = h("div", "go-stops");
-  const pt = (badge, title, xTitle, fn, passed) => {
+  // название места и адрес — строкой ниже, как в списке точек маршрута (Грегори 2026-11-13)
+  const pt = (badge, { title, address }, xTitle, fn, passed) => {
     const row = h("div", "go-pt");
     row.classList.toggle("go-passed", !!passed);
     const b = h("span", "go-pt-n");
@@ -140,13 +145,15 @@ function targetCard() {
     const x = h("button", "go-stop-x");
     Object.assign(x, { type: "button", title: xTitle, innerHTML: CLOSE });
     x.addEventListener("click", (e) => { e.stopPropagation(); fn(); });
-    row.append(b, h("span", "go-pt-t", title), x);
+    const text = h("span", "go-pt-t");
+    text.append(h("span", "go-pt-title", title), ...(address ? [h("span", "go-pt-sub", address)] : []));
+    row.append(b, text, x);
     stopsRow.append(row);
   };
   for (const p of state.points || []) {
-    if (p.role === "start") pt(START_SMALL, p.title, "Убрать старт", () => emit("route-start-remove"), p.done);
-    else if (p.role === "finish") pt(FINISH_ICON, p.title, "Убрать финиш", () => emit("route-finish-remove"), p.done);
-    else pt(`<b class="route-pt-n">${p.n}</b>`, p.title, "Убрать остановку", () => emit("route-stop-remove", p.n - 1), p.done);
+    if (p.role === "start") pt(START_SMALL, p, "Убрать старт", () => emit("route-start-remove"), p.done);
+    else if (p.role === "finish") pt(FINISH_ICON, p, "Убрать финиш", () => emit("route-finish-remove"), p.done);
+    else pt(`<b class="route-pt-n">${p.n}</b>`, p, "Убрать остановку", () => emit("route-stop-remove", p.n - 1), p.done);
   }
   card.append(top, ...((state.points?.length || 0) > 1 ? [stopsRow] : []), ways, way);
   return card;
@@ -175,7 +182,16 @@ function suggestions(q) {
   if (!q) openRoute = null;
   // маршрут в работе — выбранное из истории место тоже окном на карте (Добавить или Сюда)
   const pickIn = (e) => (state.target && !e.saved ? place({ lngLat: e.lngLat, title: e.title, address: e.address || "" }) : choose(e));
-  const hist = historyList({ key: HISTORY, id, match: q ? (e) => `${e.name || ""} ${e.title} ${e.address || ""}`.toLowerCase().includes(q) : null,
+  // по странам, как альбомы: стран больше одной — сначала список стран с флажками, щелчок — записи страны;
+  // набирают текст — подходящие из всех стран
+  locate();
+  const by = countries();
+  if (openCountry && (!by.has(openCountry) || by.size < 2)) openCountry = null;
+  if (!q && !openCountry && by.size > 1) return [...by].map(([name, { n, iso }]) => countryRow(name, n, iso));
+  if (!q && openCountry) out.push(countryHead(openCountry, by.get(openCountry).iso));
+  const inCountry = !q && !!openCountry;
+  const hist = historyList({ key: HISTORY, id, clear: !inCountry,
+    match: q ? (e) => `${e.name || ""} ${e.title} ${e.address || ""}`.toLowerCase().includes(q) : inCountry ? (e) => countryOf(e) === openCountry : null,
     // подпись — адрес; координаты — только если название не они же (старые записи)
     label: (e) => {
       const c = `${e.lngLat[1].toFixed(5)}, ${e.lngLat[0].toFixed(5)}`;
@@ -188,6 +204,53 @@ function suggestions(q) {
   if (hist.childElementCount) out.push(hist);
   else if (!q) out.push(h("div", "search-note", "Наберите место и нажмите Enter — или «Сюда» в окне любого места на карте"));
   return out;
+}
+
+// страна записи — по финишу (core/borders.js), узнаётся один раз и хранится в записи
+const NO_COUNTRY = "Без страны";
+const countryOf = (e) => e.country?.name || NO_COUNTRY;
+// «Без страны» — первой, остальные по алфавиту (как в альбомах)
+const countries = () => {
+  const by = new Map();
+  for (const e of loadList(HISTORY)) { const k = countryOf(e); by.set(k, { n: (by.get(k)?.n || 0) + 1, iso: e.country?.iso || "" }); }
+  return new Map([...by].sort((x, y) => (y[0] === NO_COUNTRY) - (x[0] === NO_COUNTRY) || x[0].localeCompare(y[0], "ru")));
+};
+let locating = false;
+async function locate() {
+  if (locating) return;
+  locating = true;
+  let found = false;
+  try {
+    for (const e of loadList(HISTORY).filter((x) => x.country === undefined)) {
+      const c = await countryAt(e.lngLat);
+      if (c === undefined) break; // границы не загрузились — в другой раз
+      const key = id(e);
+      saveList(HISTORY, loadList(HISTORY).map((x) => (id(x) === key && x.country === undefined ? { ...x, country: c } : x)));
+      found = true;
+    }
+  } finally { locating = false; }
+  if (found && searchMode() === MODE && !openRoute) render();
+}
+const flagIcon = (iso) => (iso ? `<img class="history-flag" alt="" src="${flagUrl(iso)}">` : "");
+function countryRow(name, n, iso) {
+  const b = h("button", "search-item nav-country");
+  b.type = "button";
+  b.innerHTML = `<span class="search-item-title"></span>`;
+  b.firstChild.textContent = `${name} (${n})`;
+  b.firstChild.insertAdjacentHTML("afterbegin", `<i class="history-icon">${flagIcon(iso) || ROUTE_ICON}</i>`);
+  b.addEventListener("click", (e) => { e.stopPropagation(); openCountry = name; render(); });
+  return b;
+}
+// шапка страны: назад к странам, флаг, название
+function countryHead(name, iso) {
+  const head = h("div", "route-view-head");
+  const back = h("button", "route-view-back");
+  Object.assign(back, { type: "button", title: "Все страны", innerHTML: BACK });
+  back.addEventListener("click", (e) => { e.stopPropagation(); openCountry = null; render(); });
+  const title = h("div", "route-view-title", name);
+  if (iso) title.insertAdjacentHTML("afterbegin", `<i class="history-icon">${flagIcon(iso)}</i>`);
+  head.append(back, title);
+  return head;
 }
 
 // маршрут: шапка (назад к списку, значок, название, «Поделиться», «Сохранить трек») и его точки по порядку —
@@ -222,8 +285,9 @@ function routeView(entry) {
       } else {
         // старт был — первая точка списка остаётся стартом; последняя — финиш
         const last = pts[pts.length - 1], first = e.start && pts.length > 1 ? pts[0] : null;
-        const next = { ...e, lngLat: last.lngLat, title: last.title, address: last.address || "", start: first ? { lngLat: first.lngLat, title: first.title, address: first.address || "" } : undefined,
-          stops: pts.slice(first ? 1 : 0, -1).map((x) => ({ lngLat: x.lngLat, title: x.title })) };
+        const pt = (x) => ({ lngLat: x.lngLat, title: x.title, address: x.address || "" });
+        const next = { ...e, lngLat: last.lngLat, title: last.title, address: last.address || "", start: first ? pt(first) : undefined,
+          stops: pts.slice(first ? 1 : 0, -1).map(pt) };
         saveList(HISTORY, loadList(HISTORY).map((x) => (x.saved === e.saved ? next : x)));
         if (was) emit("route-target", { ...next, way: state.route?.way || state.busy || e.way || null });
       }
@@ -232,7 +296,8 @@ function routeView(entry) {
     label: (p) => {
       const pts = points(), i = pts.findIndex((x) => pid(x) === pid(p)), last = i === pts.length - 1, first = i === 0 && !!current().start;
       const n = i + (current().start ? 0 : 1);
-      return { title: p.title, sub: last ? "Финиш" : first ? "Старт" : p.address || "", icon: last ? FINISH_ICON : first ? START_SMALL : `<b class="route-pt-n">${n}</b>` };
+      // название и адрес строкой ниже — как в карточке пути; старт и финиш видны по значку
+      return { title: p.title, sub: p.address || "", icon: last ? FINISH_ICON : first ? START_SMALL : `<b class="route-pt-n">${n}</b>` };
     },
     rename: (p, title) => ({ ...p, title }),
     pick: (p) => { activate(); emit("route-focus", p); },

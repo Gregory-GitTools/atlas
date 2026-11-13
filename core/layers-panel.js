@@ -534,7 +534,13 @@ export function initLayersPanel(ctx) {
   document.body.append(arrowBtn, lensBtn);
 
   // слой включился не отсюда (сам по себе, по событию другого модуля) — кнопки обновить
-  on("module", renderAll, { replay: false });
+  // включился другим слоем («Горнолыжные спуски» включают «Транспорт») — помнить до следующего запуска;
+  // выключился не из-за запрета сети — забыть
+  on("module", ({ id, on: isOn, by, keep }) => {
+    if (isOn && by && !active.has(id)) { active.add(id); save(); }
+    else if (!isOn && !keep && active.delete(id)) save();
+    renderAll();
+  }, { replay: false });
   on("basemap", renderAll, { replay: false });
   on("panel", () => renderAll(), { replay: false });
   onRegister(renderAll);

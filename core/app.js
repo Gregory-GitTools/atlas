@@ -36,6 +36,28 @@ export const map = new maplibregl.Map({
   },
 });
 map.on("style.load", () => map.setProjection({ type: "globe" }));
+// при открытии глобус крупно — космоса около 10 % экрана — и лёгкий поворот к Европе (Грегори 2026-11-13).
+// Глобус на экране меньше расчётного (перспектива) — масштаб подбирается замером: точка на глобусе
+// возвращается в тот же пиксель, мимо — нет; доля космоса — по кругу, обрезанному краями экрана
+const EUROPE = [15, 50], SPACE = 0.1;
+function fillZoom() {
+  const W = map.getCanvas().clientWidth, H = map.getCanvas().clientHeight;
+  const on = (x) => { const q = map.project(map.unproject([x, H / 2])); return Math.abs(q.x - x) < 2 && Math.abs(q.y - H / 2) < 2; };
+  const radius = () => { let a = 0, b = Math.max(W, H) * 2; for (let i = 0; i < 14; i++) { const m = (a + b) / 2; on(W / 2 + m) ? (a = m) : (b = m); } return a; };
+  const space = (R) => { let s = 0; for (let i = 0; i < 200; i++) { const x = -W / 2 + ((i + 0.5) * W) / 200; s += x * x < R * R ? 2 * Math.min(H / 2, Math.sqrt(R * R - x * x)) : 0; } return 1 - (s * W) / 200 / (W * H); };
+  let lo = 0.5, hi = 6;
+  for (let i = 0; i < 12; i++) {
+    const z = (lo + hi) / 2;
+    map.jumpTo({ center: EUROPE, zoom: z });
+    space(radius()) > SPACE ? (lo = z) : (hi = z);
+  }
+  return lo;
+}
+map.once("load", () => {
+  const start = { center: map.getCenter(), zoom: map.getZoom() }, zoom = fillZoom();
+  map.jumpTo(start);
+  map.easeTo({ center: EUROPE, zoom, duration: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 2500 });
+});
 addStars(map);
 addScale(map, maplibregl);
 // строка источников — ⓘ слева внизу, рядом со шкалой

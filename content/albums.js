@@ -8,7 +8,7 @@
 // двойной щелчок — альбом в галерее с этого снимка. Координаты и дата — из EXIF (exifr, грузится
 // при первом открытии), прочитанное помнится на устройстве. Точка альбома — самый многолюдный «куст»
 // снимков, а не первый снимок (опыт travel-earth: первым часто снят аэропорт вылета), обложка —
-// случайный снимок из него. Страна — по границам стран без сети (country-borders.json travel-earth).
+// случайный снимок из него. Страна — по границам стран без сети (core/borders.js).
 // Видео и живые фото (как в travel-earth, Грегори 2026-11-02): ролик (.mov/.mp4) — своей клеткой со
 // значком ▶; живое фото iPhone — снимок и ролик с одним именем (IMG_1234.JPG + IMG_1234.MOV) — одна
 // клетка со значком LIVE, ролик оживает в галерее. Дубликаты (2026-11-08) — одинаковые и похожие снимки в
@@ -16,8 +16,9 @@
 import { register, isMobile } from "../core/modules.js";
 import { trackIcon } from "../core/icons.js";
 import { createPanel, isOpen, homeList } from "../core/panel.js";
-import { repoFiles, repoUrl, repoSite } from "../core/repo.js";
+import { repoFiles, repoUrl } from "../core/repo.js";
 import { flagUrl } from "../core/flags.js";
+import { countryAt } from "../core/borders.js";
 import { emit, on } from "../core/events.js";
 import { parseFile } from "./tracks.js";
 import { setSearchMode, searchMode } from "../core/search.js";
@@ -230,35 +231,9 @@ async function movMeta(file) {
   return rec;
 }
 
-// ---------- страна: по границам стран, без сети после первой загрузки ----------
-let borders = null;
-const loadBorders = () => (borders ??= fetch(repoSite("country-borders.json")).then((r) => r.json()).then((d) => d.features)
-  .catch(() => { borders = null; return []; }));
-function inRing([x, y], ring) {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i], [xj, yj] = ring[j];
-    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}
-const inPolygon = (pt, rings) => inRing(pt, rings[0]) && !rings.slice(1).some((r) => inRing(pt, r));
-function countryAt(pt, features) {
-  const polys = (f) => (f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates);
-  const hit = features.find((f) => polys(f).some((rings) => inPolygon(pt, rings)));
-  if (hit) return hit;
-  // упрощённая граница не накрывает берег (Лиссабон в устье Тежу) — страна с ближайшей вершиной
-  let best = null, dist = Infinity;
-  for (const f of features) for (const rings of polys(f)) for (const ring of rings) for (const v of ring) {
-    const d = (v[0] - pt[0]) ** 2 + (v[1] - pt[1]) ** 2;
-    if (d < dist) { dist = d; best = f; }
-  }
-  return dist < 1 ? best : null;
-}
 async function locate(a) {
   if (!a.point) { a.country = null; return; }
-  const f = countryAt(a.point, await loadBorders());
-  a.country = f ? { name: f.properties.name, iso: f.properties.iso } : null;
+  a.country = (await countryAt(a.point)) || null;
 }
 // трек альбома — прочитан один раз за обход: { segs, color }; не читается — пустой
 const trackOf = (t) => (t.data ??= t.handle.getFile().then((f) => f.text()).then((x) => parseFile(t.name, x))

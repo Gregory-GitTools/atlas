@@ -125,7 +125,7 @@ export function homeList(items, choose) {
     if (it.remove) {
       const line = Object.assign(document.createElement("div"), { className: "home-line" });
       const x = Object.assign(document.createElement("button"), { type: "button", className: "search-delete", title: it.remove.title,
-        innerHTML: '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>' });
+        innerHTML: '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>' });
       x.addEventListener("click", (e) => { e.stopPropagation(); it.remove.fn(); });
       line.append(r, x);
       list.append(line);

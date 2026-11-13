@@ -18,7 +18,7 @@
 // В панели — свой раздел «Тропы» (group: "trails"): «Тропы» и «Велодорожки» с меню видов, как у
 // «Магазинов» (Грегори, 2026-10-28: «велодорожки объединить в выпадающий список»). У «Троп» меню
 // по значимости — тот же цвет, что у линий: международные, национальные, региональные, местные.
-import { register } from "../core/modules.js";
+import { register, modules, toggle } from "../core/modules.js";
 import { profileMenu } from "../core/profiles.js";
 import { cacheGet, cacheSet } from "../core/storage.js";
 
@@ -315,5 +315,57 @@ register({
   },
   disable() {
     for (const k of [cycling, mtb]) if (k.on) k.disable();
+  },
+});
+
+// Горнолыжные спуски (Грегори 2026-11-13: «на кнопке тропы горнолыжные спуски, и они всегда идут с канатными
+// подъёмниками; кнопки можно увязать, но не канатные дороги с горнолыжными спусками»): трассы — готовые
+// картинки Waymarked Trails (цвет — сложность: синие, красные, чёрные; оранжевые — равнинные и санные), под
+// ними все подъёмники из тайлов OpenFreeMap — кресельные и бугельные тоже. Включились спуски — включаются и
+// «Канатные дороги» в «Транспорте» (станции и тросы гондол); канатные дороги спуски не включают
+const SLOPES_ICON = '<circle cx="15.6" cy="3.4" r="2.1"/><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M13.6 7.4 9.8 12.6" stroke-width="3.8"/><path d="M9.8 12.6l3.4 2.6-2 4" stroke-width="3"/><path d="M12.6 8.6l4.2 2.6" stroke-width="2.2"/><path d="M16.8 11.2 19.4 19" stroke-width="1.1"/><path d="M2.4 17.6l18.8 4.4" stroke-width="2"/></g>';
+const SLOPES_SRC = "trails-slopes", SLOPES_LAYER = "trails-slopes-raster", LIFTS_SRC = "trails-slopes-lifts", LIFTS_LAYER = "trails-slopes-lifts-line";
+const GONDOLAS = ["cable_car", "gondola", "mixed_lift"]; // их рисуют «Канатные дороги» (places.js)
+let slopesMap = null;
+
+function slopesOn(map) {
+  if (map.getSource(SLOPES_SRC)) return;
+  const firstSymbol = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
+  map.addSource(SLOPES_SRC, { type: "raster", tileSize: 256, maxzoom: 17, tiles: ["https://tile.waymarkedtrails.org/slopes/{z}/{x}/{y}.png"],
+    attribution: 'Спуски: <a href="https://waymarkedtrails.org" target="_blank">Waymarked Trails</a> (CC BY-SA)' });
+  map.addLayer({ id: SLOPES_LAYER, type: "raster", source: SLOPES_SRC, minzoom: 8 }, firstSymbol);
+  map.addSource(LIFTS_SRC, { type: "vector", url: "https://tiles.openfreemap.org/planet" });
+  map.addLayer({ id: LIFTS_LAYER, type: "line", source: LIFTS_SRC, "source-layer": "transportation", minzoom: 12,
+    filter: ["all", ["==", ["get", "class"], "aerialway"], ["!", ["in", ["get", "subclass"], ["literal", GONDOLAS]]]],
+    layout: { "line-cap": "round" },
+    paint: { "line-color": "#222", "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.2, 17, 3] } }, firstSymbol);
+}
+
+// «Канатные дороги» — отметить в меню «Транспорта» и включить его; отмечено (или всё без выбора) — не трогать
+async function withLifts(ctx) {
+  const tr = modules().find((m) => m.id === "places/transport");
+  if (!tr) return;
+  const marked = tr.menu.items().filter((i) => i.active).map((i) => i.id);
+  if (tr.active && (!marked.length || marked.includes("lifts"))) return;
+  if (tr.active) tr.menu.toggle("lifts");
+  else tr.menu.choose("lifts");
+  await toggle(tr.id, ctx, true, { by: "trails/slopes" });
+}
+
+register({
+  ...common,
+  id: "trails/slopes",
+  title: "Горнолыжные спуски",
+  hint: "Трассы по цвету сложности, с подъёмниками",
+  icon: chipIcon(SLOPES_ICON),
+  sends: "район карты (Waymarked Trails, OpenFreeMap)",
+  async enable(ctx) {
+    slopesMap = ctx.map;
+    slopesOn(ctx.map);
+    await withLifts(ctx);
+  },
+  disable() {
+    for (const id of [LIFTS_LAYER, SLOPES_LAYER]) if (slopesMap?.getLayer(id)) slopesMap.removeLayer(id);
+    for (const id of [LIFTS_SRC, SLOPES_SRC]) if (slopesMap?.getSource(id)) slopesMap.removeSource(id);
   },
 });

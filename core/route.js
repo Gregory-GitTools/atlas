@@ -68,7 +68,8 @@ export const ADD_ICON = icon("M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.
 export const SHARE_ICON = icon("M18,16.08C17.24,16.08 16.56,16.38 16.04,16.85L8.91,12.7C8.96,12.47 9,12.24 9,12C9,11.76 8.96,11.53 8.91,11.3L15.96,7.19C16.5,7.69 17.21,8 18,8A3,3 0 0,0 21,5A3,3 0 0,0 18,2A3,3 0 0,0 15,5C15,5.24 15.04,5.47 15.09,5.7L8.04,9.81C7.5,9.31 6.79,9 6,9A3,3 0 0,0 3,12A3,3 0 0,0 6,15C6.79,15 7.5,14.69 8.04,14.19L15.16,18.34C15.11,18.55 15.08,18.77 15.08,19C15.08,20.61 16.39,21.91 18,21.91C19.61,21.91 20.92,20.61 20.92,19A2.92,2.92 0 0,0 18,16.08Z");
 export const MARK_ICON = icon("M12.36,6L12.76,8H18V14H14.64L14.24,12H7V6H12.36M14,4H5V21H7V14H12.6L13,16H20V6H14.4");
 export const MARKED_ICON = icon("M14.4,6L14,4H5V21H7V14H12.6L13,16H20V6H14.4Z");
-const MORE_ICON = icon("M16,12A2,2 0 0,1 18,10A2,2 0 0,1 20,12A2,2 0 0,1 18,14A2,2 0 0,1 16,12M10,12A2,2 0 0,1 12,10A2,2 0 0,1 14,12A2,2 0 0,1 12,14A2,2 0 0,1 10,12M4,12A2,2 0 0,1 6,10A2,2 0 0,1 8,12A2,2 0 0,1 6,14A2,2 0 0,1 4,12Z", 22);
+// «⋯» — мельче, вровень с лупой поиска и крестиками (Грегори 2026-11-13)
+const MORE_ICON = `<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>`;
 export const ARROW = `<svg viewBox="0 0 24 24" width="22" height="22"><path d="M12 2l7 19-7-4-7 4z" fill="currentColor"/></svg>`;
 const SIDES = ["на север", "на северо-восток", "на восток", "на юго-восток", "на юг", "на юго-запад", "на запад", "на северо-запад"];
 
@@ -103,8 +104,8 @@ const h = (tag, cls, text = "") => Object.assign(document.createElement(tag), { 
 const line = (coords) => ({ type: "FeatureCollection", features: coords ? [{ type: "Feature", geometry: { type: "LineString", coordinates: coords }, properties: {} }] : [] });
 
 // маршрут для планирования дома (Грегори 2026-11-13: «сижу дома, планирую маршрут в Альпах»): Старт → точки → Финиш,
-// старт и финиш — по желанию. Первая точка — просто метка; «+» вписывает точку перед финишем; новый Старт/Финиш
-// заменяет прежний, путь пересчитывается. «Моё место» в маршрут не пишется: путь от меня — только если навигация
+// старт и финиш — по желанию. Первая точка — просто метка; «+» вписывает точку перед финишем; новый Старт заменяет
+// прежний, новый Финиш — прежний становится предпоследней точкой (Грегори 2026-11-13); путь пересчитывается. «Моё место» в маршрут не пишется: путь от меня — только если навигация
 // включена, и только по нажатию способа (пешком, вело, авто) — программа сама ничего не начинает и не спрашивает.
 // «Сюда» при готовом маршруте — новый маршрут: эта точка, затем заготовленный (сам заготовленный не трогается).
 // Пройденные точки гаснут только в этой поездке, запись маршрута остаётся целой.
@@ -136,7 +137,7 @@ export function initRoute({ map, maplibregl, status }) {
     const pts = all();
     emit("route", {
       target: last(), start, finish: target, saved: savedId, me: !!me, busy, stops: stops.map((s) => s.title),
-      points: pts.map((p, i) => ({ title: p.title, role: p === start ? "start" : p === target ? "finish" : "stop", n: stops.indexOf(p) + 1, done: i < done })),
+      points: pts.map((p, i) => ({ title: p.title, address: p.address || "", role: p === start ? "start" : p === target ? "finish" : "stop", n: stops.indexOf(p) + 1, done: i < done })),
       canRoute: allowed(self()) && (pts.length > 1 || (!!me && pts.length > 0)),
       distance: d, side: b === null ? "" : SIDES[Math.round(b / 45) % 8], arrow: b === null ? 0 : b - map.getBearing(),
       main: d === null ? "" : `${km(d)} ${SIDES[Math.round(b / 45) % 8]}`,
@@ -257,7 +258,7 @@ export function initRoute({ map, maplibregl, status }) {
   // точка или запись маршрута из списка «Куда» (null — убрать всё); путь сам не прокладывается
   const setTarget = (t) => {
     start = t?.start ? pt(t.start) : null;
-    stops = t?.stops ? t.stops.map((s) => ({ ...s })) : [];
+    stops = t?.stops ? t.stops.map(pt) : [];
     savedId = t?.saved || null;
     savedName = t?.name || null;
     target = t && { lngLat: t.lngLat, title: t.title, address: t.address };
@@ -280,11 +281,18 @@ export function initRoute({ map, maplibregl, status }) {
     const fin = target || (stops.length ? stops[stops.length - 1] : start);
     const mid = target ? stops : stops.slice(0, -1);
     emit("route-edit", { saved: savedId, ...(start && fin !== start ? { start: pt(start) } : {}), lngLat: fin.lngLat, title: fin.title, address: fin.address || "",
-      stops: mid.map((x) => ({ lngLat: x.lngLat, title: x.title })), way: route?.way || busy || null });
+      stops: mid.map(pt), way: route?.way || busy || null });
   };
-  // «Старт» / «Финиш» — новая заменяет прежнюю; «+» — перед финишем (нет финиша — в конец)
+  // «Старт» — новый заменяет прежний; «Финиш» — прежний становится предпоследней точкой; «+» — перед финишем
+  // (нет финиша — в конец)
   const setStart = (p) => { if (same(p, start)) return; stops = stops.filter((s) => !same(s, p)); start = pt(p); changed(); };
-  const setFinish = (p) => { if (same(p, target)) return; stops = stops.filter((s) => !same(s, p)); target = pt(p); changed(); };
+  const setFinish = (p) => {
+    if (same(p, target)) return;
+    stops = stops.filter((s) => !same(s, p));
+    if (target) stops.push(target);
+    target = pt(p);
+    changed();
+  };
   const addStop = (p) => {
     if (all().some((x) => same(x, p))) return;
     stops.push(pt(p));

@@ -122,6 +122,12 @@ try {
   await run(`new Promise((r) => { const c = () => window.atlas?.map?.loaded() ? r(true) : setTimeout(c, 200); c(); })`);
   await idle();
   check("карта загрузилась", true, await run(`atlas.map.getProjection()?.type`));
+  // при открытии — глобус крупно (космоса около 10 % экрана), поворот к Европе (Грегори 2026-11-13)
+  await sleep(2800);
+  const globe = await run(`(() => { const m = atlas.map, c = m.getCenter(), W = m.getCanvas().clientWidth, H = m.getCanvas().clientHeight; let n = 0, k = 0;
+    for (let x = 0.5; x < 60; x++) for (let y = 0.5; y < 40; y++) { k++; const p = [x * W / 60, y * H / 40], q = m.project(m.unproject(p)); if (Math.hypot(q.x - p[0], q.y - p[1]) < 2) n++; }
+    return { center: [Math.round(c.lng), Math.round(c.lat)], space: +(1 - n / k).toFixed(3) }; })()`);
+  check("старт: глобус крупно — космоса около 10 % экрана, в середине Европа", globe.center.join() === "15,50" && globe.space > 0.05 && globe.space < 0.15, JSON.stringify(globe));
   // при старте всё закрыто, на кнопке справа вверху — логотип; барабан разделов — «Поиском места» в центре
   const start = await run(`({ logo: !!document.querySelector(".search-toggle .start-logo"), search: document.body.classList.contains("search-hidden"),
     wheels: [...document.querySelectorAll(".wheel")].every((w) => w.classList.contains("closed")), panels: [...document.querySelectorAll(".panel")].every((p) => p.hidden) })`);
@@ -367,17 +373,22 @@ try {
     JSON.stringify(acts.btns) === '["Сюда","Старт","Добавить в путь","Финиш","Поделиться","Отметить"]' && acts.more && JSON.stringify(added.stops) === '["Остановка"]' && JSON.stringify(added.chip) === '["1Остановка","Проба"]' && added.marker === 1
     && marked.marks.includes("Остановка") && marked.flag === 1 && marked.on && !unmarked.marks.length && !unmarked.flag && menuOpen
     && saved?.saved && saved.title === "Проба" && saved.stops === 1 && !removed.length, JSON.stringify({ acts, added, marked, unmarked, menuOpen, saved, removed }));
-  // история: карандаш — переименовать в строке; у сохранённого маршрута — значок
+  // история: долгое нажатие — переименовать в строке (щелчок после него запись не открывает); у сохранённого маршрута — значок
   const ren = await run(`(async () => { const hm = await import(new URL("core/history.js", location.href));
     hm.saveList("zz.hist", [{ id: 1, t: "Старое", r: 1 }]);
-    let box; const make = () => { box?.remove(); box = hm.historyList({ key: "zz.hist", id: (e) => e.id, label: (e) => ({ title: e.t, icon: e.r ? "<svg></svg>" : "" }), rename: (e, t) => ({ ...e, t }), pick() {}, changed: make }); document.body.append(box); };
-    make();
-    const icon = !!box.querySelector(".history-icon");
-    box.querySelector(".search-rename").click();
+    let box; const make = () => { box?.remove(); box = hm.historyList({ key: "zz.hist", id: (e) => e.id, label: (e) => ({ title: e.t, icon: e.r ? "<svg></svg>" : "" }), rename: (e, t) => ({ ...e, t }), pick() { picked++; }, changed: make }); document.body.append(box); };
+    let picked = 0; make();
+    const icon = !!box.querySelector(".history-icon"), pencil = !!box.querySelector(".search-rename");
+    const it = box.querySelector(".search-item");
+    it.click();
+    it.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 50, clientY: 20 }));
+    await new Promise((r) => setTimeout(r, 650));
+    it.dispatchEvent(new PointerEvent("pointerup", { bubbles: true })); it.click();
     const i = box.querySelector(".history-rename"); i.value = "Новое"; i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    const r = { icon, title: hm.loadList("zz.hist")[0].t, shown: box.querySelector(".search-item-title")?.textContent };
+    const r = { icon, pencil, picked, title: hm.loadList("zz.hist")[0].t, shown: box.querySelector(".search-item-title")?.textContent };
     box.remove(); hm.saveList("zz.hist", []); return r; })()`);
-  check("история: карандаш переименовывает запись прямо в строке, у сохранённого маршрута — значок", ren.icon && ren.title === "Новое" && ren.shown === "Новое", JSON.stringify(ren));
+  check("история: долгое нажатие переименовывает запись прямо в строке, карандаша нет, у сохранённого маршрута — значок",
+    ren.icon && !ren.pencil && ren.picked === 1 && ren.title === "Новое" && ren.shown === "Новое", JSON.stringify(ren));
   // кнопка «Навигация» в барабане поиска светится, пока навигация включена; выключили — путь убран, точка осталась
   const wheelNav = `document.querySelector('.wheel-content .layers-circle[data-key="content/navigation"]')`;
   const lit = await run(`({ on: ${wheelNav}?.classList.contains("on"), nav: ${navStats}.navOn })`);
@@ -423,6 +434,76 @@ try {
     && plan.built.rec?.start === "Дельта" && JSON.stringify(plan.built.rec.stops) === '["Гамма"]' && plan.built.rec.title === "Бета"
     && JSON.stringify(plan.built.card) === '["Убрать старт","Убрать остановку","Убрать финиш"]'
     && plan.path?.way === "foot" && plan.path.fromMe === false, JSON.stringify(plan));
+  // второй «Финиш» — прежний финиш становится предпоследней точкой; в обеих формах маршрута — название и адрес
+  // строкой ниже; место из поиска — карта долетает до него, хотя карточка пути сначала показала весь маршрут
+  // (Грегори 2026-11-13)
+  const plan2 = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
+    const { showPlace } = await import(new URL("core/place-info.js", location.href));
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const press = async (title, ll, cls) => { const p = track(new atlas.ctx.maplibregl.Popup()).setLngLat(ll).setHTML('<div class="popup-title">' + title + '</div><div class="popup-sub">' + title + ' 1, Таллин</div>').addTo(atlas.map);
+      await wait(100); p.getElement().querySelector(cls).click(); await wait(200); };
+    const r = {};
+    await press("Эпсилон", [24.73, 59.41], ".go-end");
+    r.finish = { stops: atlas.route.state().stops, finish: atlas.route.state().target?.title };
+    r.card = [...document.querySelectorAll(".search-card .go-pt")].map((x) => [...x.querySelectorAll(".go-pt-title, .go-pt-sub")].map((y) => y.textContent).join("|"));
+    const rec = JSON.parse(localStorage.getItem("atlas.route.history")).find((e) => e.saved);
+    r.recAddr = rec.address;
+    // крестик и «свернуть» карточки — мелкие, вровень с лупой
+    r.icons = [".search-card .go-close svg", ".search-card .go-stop-x svg"].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().width));
+    // карточка с ползунком; место из поиска при раскрытой карточке
+    r.grip = !!document.querySelector(".search-card > .search-grip");
+    atlas.map.jumpTo({ center: [10, 47], zoom: 5 });
+    await wait(300);
+    (await import(new URL("core/events.js", location.href))).emit("route-show");
+    showPlace({ lngLat: [24.79, 59.44], title: "Кадриорг", address: "Таллин" });
+    for (let t = 0; t < 40 && !document.querySelector(".maplibregl-popup .go-add"); t++) await wait(200);
+    await wait(600);
+    const c = atlas.map.getCenter();
+    r.flight = { at: Math.abs(c.lng - 24.79) < 0.05 && Math.abs(c.lat - 59.44) < 0.05, zoom: Math.round(atlas.map.getZoom()), pop: !!document.querySelector(".maplibregl-popup .go-add") };
+    document.querySelector(".maplibregl-popup .go-add")?.click(); await wait(300);
+    r.added = atlas.route.state().stops;
+    return r; })()`);
+  check("второй «Финиш» — прежний становится предпоследней точкой; в карточке — название и адрес строкой ниже; адреса в записи",
+    plan2.finish.finish === "Эпсилон" && JSON.stringify(plan2.finish.stops) === '["Гамма","Бета"]'
+    && plan2.card.join() === "Дельта,Гамма,Бета,Эпсилон|Эпсилон 1, Таллин"
+    && plan2.recAddr === "Эпсилон 1, Таллин", JSON.stringify(plan2));
+  check("место из поиска при раскрытой карточке пути — карта долетает до него, окно места, «+» — перед финишем",
+    plan2.flight.at && plan2.flight.zoom >= 12 && plan2.flight.pop && JSON.stringify(plan2.added) === '["Гамма","Бета","Кадриорг"]', JSON.stringify(plan2));
+  check("крестик и «свернуть» карточки пути — вровень с лупой (22 px); у карточки ползунок", plan2.icons.join() === "22,22" && plan2.grip, JSON.stringify(plan2));
+  // ползунок карточки: вверх — до самой шапки, вниз — снова во всю высоту
+  const dragGrip = async (dy) => {
+    const g = await run(`(() => { const r = document.querySelector(".search-card > .search-grip").getBoundingClientRect(); return [r.x + r.width / 2, r.y + 8]; })()`);
+    await send("Input.dispatchMouseEvent", { type: "mousePressed", x: g[0], y: g[1], button: "left", clickCount: 1 });
+    for (let k = 1; k <= 8; k++) await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: g[0], y: g[1] + (dy * k) / 8, button: "left", buttons: 1 });
+    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: g[0], y: g[1] + dy, button: "left", clickCount: 1 });
+    await sleep(200);
+    return run(`(() => { const c = document.querySelector(".search-card .nav-card"), t = c.querySelector(".nav-card-top"); return { card: Math.round(c.getBoundingClientRect().bottom), head: Math.round(t.getBoundingClientRect().bottom), full: c.scrollHeight }; })()`);
+  };
+  const gUp = await dragGrip(-500), gDown = await dragGrip(600);
+  check("карточка пути: ползунок вверх — до шапки, вниз — во всю высоту", gUp.card - gUp.head <= 10 && gDown.card - gDown.head > 100 && !(await run(`localStorage.getItem("atlas.search.card.h")`)), JSON.stringify({ gUp, gDown }));
+  await shot("00-route-plan");
+  // список точек маршрута — тоже название и адрес строкой ниже
+  await run(`document.querySelector(".search-card .go-close[title='Точки маршрута']").click(); true`);
+  await sleep(600);
+  const vSubs = await run(`[...document.querySelectorAll(".route-view .search-history-row")].map((x) => x.querySelector(".search-item-title").textContent.replace(/^[0-9]+/, "") + "|" + x.querySelector(".search-item-sub").textContent)`);
+  check("список точек маршрута: название и адрес строкой ниже", vSubs.join() === "Дельта|,Гамма|,Бета|,Кадриорг|Таллин,Эпсилон|Эпсилон 1, Таллин", JSON.stringify(vSubs));
+  // «Куда» по странам: стран больше одной — страны с флажком и числом; щелчок — записи страны, «назад» — страны
+  await run(`document.querySelector(".route-view-back").click(); true`);
+  await run(`window.__keepHist = localStorage.getItem("atlas.route.history"); localStorage.setItem("atlas.route.history", JSON.stringify([...JSON.parse(localStorage.getItem("atlas.route.history")),
+    { lngLat: [11.39, 47.26], title: "Инсбрук", address: "Тироль" }, { lngLat: [7.75, 46.02], title: "Церматт", address: "Вале" }, { lngLat: [11.4, 47.27], title: "Халль", address: "Тироль" }]));
+    (async () => (await import(new URL("core/search.js", location.href))).refreshSearchList(true))(); true`);
+  for (let i = 0; i < 30 && (await run(`document.querySelectorAll(".search-results .nav-country").length`)) < 3; i++) await sleep(300);
+  const lands = await run(`[...document.querySelectorAll(".search-results .nav-country")].map((b) => b.textContent + (b.querySelector("img.history-flag") ? "⚑" : ""))`);
+  await run(`[...document.querySelectorAll(".search-results .nav-country")].find((b) => /Австрия/.test(b.textContent)).click(); true`);
+  await sleep(300);
+  const land = await run(`({ head: document.querySelector(".search-results .route-view-head")?.textContent, rows: [...document.querySelectorAll(".search-results .search-history-row .search-item-title")].map((x) => x.textContent),
+    clear: !!document.querySelector(".search-results .search-history-clear") })`);
+  await run(`document.querySelector(".search-results .route-view-back").click(); true`);
+  await sleep(300);
+  const landBack = await run(`document.querySelectorAll(".search-results .nav-country").length`);
+  check("«Куда» по странам: страны с флажком и числом, щелчок — записи страны, «назад» — страны",
+    /^Австрия ?\(?2\)?⚑,Швейцария ?\(?1\)?⚑,Эстония ?\(?\d+\)?⚑$/.test(lands.join()) && land.head === "Австрия" && land.rows.join() === "Инсбрук,Халль" && !land.clear && landBack === 3, JSON.stringify({ lands, land, landBack }));
+  await run(`localStorage.setItem("atlas.route.history", window.__keepHist); true`);
   // кнопка в барабане открывает раздел (маршрут) и сама навигацию не включает; где я — кнопкой слева внизу
   await run(`atlas.route.setTarget(null);
     localStorage.setItem("atlas.route.history", JSON.stringify(JSON.parse(localStorage.getItem("atlas.route.history") || "[]").filter((e) => !e.saved))); true`);
@@ -470,7 +551,7 @@ try {
   await clickInput();
   const shut = await run(`${navList}.hidden`);
   await clickInput();
-  await run(`${navList}.querySelector(".search-history-row:last-child .search-delete:not(.search-rename)").click(); true`);
+  await run(`${navList}.querySelector(".search-history-row:last-child .search-delete").click(); true`);
   const left = await run(`JSON.parse(localStorage.getItem("atlas.route.history") || "[]").length`);
   check("навигация: место из «Куда» — точка, подсказки закрылись; щелчок по строке — история (отдельно от карточки), набор — подходящие, второй щелчок — закрыть",
     found > 0 && /Kadri|Кадри/i.test(picked.target) && picked.history.length === 2 && !picked.list && picked.card && picked.placeholder === "Добавить точку"
@@ -758,6 +839,9 @@ try {
 
   // транспорт издалека (QLever): у Барселоны на «3 км» — вокзалы и фуникулёр Монжуика зелёной булавкой
   if (want("places/transport") && mods.some((m) => m.id === "places/transport")) {
+    // «Горнолыжные спуски» в проверке модулей отметили «Канатные дороги» — виды с чистого листа
+    await run(`atlas.toggle("places/transport", false)`);
+    await run(`localStorage.removeItem("atlas.places.transport.profile"); true`);
     await run(`atlas.map.jumpTo({ center: [2.16, 41.38], zoom: 10.5 }); atlas.toggle("places/transport", true)`);
     for (let i = 0; i < 45 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["places-transport-far"] }).length > 0`)); i++) await sleep(1000);
     const far = await run(`(() => { const fs = atlas.map.queryRenderedFeatures({ layers: ["places-transport-far"] }); return { n: fs.length, funicular: fs.filter((f) => f.properties.subclass === "funicular").length }; })()`);
@@ -814,6 +898,24 @@ try {
       return res; })()`);
     check("транспорт: крестик снимает всё, у видов кольца цвета", cleared.shown && cleared.off && cleared.closed && cleared.noneMarked && cleared.rings === 7, JSON.stringify(cleared));
     await run(`atlas.toggle("places/transport", false)`);
+    // «Горнолыжные спуски» (в «Тропах»): трассы и все подъёмники, включают «Канатные дороги» в «Транспорте» и
+    // запоминают это; выключили спуски — канатные дороги остаются (Грегори 2026-11-13)
+    await run(`atlas.map.jumpTo({ center: [10.3, 46.98], zoom: 12.4 }); atlas.toggle("trails/slopes", true)`);
+    await idle();
+    for (let i = 0; i < 20 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["trails-slopes-lifts-line"] }).length > 0`)); i++) { await run(`atlas.map.triggerRepaint(); true`); await sleep(1000); }
+    const ski = await run(`(() => { const tr = atlas.modules().find((m) => m.id === "places/transport");
+      return { raster: !!atlas.map.getLayer("trails-slopes-raster"), chairs: atlas.map.queryRenderedFeatures({ layers: ["trails-slopes-lifts-line"] }).length,
+        tr: tr.active, marked: tr.menu.items().filter((i) => i.active).map((i) => i.id), kept: JSON.parse(localStorage.getItem("atlas.layers.on") || "[]").includes("places/transport"),
+        gondolas: atlas.map.getLayoutProperty("places-lift-line", "visibility") }; })()`);
+    await shot("85-slopes");
+    await run(`atlas.toggle("trails/slopes", false)`);
+    const skiOff = await run(`({ raster: !!atlas.map.getLayer("trails-slopes-raster"), tr: atlas.modules().find((m) => m.id === "places/transport").active })`);
+    check("«Горнолыжные спуски»: трассы и подъёмники, включают «Канатные дороги»; выключили спуски — канатные дороги остались",
+      ski.raster && ski.chairs > 0 && ski.tr && ski.marked.join() === "lifts" && ski.kept && ski.gondolas === "visible" && !skiOff.raster && skiOff.tr, JSON.stringify({ ski, skiOff }));
+    await run(`atlas.toggle("places/transport", false)`);
+    const forgot = await run(`!JSON.parse(localStorage.getItem("atlas.layers.on") || "[]").includes("places/transport")`);
+    check("выключенный слой забыт до следующего запуска", forgot);
+    await run(`localStorage.removeItem("atlas.places.transport.profile"); true`);
   }
 
   // пешие тропы (Валь-Гардена): с зума 11 — линии с номерами, с 14 — полная геометрия маршрутов

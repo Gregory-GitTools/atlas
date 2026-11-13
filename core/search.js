@@ -124,10 +124,32 @@ export function initSearch({ map, maplibregl }) {
     old?.filter("");
     refresh();
   };
+  // ползунок и у карточки пути (Грегори 2026-11-13: «движок должен подниматься вверх до самого заголовка»):
+  // вверх — до её шапки (первой строки), вниз — во всю высоту; высота помнится, двойное нажатие — по содержимому
+  const cardGrip = Object.assign(document.createElement("div"), { className: "panel-grip search-grip", title: "Потяните — карточка выше или ниже" });
+  let cardH = settings.get("search.card.h") || null, cardPull = null;
+  const setCardH = (px) => { cardH = px || null; settings.set("search.card.h", cardH); const c = cardBox.firstElementChild; if (c && c !== cardGrip) c.style.maxHeight = cardH ? `${cardH}px` : ""; };
+  cardGrip.addEventListener("pointerdown", (e) => {
+    const c = cardBox.firstElementChild, head = c?.firstElementChild;
+    if (!c || c === cardGrip) return;
+    e.preventDefault(); e.stopPropagation(); cardGrip.setPointerCapture(e.pointerId);
+    const top = c.getBoundingClientRect().top;
+    cardPull = { y: e.clientY, h: c.getBoundingClientRect().height, min: head ? Math.ceil(head.getBoundingClientRect().bottom - top + parseFloat(getComputedStyle(c).paddingBottom)) : 40, max: c.scrollHeight };
+  });
+  cardGrip.addEventListener("pointermove", (e) => {
+    if (!cardPull) return;
+    const h = Math.round(Math.max(cardPull.min, cardPull.h + e.clientY - cardPull.y));
+    setCardH(h >= cardPull.max ? null : h);
+  });
+  cardGrip.addEventListener("pointerup", () => { cardPull = null; });
+  cardGrip.addEventListener("pointercancel", () => { cardPull = null; });
+  cardGrip.addEventListener("dblclick", () => setCardH(null));
+  cardGrip.addEventListener("click", (e) => e.stopPropagation());
   // карточка раздела (куда идти) — своя панель над списком; свёрнута — значок в строке
   refresh = (withList = true) => {
     const card = cardSrc?.card() || null;
-    cardBox.replaceChildren(...(card ? [card] : []));
+    if (card && cardH) card.style.maxHeight = `${cardH}px`;
+    cardBox.replaceChildren(...(card ? [card, cardGrip] : []));
     // одно окно за раз: открыты подсказки или окно раздела — карточки нет (её стрелка — в столбике под
     // логотипом, core/layers-panel.js); в строке поиска — только лупа (Грегори 2026-11-06)
     input.placeholder = mode?.hint?.() || mode?.placeholder || "Поиск места";

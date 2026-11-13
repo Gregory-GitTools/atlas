@@ -156,11 +156,15 @@ export function initPlaceInfo({ map, maplibregl }) {
       popup?.remove();
       popup = track(new maplibregl.Popup({ offset: 4, maxWidth: "280px" })).setLngLat(lngLat).setDOMContent(box).addTo(map);
     };
-    map.once("moveend", () => setTimeout(open));
+    // окно — когда встал именно этот полёт: остановка прерванного (весь маршрут при раскрытии карточки пути) открывала
+    // окно раньше, окно двигало карту, и полёт к месту обрывался на полпути (Грегори 2026-11-13)
+    const n = click, flight = { placeShow: n };
+    const landed = (ev) => { if (n !== click) return; if (ev.placeShow === n) setTimeout(open); else map.once("moveend", landed); };
+    map.once("moveend", landed);
     const pad = { top: top + 60, bottom: 60, left: 40, right: 40 };
-    const [s, n, w, e] = (bbox || []).map(Number); // boundingbox Nominatim: юг, север, запад, восток
-    if (bbox && n - s < 0.5 && e - w < 0.5) map.fitBounds([[w, s], [e, n]], { padding: pad, maxZoom: 16, duration: 1500 });
-    else map.flyTo({ center: lngLat, zoom: Math.max(map.getZoom(), bbox ? 12 : 16), offset: [0, top / 2], duration: 1500 });
+    const [s, nn, w, e] = (bbox || []).map(Number); // boundingbox Nominatim: юг, север, запад, восток
+    if (bbox && nn - s < 0.5 && e - w < 0.5) map.fitBounds([[w, s], [e, nn]], { padding: pad, maxZoom: 16, duration: 1500 }, flight);
+    else map.flyTo({ center: lngLat, zoom: Math.max(map.getZoom(), bbox ? 12 : 16), offset: [0, top / 2], duration: 1500 }, flight);
   };
 
   // значок карты в нескольких пикселях от точки

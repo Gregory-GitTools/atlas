@@ -57,15 +57,23 @@
    маленькие кнопки окон, списков и карточек — значки в разметке могут быть любого размера */
 .panel-btn > svg,
 .pb-btn > svg,
-.search-delete > svg,
 .search-drag > svg,
-.go-stop-x > svg,
 .search-box > button > svg,
 .search-card-btn svg,
-.go-way > svg,
-.go-close > svg {
+.go-way > svg {
   width: calc(100% - 4px);
   height: calc(100% - 4px);
+}
+
+/* крестик, «⋯» и «свернуть» строк и карточки пути — мельче и тоньше, вровень с лупой поиска
+   (Грегори 2026-11-13: «занимают много места… карандаш и крестик значительно меньше и обязательно уже»);
+   кнопка — прежняя, попасть пальцем так же легко */
+.search-delete > svg,
+.go-stop-x > svg,
+.go-close > svg,
+.go-more > svg {
+  width: 22px;
+  height: 22px;
 }
 
 html, body {
@@ -645,13 +653,13 @@ html, body {
   align-items: center;
 }
 
-/* строка истории — сетка: ручка слева на всю высоту, сверху название, карандаш и крестик, под ними адрес —
+/* строка истории — сетка: ручка слева на всю высоту, сверху название и крестик, под ними адрес —
    на всю ширину до края окна, с переносом (Грегори 2026-11-10: «подними кнопки справа, чтобы адрес писался
    на всю строку»); кнопка строки — без своей коробки, её части встают в сетку, щелчок по ним — та же кнопка */
 .history .search-history-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  grid-template-areas: "drag title edit del" "drag sub sub sub";
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "drag title del" "drag sub sub";
   align-items: start;
   cursor: pointer;
 }
@@ -687,23 +695,18 @@ html, body {
   padding-bottom: 4px;
 }
 
-.history .search-history-row .search-rename {
-  grid-area: edit;
-  margin: 2px 0 0;
-}
-
-.history .search-history-row .search-delete:not(.search-rename) {
+.history .search-history-row .search-delete {
   grid-area: del;
   margin: 2px 4px 0 0;
 }
 
 .history .search-history-row .history-rename {
-  grid-column: 2 / 4;
+  grid-column: 2 / 3;
   grid-row: 1;
 }
 
-/* ручка, карандаш и крестик строки — 34 px, как кнопки шапки (Грегори 2026-11-10: «контролы больше»);
-   в списке нечего выделять — текст правят карандашом */
+/* ручка и крестик строки — 34 px, как кнопки шапки (Грегори 2026-11-10: «контролы больше»);
+   в списке нечего выделять — текст правят долгим нажатием */
 .search-drag {
   width: 34px;
   height: 34px;
@@ -3161,6 +3164,16 @@ body.search-hidden .panel-left {
 .search-card .nav-card {
   margin: 0;
   background: none;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* сжатая ползунком — без полосы прокрутки рядом с крестиком; листается колесом и пальцем */
+  scrollbar-width: none;
+}
+
+/* ползунок внизу карточки пути (Грегори 2026-11-13): вверх — до самой шапки, вниз — во всю высоту */
+.search-card > .search-grip {
+  margin-top: -6px;
 }
 
 /* окно слева свёрнуто — оно значком в строке поиска (core/search.js), места на карте не занимает */
@@ -3473,6 +3486,15 @@ body.search-hidden .panel-left {
 }
 
 
+/* флаг страны в списке «Куда» — как в альбомах */
+.history-flag {
+  width: 24px;
+  height: 16px;
+  object-fit: cover;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
 /* история: значок сохранённого маршрута перед названием, переименование прямо в строке */
 .history-icon {
   display: inline-flex;
@@ -3497,7 +3519,7 @@ body.search-hidden .panel-left {
   height: 32px;
   font-size: 0;
   border-radius: 50%;
-  background: no-repeat center / 20px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M5 5l14 14M19 5L5 19' stroke='%233c4043' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  background: no-repeat center / 22px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 6l12 12M18 6L6 18' stroke='%233c4043' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
 }
 
 .maplibregl-popup-close-button:hover {
@@ -3683,9 +3705,22 @@ body.dock-on .dock {
 .go-pt-t {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+/* название места, адрес — строкой ниже (Грегори 2026-11-13) */
+.go-pt-title,
+.go-pt-sub {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.go-pt-sub {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .go-stop-x:hover {
