@@ -397,17 +397,26 @@ try {
   const off = await run(`({ ...atlas.route.state(), on: ${wheelNav}?.classList.contains("on"), nav: ${navStats}.navOn })`);
   check("навигация: кнопка в барабане светится, пока навигация включена; выключили — путь и точка сняты",
     lit.on && lit.nav && !off.on && !off.nav && !off.route && !off.target, JSON.stringify({ lit, off }));
-  // без навигации кнопки маршрута в окне места — есть, «Сюда» видна и неактивна (Грегори 2026-11-13)
-  const noHere = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
+  // кнопки маршрута в окне места — только при навигации (Грегори 2026-11-14): без неё — «Поделиться» и «Отметить»;
+  // открыт раздел «Навигация» (и без GPS) — все, «Сюда» видна и неактивна
+  const popRow = `(async () => { const { track } = await import(new URL("core/popups.js", location.href));
     const p = track(new atlas.ctx.maplibregl.Popup({ maxWidth: "280px" })).setLngLat([24.76, 59.43]).setHTML('<div class="popup-title">Проба</div>').addTo(atlas.map);
-    const q = (c) => p.getElement().querySelector(c);
-    const r = { visible: !!q(".go-here") && q(".go-here").offsetParent !== null, disabled: q(".go-here")?.disabled, start: q(".go-begin") && !q(".go-begin").disabled,
-      finish: q(".go-end") && !q(".go-end").disabled, add: q(".go-add") && !q(".go-add").disabled };
+    const q = (c) => p.getElement().querySelector(c), seen = (c) => !!q(c) && q(c).offsetParent !== null;
+    const r = { shown: [...p.getElement().querySelectorAll(".go-act, .go-more")].filter((b) => b.offsetParent).map((b) => b.title).join(),
+      disabled: q(".go-here")?.disabled, start: seen(".go-begin") && !q(".go-begin").disabled, finish: seen(".go-end") && !q(".go-end").disabled, add: seen(".go-add") && !q(".go-add").disabled };
     const row = q(".go-actions").getBoundingClientRect(), box = p.getElement().getBoundingClientRect();
-    r.fits = row.right <= box.right + 1 && [...p.getElement().querySelectorAll(".go-act")].every((b) => Math.abs(b.getBoundingClientRect().top - row.top) < 2);
-    p.remove(); return r; })()`);
-  check("окно места без навигации: «Сюда» видна и неактивна, «Старт», «Добавить», «Финиш» работают; ряд в одну строку",
-    noHere.visible && noHere.disabled && noHere.start && noHere.finish && noHere.add && noHere.fits, JSON.stringify(noHere));
+    r.fits = row.right <= box.right + 1 && [...p.getElement().querySelectorAll(".go-act")].filter((b) => b.offsetParent).every((b) => Math.abs(b.getBoundingClientRect().top - row.top) < 2);
+    p.remove(); return r; })()`;
+  const noNav = await run(popRow);
+  await run(`${wheelNav}.click(); true`);
+  await sleep(300);
+  const noHere = await run(popRow);
+  await run(`import(new URL("core/search.js", location.href)).then((m) => { m.setSearchMode(null); return true; })`);
+  await sleep(200);
+  const noNav2 = await run(popRow);
+  check("окно места без навигации — только «Поделиться» и «Отметить»; раздел «Навигация» открыт (без GPS) — «Сюда» видна и неактивна, «Старт», «Добавить», «Финиш», «⋯»; ряд в одну строку",
+    noNav.shown === "Поделиться,Отметить" && noNav2.shown === noNav.shown && /^Сюда,Старт,Добавить в путь,Финиш,Поделиться,Отметить,Ещё$/.test(noHere.shown)
+    && noHere.disabled && noHere.start && noHere.finish && noHere.add && noHere.fits && noNav.fits, JSON.stringify({ noNav, noHere, noNav2 }));
   // планирование дома: первая точка — метка; «Финиш» — маршрут (запись в «Куда» со стартом); «+» — перед
   // финишем; новый «Старт» заменяет прежний; способ — путь по точкам маршрута, без меня; программа сама не прокладывает
   const plan = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
@@ -2169,9 +2178,9 @@ try {
         const sub = p().querySelector(".popup-sub:not(.kite-bad)")?.textContent;
         const td = [...p().querySelectorAll(".wx-h")][10]; td.click(); await wait(300);
         const clicked = Number(td.textContent), barAfter = new Date(${wind}.stats().at * 1000).getHours();
-        return { rows: rows.slice(0, 3), atH, barH, sub, clicked, barAfter, framed: td.classList.contains("wx-at") }; })()`);
+        return { rows: rows.slice(0, 5), atH, barH, sub, clicked, barAfter, framed: td.classList.contains("wx-at") }; })()`);
       check("окно спота и ползунок ветра связаны: ползунок двигает рамку, щелчок по столбцу — ползунок; «Кайт» над «Ветром»",
-        link.rows.join() === "Часы,Кайт,Ветер" && Number(link.atH) === link.barH && link.clicked === link.barAfter && link.framed, JSON.stringify(link));
+        link.rows.join() === "Часы,°C,Откуда,Кайт,Ветер" && Number(link.atH) === link.barH && link.clicked === link.barAfter && link.framed, JSON.stringify(link));
       await run(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); true`);
     }
     await run(`${wind}.setStep(0); atlas.toggle("weather/wind", false).then(() => true)`);
@@ -2214,7 +2223,7 @@ try {
     check("ветер: лента прогноза — 5 дней назад и 7 вперёд по 3 часа, в рамке и в виду сейчас, кнопки «Ветер» (вкл.) и «Осадки»; столбец — стрелки на его время; кнопки не закрывает",
       barNow.shown && barNow.name === "Центр карты" && barNow.when === "Сейчас" && barNow.cols >= 94 && barNow.past >= 40 && barNow.atIdx === barNow.past && barNow.inView
       && barNow.layers === "true,false" && !barNow.hit && /^ [0-9]+$/.test(barNow.gust)
-      && later.at > Date.now() / 1000 + 50 * 3600 && later.when !== "Сейчас" && later.dirs !== before, JSON.stringify({ barNow, later: { at: later.at, when: later.when }, same: later.dirs === before }));
+      && later.at > Date.now() / 1000 + 50 * 3600 && later.when !== "Сейчас" && later.dirs !== before, JSON.stringify({ barNow, later: { at: later.at, when: later.when }, same: later.dirs === before, before, dirs: later.dirs }));
     // стрелка ближе к центру — у краёв её закрывают строка поиска и кнопки
     const p = await run(`(() => { const c = atlas.map.project(atlas.map.getCenter()); return atlas.map.queryRenderedFeatures({ layers: ["wind"] })
       .map((f) => atlas.map.project(f.geometry.coordinates)).filter((q) => q.x > 30 && q.x < innerWidth - 70 && q.y > 80 && q.y < document.querySelector(".wx-bar").getBoundingClientRect().top - 40)
@@ -2276,12 +2285,17 @@ try {
     const wx = await run(`(() => { const b = document.querySelector(".wx-bar"), hs = [...b.querySelectorAll(".wx-h")];
       return { back: document.querySelector(".maplibregl-popup .wx-back")?.textContent, now: document.querySelector(".maplibregl-popup .wx-now")?.textContent,
         sub: document.querySelector(".maplibregl-popup .wx-view .popup-sub")?.textContent, actions: !!document.querySelector(".maplibregl-popup .go-actions")?.offsetParent,
-        bar: !b.hidden, name: b.querySelector(".wx-bar-name").textContent, past: b.querySelectorAll(".wx-h.wx-past").length, atIdx: hs.indexOf(b.querySelector(".wx-h.wx-at")),
+        bar: !b.hidden, name: b.querySelector(".wx-bar-name").textContent,
+        rows: [...b.querySelectorAll(".wx-grid tr:not(.wx-days-row)")].map((tr) => tr.querySelector("th").textContent || (tr.classList.contains("wx-sky-row") ? "☀" : "?")).join(),
+        sky: [...b.querySelectorAll(".wx-sky")].filter((td) => td.querySelector("svg") && td.title).length, skyN: b.querySelectorAll(".wx-sky").length, past: b.querySelectorAll(".wx-h.wx-past").length, atIdx: hs.indexOf(b.querySelector(".wx-h.wx-at")),
         heavy: !!atlas.map.getLayer("wind") || atlas.map.getStyle().layers.some((l) => l.id.startsWith("radar-")),
         above: document.querySelector(".maplibregl-popup").getBoundingClientRect().bottom <= b.getBoundingClientRect().top + 1 }; })()`);
     check("погода места: щелчок — окно погоды с «Назад», лента на место (сейчас в рамке, прошлое есть); ветер и осадки не включились",
       wx.back === "Место" && /порывы/.test(wx.now) && /^Сейчас · -?[0-9]+°/.test(wx.sub) && !wx.actions && wx.bar && wx.name === "Погода в точке"
       && wx.past >= 40 && wx.atIdx === wx.past && !wx.heavy && wx.above, JSON.stringify(wx));
+    // порядок строк ленты — как у Windy (Грегори 2026-11-14), под часами — значок погоды у каждого шага
+    check("погода места: строки ленты — часы, значок погоды, °C, откуда, ветер, порывы, осадки",
+      /^Часы,☀,°C,Откуда,Ветер,Порывы,Осадки(,Волна)?$/.test(wx.rows) && wx.skyN >= 94 && wx.sky === wx.skyN, JSON.stringify({ rows: wx.rows, sky: wx.sky, skyN: wx.skyN }));
     await shot("92-place-weather");
     // столбец ленты — окно погоды на его время; кнопка «Ветер» в шапке — включает и выключает слой, лента остаётся
     await run(`(() => { const hs = [...document.querySelectorAll(".wx-bar .wx-h")]; hs[hs.findIndex((x) => x.classList.contains("wx-at")) + 8].click(); return true; })()`);

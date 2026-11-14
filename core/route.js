@@ -131,7 +131,14 @@ export function initRoute({ map, maplibregl, status }) {
 
   // что показать окну навигации: точка, где я, расстояние, сторона, стрелка относительно экрана, путь
   let busy = null; // способ, для которого ищем путь
+  // кнопки маршрута в окне места («Сюда», «Старт», «Добавить», «Финиш», «⋯») — только при навигации
+  // (Грегори 2026-11-14): горит её раздел (включена или открыта строка «Куда» — маршрут составляют и дома)
+  // или маршрут уже собирается; «Поделиться» и «Отметить» — всегда
+  let navLit = false;
+  const navUi = () => document.body.classList.toggle("go-nav-off", !navLit && !all().length);
+  on("module", ({ id, on: v }) => { if (id === "content/navigation") { navLit = !!v; navUi(); } });
   const show = () => {
+    navUi();
     const nx = me && next(), d = nx ? distance(me, nx) : null, b = nx ? bearing(me, nx) : null;
     const way = route && WAYS.find((w) => w.id === route.way);
     const pts = all();
@@ -388,7 +395,7 @@ export function initRoute({ map, maplibregl, status }) {
   drawMarks();
 
   // ---------- окно места: «Сюда», «Старт», «Добавить», «Финиш», «Поделиться», «Отметить»; «⋯» вверху ----------
-  // Кнопки — всегда (Грегори 2026-11-13: маршрут составляется и без навигации); «Сюда» без моего места неактивна
+  // Кнопки маршрута — при навигации (см. navUi), маршрут составляют и без GPS; «Сюда» без моего места неактивна
   // место из окна: названия нет — первая часть адреса, адрес — подписью; адреса нет — координаты
   const placeOf = (popup, content) => {
     const { lng, lat } = popup.getLngLat();
@@ -456,11 +463,11 @@ export function initRoute({ map, maplibregl, status }) {
     if (!content || content.querySelector(".go-actions")) return;
     const row = h("div", "go-actions");
     const act = (cls, title, html, fn) => button(`go-act ${cls}`, title, html, () => { const p = placeOf(popup, content); closeAll(); fn(p); });
-    const go = act("go-here", "Сюда", NAV_ARROW, (p) => { if (me) here(p); });
+    const go = act("go-here go-nav", "Сюда", NAV_ARROW, (p) => { if (me) here(p); });
     go.disabled = !me;
-    const begin = act("go-begin", "Старт", START_ICON, (p) => { setStart(p); emit("route-added"); });
-    const add = act("go-add", "Добавить в путь", ADD_ICON, (p) => { addStop(p); emit("route-added"); });
-    const end = act("go-end", "Финиш", FINISH_ICON, (p) => { setFinish(p); emit("route-added"); });
+    const begin = act("go-begin go-nav", "Старт", START_ICON, (p) => { setStart(p); emit("route-added"); });
+    const add = act("go-add go-nav", "Добавить в путь", ADD_ICON, (p) => { addStop(p); emit("route-added"); });
+    const end = act("go-end go-nav", "Финиш", FINISH_ICON, (p) => { setFinish(p); emit("route-added"); });
     const mark = button("go-act go-flagit", "Отметить", MARK_ICON, (b) => {
       toggleMark(placeOf(popup, content));
       paintMark(b);

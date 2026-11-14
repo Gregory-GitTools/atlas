@@ -1183,6 +1183,16 @@ html, body {
   height: 14px;
 }
 
+.wx-grid .wx-sky {
+  padding: 1px 0;
+  color: var(--text);
+}
+.wx-grid .wx-sky svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: 0 auto;
+}
 .wx-grid .wx-rain {
   color: #1565c0;
 }
@@ -3503,6 +3513,21 @@ body.search-hidden .panel-left {
 }
 
 .maplibregl-popup-content:has(.go-more[hidden]) {
+  padding-right: 34px;
+}
+
+/* без навигации — только «Поделиться» и «Отметить» (core/route.js, navUi) */
+body.go-nav-off .go-nav,
+body.go-nav-off .go-more,
+body.go-nav-off .go-menu {
+  display: none;
+}
+
+body.go-nav-off .go-actions {
+  margin-right: 0;
+}
+
+body.go-nav-off .maplibregl-popup-content.has-more:not(:has(.wx-chip:not([hidden]))) {
   padding-right: 34px;
 }
 

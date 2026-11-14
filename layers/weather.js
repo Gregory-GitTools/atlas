@@ -67,8 +67,10 @@ const DAYS = 7;
   };
 
   // заливка: узлы сетки — правильная решётка; между ними — плавно (билинейно), картинка растягивается
-  // на прямоугольник узлов (источник image под подписями карты). Сдвиг ползунка — только перекраска
-  const CELL_PX = 12;
+  // на прямоугольник узлов (источник image под подписями карты). Сдвиг ползунка — только перекраска.
+  // Картинка мелкая (карта сама сглаживает при растяжении), цвета — из готовой таблицы через 0,1 м/с
+  const CELL_PX = 8;
+  const LUT = Array.from({ length: 401 }, (_, k) => fillColor(k / 10));
   const fillCanvas = document.createElement("canvas");
   let fillInfo = null; // для проверки: размер картинки и сумма цветов (меняется со временем ползунка)
   function drawFill() {
@@ -88,7 +90,7 @@ const DAYS = 7;
         const a = v[r][q], b = v[r][q + 1], cc = v[r + 1][q], d = v[r + 1][q + 1];
         if (a == null || b == null || cc == null || d == null) continue;
         const ms = (a * (1 - fx) + b * fx) * (1 - fy) + (cc * (1 - fx) + d * fx) * fy;
-        const [R0, G, B] = fillColor(ms), o = (y * W + x) * 4;
+        const [R0, G, B] = LUT[Math.min(400, Math.max(0, Math.round(ms * 10)))], o = (y * W + x) * 4;
         img.data[o] = R0; img.data[o + 1] = G; img.data[o + 2] = B; img.data[o + 3] = 255;
       }
     }
@@ -154,9 +156,12 @@ const DAYS = 7;
         (a[1] * (1 - tx) + b[1] * tx) * (1 - ty) + (c[1] * (1 - tx) + d[1] * tx) * ty];
     };
     const spawn = (p) => { p.x = Math.random() * W; p.y = Math.random() * H; p.age = Math.floor(Math.random() * MAX_AGE); return p; };
+    let odd = false;
     const tick = () => {
       raf = 0;
       if (!active || moving || !field || calm.matches) return;
+      // кадр через кадр (около 30 в секунду) — глазу хватает, а карта не подвисает
+      if ((odd = !odd)) { raf = requestAnimationFrame(tick); return; }
       // прежние следы тают — получаются хвосты
       g.globalCompositeOperation = "destination-in";
       g.fillStyle = "rgba(0,0,0,0.86)";
@@ -187,22 +192,29 @@ const DAYS = 7;
       const lons = [...new Set(shown.map((p) => p[0]))].sort((a, b) => a - b), lats = [...new Set(shown.map((p) => p[1]))].sort((a, b) => a - b);
       if (lons.length < 2 || lats.length < 2) return;
       const t = at ?? Date.now() / 1000;
-      const node = new Map(shown.map(([lon, lat]) => { const w = cache.get(`${lat},${lon}`); return [`${lat},${lon}`, w ? valueAt(w, t) : null]; }));
-      // ветер «куда дует» в м/с: на восток, на север
+      // ветер узлов «куда дует» в м/с (на восток, на север) — решётка lats × lons, заранее
+      const node = lats.map((lat) => lons.map((lon) => {
+        const w = cache.get(`${lat},${lon}`), v = w && valueAt(w, t);
+        if (!v || v.ms == null) return null;
+        const a = (v.dir * Math.PI) / 180;
+        return [-v.ms * Math.sin(a), -v.ms * Math.cos(a)];
+      }));
+      // решётка ровная — клетка находится делением, без поиска
+      const sx = (lons.at(-1) - lons[0]) / (lons.length - 1), sy = (lats.at(-1) - lats[0]) / (lats.length - 1);
       const uv = (lon, lat) => {
-        const q = lons.findIndex((x, n) => n < lons.length - 1 && lon >= x && lon <= lons[n + 1]);
-        const r = lats.findIndex((y, n) => n < lats.length - 1 && lat >= y && lat <= lats[n + 1]);
+        const q = Math.min(lons.length - 2, Math.floor((lon - lons[0]) / sx)), r = Math.min(lats.length - 2, Math.floor((lat - lats[0]) / sy));
         if (q < 0 || r < 0) return null;
-        const vs = [[lats[r], lons[q]], [lats[r], lons[q + 1]], [lats[r + 1], lons[q]], [lats[r + 1], lons[q + 1]]].map(([y, x]) => node.get(`${y},${x}`));
-        if (vs.some((v) => !v || v.ms == null)) return null;
-        const c = vs.map((v) => { const a = (v.dir * Math.PI) / 180; return [-v.ms * Math.sin(a), -v.ms * Math.cos(a)]; });
-        const tx = (lon - lons[q]) / (lons[q + 1] - lons[q]), ty = (lat - lats[r]) / (lats[r + 1] - lats[r]);
-        return [0, 1].map((m) => (c[0][m] * (1 - tx) + c[1][m] * tx) * (1 - ty) + (c[2][m] * (1 - tx) + c[3][m] * tx) * ty);
+        const a = node[r][q], b = node[r][q + 1], c = node[r + 1][q], d = node[r + 1][q + 1];
+        if (!a || !b || !c || !d) return null;
+        const tx = (lon - lons[q]) / sx, ty = (lat - lats[r]) / sy;
+        if (tx > 1 || ty > 1) return null;
+        return [0, 1].map((m) => (a[m] * (1 - tx) + b[m] * tx) * (1 - ty) + (c[m] * (1 - tx) + d[m] * tx) * ty);
       };
       const phone = innerWidth <= 600;
-      cell = phone ? 14 : 10;
+      cell = phone ? 20 : 16;
       const box = map.getContainer();
-      W = box.clientWidth; H = box.clientHeight; dpr = Math.min(2, devicePixelRatio || 1);
+      // холст линий — в обычных точках экрана: тонкие линии и так видны, а работы вчетверо меньше
+      W = box.clientWidth; H = box.clientHeight; dpr = 1;
       if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
       cols = Math.ceil(W / cell) + 1; rows = Math.ceil(H / cell) + 1;
       const f = new Array(cols * rows).fill(null);
@@ -224,22 +236,23 @@ const DAYS = 7;
         f[j * cols + i] = [(dx / len) * sp, (dy / len) * sp];
       }
       field = f;
-      const n = Math.round((W * H) / (phone ? 900 : 500));
-      parts = Array.from({ length: Math.min(phone ? 900 : 3000, n) }, () => spawn({}));
+      const n = Math.round((W * H) / (phone ? 1000 : 700));
+      parts = Array.from({ length: Math.min(phone ? 700 : 2000, n) }, () => spawn({}));
       g.clearRect(0, 0, cv.width, cv.height);
       run();
     };
-    let wiredFlow = false;
+    let wiredFlow = false, pending = 0;
     const arrows = (map) => { if (map.getLayer("wind")) map.setPaintProperty("wind", "icon-opacity", calm.matches ? 0.85 : 0); };
     return {
-      field: () => { if (active && !moving) build(); },
+      field: () => { if (active && !moving && !pending) pending = setTimeout(() => { pending = 0; if (active && !moving) build(); }, 30); },
       enable(map) {
         map.getCanvas().after(cv); // над картой, под значками и окнами
         arrows(map);
         if (!wiredFlow) {
           wiredFlow = true;
           map.on("movestart", () => { moving = true; cancelAnimationFrame(raf); raf = 0; g.clearRect(0, 0, cv.width, cv.height); });
-          map.on("moveend", () => { moving = false; if (active) build(); });
+          // после сдвига поле пересчитает update() слоя (draw) — второй раз не считаем
+          map.on("moveend", () => { moving = false; });
           map.on("resize", () => { if (active) build(); });
           calm.addEventListener?.("change", () => { arrows(map); g.clearRect(0, 0, cv.width, cv.height); run(); });
         }

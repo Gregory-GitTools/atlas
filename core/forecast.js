@@ -90,7 +90,7 @@ const once = (what, [lon, lat], get) => {
 };
 const common = (lon, lat) => ({ latitude: lat, longitude: lon, timezone: "auto", timeformat: "unixtime", past_days: PAST, forecast_days: 7, temporal_resolution: "hourly_3" });
 const loadWx = (ll) => once("wx", ll, (lon, lat) => fetch(`${API}?${new URLSearchParams({ ...common(lon, lat), wind_speed_unit: "ms",
-  hourly: "wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation", daily: "sunrise,sunset" })}`)
+  hourly: "wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation,weather_code", daily: "sunrise,sunset" })}`)
   .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Open-Meteo: ${r.status}`)))));
 // волна — только на воде: на суше Marine API отвечает пустыми значениями или ошибкой
 const loadSea = (ll) => once("sea", ll, (lon, lat) => fetch(`${MARINE}?${new URLSearchParams({ ...common(lon, lat), hourly: "wave_height,wave_direction,wave_period" })}`)
@@ -127,9 +127,28 @@ const sunLine = (v, box) => {
   if (v.daily?.sunrise?.[k]) el("div", "popup-row wx-sun", `Восход ${v.hm(v.daily.sunrise[k])} · закат ${v.hm(v.daily.sunset[k])}`, box);
 };
 
+// значок погоды по коду WMO (weather_code Open-Meteo): ясно, переменная облачность, облачно, туман, дождь
+// (и морось), снег, гроза; ясно ночью — луна. Одноцветные, как остальные значки
+const SUN = '<circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>';
+const MOON = '<path d="M14.5 3a9 9 0 1 0 6.5 14.5A7.5 7.5 0 0 1 14.5 3z"/>';
+const CLOUD = '<path d="M7 18h10.5a4 4 0 0 0 .4-8A6 6 0 0 0 6.3 10.6 3.7 3.7 0 0 0 7 18z"/>';
+const UP = (x) => `<g transform="translate(0 -4)">${x}</g>`;
+const SKY = {
+  clear: ["Ясно", (day) => (day ? SUN : MOON)],
+  partly: ["Переменная облачность", (day) => `<g transform="translate(-2 -3) scale(.75)">${day ? SUN : MOON}</g><g stroke="var(--panel)" stroke-width="1.6" transform="translate(2 2) scale(.85)">${CLOUD}</g>`],
+  cloud: ["Облачно", () => CLOUD],
+  fog: ["Туман", () => '<path d="M4 8h16M3 12h18M5 16h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'],
+  rain: ["Дождь", () => UP(CLOUD) + '<path d="M8 17.5l-1 3M12 17.5l-1 3M16 17.5l-1 3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>'],
+  snow: ["Снег", () => UP(CLOUD) + '<circle cx="8" cy="19" r="1.3"/><circle cx="12" cy="21" r="1.3"/><circle cx="16" cy="19" r="1.3"/>'],
+  storm: ["Гроза", () => UP(CLOUD) + '<path d="M12.5 14 9 19.5h3l-1 3.5 4-5.5h-3l1.5-3.5z"/>'],
+};
+const sky = (code) => (code == null ? null : code <= 1 ? "clear" : code === 2 ? "partly" : code === 3 ? "cloud" : code <= 48 ? "fog"
+  : (code >= 71 && code <= 77) || code === 85 || code === 86 ? "snow" : code >= 95 ? "storm" : "rain");
+
 // таблица по образцу Windy (Грегори 2026-11-12): шаги ks по 3 часа слева направо, листается вбок; строки —
-// у спота сверху «Кайт» (зелёная — подходит, оранжевая — сильно, красная — с берега или шторм, пусто — нет),
-// ветер и порывы цветными клетками, направление, температура, осадки, волна. Ночь — затемнена, прошедшее —
+// сверху вниз, как у Windy (Грегори 2026-11-14): часы, значок погоды, температура, направление, у спота «Кайт»
+// (зелёная — подходит, оранжевая — сильно, красная — с берега или шторм, пусто — нет), ветер и порывы
+// цветными клетками, осадки, волна. Ночь — затемнена, прошедшее —
 // бледнее; выбранное время — в рамке. pick(k) — щелчок по столбцу
 function table(v, ks, { kite = null, pick } = {}) {
   const { h } = v, nowK = v.nowK();
@@ -157,6 +176,20 @@ function table(v, ks, { kite = null, pick } = {}) {
   }
   const hours = row("Часы");
   ks.forEach((k) => cell(hours, k, v.hm(h.time[k]).slice(0, 2), "wx-h"));
+  // значок погоды — сразу под часами, без подписи (как у Windy)
+  const icons = row("");
+  icons.className = "wx-sky-row";
+  ks.forEach((k) => {
+    const kind = sky(h.weather_code?.[k]), td = cell(icons, k, "", "wx-sky");
+    if (!kind) return;
+    td.title = SKY[kind][0];
+    td.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">${SKY[kind][1](v.light(k))}</svg>`;
+    td.dataset.sky = kind;
+  });
+  const temp = row("°C");
+  ks.forEach((k) => cell(temp, k, `${r0(h.temperature_2m[k])}°`));
+  const dir = row("Откуда", "Направление: стрелка — куда дует");
+  ks.forEach((k) => cell(dir, k, "").append(arrow(h.wind_direction_10m[k], null, dirName(h.wind_direction_10m[k]))));
   // «Кайт» — над ветром (Грегори 2026-11-12)
   if (kite) {
     const kr = row("Кайт", "Годится ли ветер для кайта на этом споте");
@@ -170,10 +203,6 @@ function table(v, ks, { kite = null, pick } = {}) {
   ks.forEach((k) => { const td = cell(wind, k, r0(h.wind_speed_10m[k]), "wx-c"); td.style.background = windColor(h.wind_speed_10m[k]); });
   const gust = row("Порывы", "Порывы, м/с");
   ks.forEach((k) => { const td = cell(gust, k, r0(h.wind_gusts_10m[k]), "wx-c wx-g"); td.style.background = windColor(h.wind_gusts_10m[k]); });
-  const dir = row("Откуда", "Направление: стрелка — куда дует");
-  ks.forEach((k) => cell(dir, k, "").append(arrow(h.wind_direction_10m[k], null, dirName(h.wind_direction_10m[k]))));
-  const temp = row("°C");
-  ks.forEach((k) => cell(temp, k, `${r0(h.temperature_2m[k])}°`));
   const rain = row("Осадки", "Осадки, мм за 3 часа");
   ks.forEach((k) => cell(rain, k, h.precipitation[k] >= 0.1 ? r1(h.precipitation[k]) : "", "wx-rain"));
   if (v.waves) {
