@@ -960,7 +960,9 @@ html, body {
 /* окна на карте — скруглённые */
 .maplibregl-popup-content {
   border-radius: var(--radius);
-  padding: 10px 34px 10px 14px; /* справа — место крупному крестику */
+  /* справа — место крупному крестику (--pr: шире, когда в шапке «⋯» или под крестиком погода) */
+  --pr: 34px;
+  padding: 10px var(--pr) 10px 10px;
   /* шрифт и размеры — как в окнах разделов (Грегори 2026-11-11): название 15, текст 13, подписи 12 */
   font: 13px/1.4 var(--font);
   color: var(--text);
@@ -1332,7 +1334,7 @@ body.has-photo-strip .wx-bar {
 
 /* погода места: под крестиком окна — температура и осадки сейчас, под ними стрелка ветра (в поле справа,
    текст окна не задевает); щелчок — лента прогноза внизу, ещё щелчок — убрать; лента на месте — затенён.
-   Рядом со стрелкой ветра без навигации — кнопка «Навигация» (.go-navon, core/route.js) */
+   Без навигации «Навигация» (.go-navon, core/route.js) — в шапке, на месте «⋯» */
 .wx-host {
   min-height: 72px;
 }
@@ -1345,7 +1347,7 @@ body.has-photo-strip .wx-bar {
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  width: 62px;
+  min-width: 46px;
   height: 44px;
   padding: 3px 4px;
   border: none;
@@ -1404,7 +1406,7 @@ body.has-photo-strip .wx-bar {
 }
 
 .maplibregl-popup-content:has(.wx-chip:not([hidden])) {
-  padding-right: 66px;
+  --pr: 56px;
 }
 
 /* фото щита в окне значка */
@@ -3419,8 +3421,14 @@ body.search-hidden .panel-left {
   flex-wrap: nowrap;
   gap: 2px;
   margin-top: 8px;
-  /* шесть кнопок (Сюда, Старт, Добавить, Финиш, Поделиться, Отметить) — ряд занимает и поле под «⋯» */
-  margin-right: -56px;
+  /* шесть кнопок (Сюда, Старт, Добавить, Финиш, Поделиться, Отметить) — ряд занимает и правое поле, до края 4 точки */
+  margin-right: calc(4px - var(--pr));
+}
+
+/* окно с рядом кнопок — по ряду, без пустого поля справа (Грегори 2026-11-14: «забрать пол сантиметра справа») */
+.maplibregl-popup-content:has(.go-actions) {
+  box-sizing: border-box;
+  max-width: 252px;
 }
 
 .go-actions[hidden],
@@ -3497,14 +3505,14 @@ body.search-hidden .panel-left {
 }
 
 .maplibregl-popup-content.has-more {
-  padding-right: 66px;
+  --pr: 66px;
 }
 
 .maplibregl-popup-content:has(.go-more[hidden]) {
-  padding-right: 34px;
+  --pr: 34px;
 }
 
-/* без навигации кнопок места нет — только «Навигация» под крестиком (у погоды — рядом со стрелкой ветра);
+/* без навигации кнопок места нет — только «Навигация» в шапке, на месте «⋯» (Грегори 2026-11-14);
    с навигацией — полный ряд (core/route.js, navUi; Грегори 2026-11-14) */
 body.go-nav-off .go-actions,
 body.go-nav-off .go-more,
@@ -3515,10 +3523,10 @@ body.go-nav-off .go-menu {
 .go-navon {
   display: none;
   position: absolute;
-  top: 34px;
-  right: 2px;
-  width: 34px;
-  height: 34px;
+  top: 0;
+  right: 32px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: none;
   border-radius: 50%;
@@ -3534,14 +3542,6 @@ body.go-nav-off .go-navon {
 
 .go-navon:hover {
   background: var(--panel-hover);
-}
-
-.maplibregl-popup-content:has(.wx-chip:not([hidden])) .go-navon {
-  top: 58px;
-}
-
-body.go-nav-off .maplibregl-popup-content:has(.go-navon) {
-  min-height: 74px;
 }
 
 .go-menu {

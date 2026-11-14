@@ -110,7 +110,9 @@ const line = (coords) => ({ type: "FeatureCollection", features: coords ? [{ typ
 // «Сюда» при готовом маршруте — новый маршрут: эта точка, затем заготовленный (сам заготовленный не трогается).
 // Пройденные точки гаснут только в этой поездке, запись маршрута остаётся целой.
 const START = `<svg viewBox="0 0 30 30" width="30" height="30"><circle cx="15" cy="15" r="13" fill="#2e9d43" stroke="#fff" stroke-width="2.5"/><path d="M12 9.5v11l9-5.5z" fill="#fff"/></svg>`;
-export const START_ICON = icon("M10,16.5L16,12L10,7.5V16.5M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z");
+// «Старт» — слово START в круге (Грегори 2026-11-14)
+export const START_ICON = `<svg viewBox="0 0 24 24" width="26" height="26"><circle cx="12" cy="12" r="10.5" fill="none" stroke="currentColor" stroke-width="2"/>`
+  + `<text x="12" y="14.4" text-anchor="middle" font-family="Arial, sans-serif" font-size="6.8" font-weight="700" textLength="16" lengthAdjust="spacingAndGlyphs" fill="currentColor">START</text></svg>`;
 export const FINISH_ICON = icon("M14.4,6H20V16H13L12.6,14H7V21H5V4H14L14.4,6M14,14H16V12H18V10H16V8H14V10L13,8V6H11V8H9V6H7V8H9V10H7V12H9V10H11V12H13V10L14,12V14M11,10V8H13V10H11M14,10H16V12H14V10Z");
 
 export function initRoute({ map, maplibregl, status }) {
@@ -133,7 +135,7 @@ export function initRoute({ map, maplibregl, status }) {
   let busy = null; // способ, для которого ищем путь
   // кнопки окна места — только при навигации (Грегори 2026-11-14: «без навигации — перебор»): горит её
   // раздел (включена или открыта строка «Куда» — маршрут составляют и дома) или маршрут уже собирается; без
-  // неё — одна кнопка «Навигация» (как в барабане) под крестиком
+  // неё — одна кнопка «Навигация» (как в барабане) в шапке, на месте «⋯»
   let navLit = false;
   const navUi = () => document.body.classList.toggle("go-nav-off", !navLit && !all().length);
   on("module", ({ id, on: v }) => { if (id === "content/navigation") { navLit = !!v; navUi(); } });

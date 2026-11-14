@@ -502,7 +502,7 @@ try {
   // список точек маршрута — тоже название и адрес строкой ниже
   await run(`document.querySelector(".search-card .go-close[title='Точки маршрута']").click(); true`);
   await sleep(600);
-  const vSubs = await run(`[...document.querySelectorAll(".route-view .search-history-row")].map((x) => x.querySelector(".search-item-title").textContent.replace(/^[0-9]+/, "") + "|" + x.querySelector(".search-item-sub").textContent)`);
+  const vSubs = await run(`[...document.querySelectorAll(".route-view .search-history-row")].map((x) => x.querySelector(".search-item-title").textContent.replace(/^([0-9]+|START)/, "") + "|" + x.querySelector(".search-item-sub").textContent)`);
   check("список точек маршрута: название и адрес строкой ниже", vSubs.join() === "Дельта|,Альфа|,Гамма|,Бета|,Кадриорг|Таллин,Эпсилон|Эпсилон 1, Таллин", JSON.stringify(vSubs));
   // «Куда» по странам: стран больше одной — страны с флажком и числом; щелчок — записи страны, «назад» — страны
   await run(`document.querySelector(".route-view-back").click(); true`);
@@ -2304,10 +2304,10 @@ try {
     check("погода места: строки ленты — часы, значок погоды, °C, откуда, ветер, порывы, осадки",
       /^Часы,☀,°C,Откуда,Ветер,Порывы,Осадки(,Волна)?$/.test(wx.rows) && wx.skyN >= 94 && wx.sky === wx.skyN, JSON.stringify({ rows: wx.rows, sky: wx.sky, skyN: wx.skyN }));
     await shot("92-place-weather");
-    // колесо мыши листает ленту вбок (Грегори 2026-11-14)
+    // колесо мыши листает ленту вбок: к себе — назад, в прошлое (Грегори 2026-11-14: «наоборот»)
     const wheel = await run(`(() => { const w = document.querySelector(".wx-bar .wx-grid-wrap"), s0 = w.scrollLeft;
-      w.dispatchEvent(new WheelEvent("wheel", { deltaY: -300, bubbles: true, cancelable: true })); return { s0, s1: w.scrollLeft }; })()`);
-    check("погода места: колесо мыши листает ленту вбок", wheel.s1 < wheel.s0, JSON.stringify(wheel));
+      w.dispatchEvent(new WheelEvent("wheel", { deltaY: 300, bubbles: true, cancelable: true })); return { s0, s1: w.scrollLeft }; })()`);
+    check("погода места: колесо мыши к себе листает ленту назад", wheel.s1 < wheel.s0, JSON.stringify(wheel));
     // столбец ленты — время ленты; кнопка «Ветер» в шапке — включает и выключает слой, лента остаётся
     await run(`(() => { const hs = [...document.querySelectorAll(".wx-bar .wx-h")]; hs[hs.findIndex((x) => x.classList.contains("wx-at")) + 8].click(); return true; })()`);
     await sleep(300);
@@ -2331,11 +2331,22 @@ try {
     await run(`document.querySelector(".maplibregl-popup .wx-chip").click(); true`);
     await sleep(300);
     const reopen = await run(`document.querySelector(".maplibregl-popup .wx-chip").classList.contains("on") && !document.querySelector(".wx-bar").hidden`);
+    // лента открыта — значок в окне другого места тоже затенён, щелчок убирает ленту, а не открывает заново
+    await clickAt(60, 430); // первый щелчок по карте закрывает окно, второй — окно другого места
+    await sleep(300);
+    await clickAt(60, 430);
+    for (let i = 0; i < 20 && !(await run(`!!document.querySelector(".maplibregl-popup .wx-chip:not([hidden])")`)); i++) await sleep(500);
+    const other = await run(`document.querySelector(".maplibregl-popup .wx-chip").classList.contains("on")`);
+    await run(`document.querySelector(".maplibregl-popup .wx-chip").click(); true`);
+    await sleep(300);
+    const otherOff = await run(`!document.querySelector(".maplibregl-popup .wx-chip").classList.contains("on") && document.querySelector(".wx-bar").hidden`);
+    await run(`document.querySelector(".maplibregl-popup .wx-chip").click(); true`);
+    await sleep(300);
     await run(`document.querySelector(".wx-bar-x").click(); true`);
     await sleep(300);
     const shutX = await run(`({ on: document.querySelector(".maplibregl-popup .wx-chip").classList.contains("on"), bar: !document.querySelector(".wx-bar").hidden })`);
-    check("погода места: второй щелчок по значку и крестик ленты убирают её, значок гаснет; без навигации в окне только «Навигация»",
-      again.coords && !again.on && !again.bar && again.when === "Сейчас" && !again.actions && again.navon && reopen && !shutX.on && !shutX.bar, JSON.stringify({ again, reopen, shutX }));
+    check("погода места: второй щелчок по значку (и в окне другого места) и крестик ленты убирают её, значок гаснет; без навигации в окне только «Навигация»",
+      again.coords && !again.on && !again.bar && again.when === "Сейчас" && !again.actions && again.navon && reopen && other && otherOff && !shutX.on && !shutX.bar, JSON.stringify({ again, reopen, other, otherOff, shutX }));
     await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
   }
 
