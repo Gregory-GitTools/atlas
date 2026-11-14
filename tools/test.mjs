@@ -397,28 +397,36 @@ try {
   const off = await run(`({ ...atlas.route.state(), on: ${wheelNav}?.classList.contains("on"), nav: ${navStats}.navOn })`);
   check("навигация: кнопка в барабане светится, пока навигация включена; выключили — путь и точка сняты",
     lit.on && lit.nav && !off.on && !off.nav && !off.route && !off.target, JSON.stringify({ lit, off }));
-  // кнопки маршрута в окне места — только при навигации (Грегори 2026-11-14): без неё — «Поделиться» и «Отметить»;
-  // открыт раздел «Навигация» (и без GPS) — все, «Сюда» видна и неактивна
+  // кнопки в окне места — только при навигации (Грегори 2026-11-14): без неё — одна «Навигация» под крестиком,
+  // она открывает раздел; открыт раздел «Навигация» (и без GPS) — все, «Сюда» видна и неактивна
   const popRow = `(async () => { const { track } = await import(new URL("core/popups.js", location.href));
     const p = track(new atlas.ctx.maplibregl.Popup({ maxWidth: "280px" })).setLngLat([24.76, 59.43]).setHTML('<div class="popup-title">Проба</div>').addTo(atlas.map);
     const q = (c) => p.getElement().querySelector(c), seen = (c) => !!q(c) && q(c).offsetParent !== null;
     const r = { shown: [...p.getElement().querySelectorAll(".go-act, .go-more")].filter((b) => b.offsetParent).map((b) => b.title).join(),
-      disabled: q(".go-here")?.disabled, start: seen(".go-begin") && !q(".go-begin").disabled, finish: seen(".go-end") && !q(".go-end").disabled, add: seen(".go-add") && !q(".go-add").disabled };
+      navon: seen(".go-navon"), disabled: q(".go-here")?.disabled, start: seen(".go-begin") && !q(".go-begin").disabled, finish: seen(".go-end") && !q(".go-end").disabled, add: seen(".go-add") && !q(".go-add").disabled };
     const row = q(".go-actions").getBoundingClientRect(), box = p.getElement().getBoundingClientRect();
     r.fits = row.right <= box.right + 1 && [...p.getElement().querySelectorAll(".go-act")].filter((b) => b.offsetParent).every((b) => Math.abs(b.getBoundingClientRect().top - row.top) < 2);
     p.remove(); return r; })()`;
   const noNav = await run(popRow);
+  // «Навигация» в окне — как кнопка в барабане: раздел открылся, окно осталось
+  const navInPop = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
+    const p = track(new atlas.ctx.maplibregl.Popup({ maxWidth: "280px" })).setLngLat([24.76, 59.43]).setHTML('<div class="popup-title">Проба</div>').addTo(atlas.map);
+    p.getElement().querySelector(".go-navon").click(); await new Promise((r) => setTimeout(r, 300));
+    const r = { open: p.isOpen(), lit: ${wheelNav}?.classList.contains("on"), row: [...p.getElement().querySelectorAll(".go-act")].filter((b) => b.offsetParent).length };
+    p.remove(); return r; })()`);
+  await run(`import(new URL("core/search.js", location.href)).then((m) => { m.setSearchMode(null); return true; })`);
+  await sleep(200);
   await run(`${wheelNav}.click(); true`);
   await sleep(300);
   const noHere = await run(popRow);
   await run(`import(new URL("core/search.js", location.href)).then((m) => { m.setSearchMode(null); return true; })`);
   await sleep(200);
   const noNav2 = await run(popRow);
-  check("окно места без навигации — только «Поделиться» и «Отметить»; раздел «Навигация» открыт (без GPS) — «Сюда» видна и неактивна, «Старт», «Добавить», «Финиш», «⋯»; ряд в одну строку",
-    noNav.shown === "Поделиться,Отметить" && noNav2.shown === noNav.shown && /^Сюда,Старт,Добавить в путь,Финиш,Поделиться,Отметить,Ещё$/.test(noHere.shown)
-    && noHere.disabled && noHere.start && noHere.finish && noHere.add && noHere.fits && noNav.fits, JSON.stringify({ noNav, noHere, noNav2 }));
+  check("окно места без навигации — только кнопка «Навигация» (открывает раздел, окно остаётся); раздел открыт (без GPS) — «Сюда» видна и неактивна, «Старт», «Добавить», «Финиш», «Поделиться», «Отметить», «⋯»; ряд в одну строку",
+    noNav.shown === "" && noNav.navon && !noHere.navon && navInPop.open && navInPop.lit && navInPop.row === 6 && noNav2.shown === noNav.shown && noNav2.navon && /^Сюда,Старт,Добавить в путь,Финиш,Поделиться,Отметить,Ещё$/.test(noHere.shown)
+    && noHere.disabled && noHere.start && noHere.finish && noHere.add && noHere.fits && noNav.fits, JSON.stringify({ noNav, navInPop, noHere, noNav2 }));
   // планирование дома: первая точка — метка; «Финиш» — маршрут (запись в «Куда» со стартом); «+» — перед
-  // финишем; новый «Старт» заменяет прежний; способ — путь по точкам маршрута, без меня; программа сама не прокладывает
+  // финишем; новый «Старт» — прежний становится второй точкой (Грегори 2026-11-14); способ — путь по точкам маршрута, без меня; программа сама не прокладывает
   const plan = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const press = async (title, ll, cls) => { const p = track(new atlas.ctx.maplibregl.Popup()).setLngLat(ll).setHTML('<div class="popup-title">' + title + '</div>').addTo(atlas.map);
@@ -437,11 +445,11 @@ try {
     for (let t = 0; t < 40 && !atlas.route.state().route; t++) await wait(250);
     r.path = atlas.route.state().route;
     return r; })()`);
-  check("маршрут без навигации: Старт — метка; Финиш — запись в «Куда» со стартом; «+» — перед финишем; новый Старт заменяет прежний; способ — путь по точкам, без меня",
+  check("маршрут без навигации: Старт — метка; Финиш — запись в «Куда» со стартом; «+» — перед финишем; новый Старт — прежний второй точкой; способ — путь по точкам, без меня",
     plan.one.start === "Альфа" && !plan.one.recs && plan.one.marker && plan.one.mode
-    && plan.built.start === "Дельта" && JSON.stringify(plan.built.stops) === '["Гамма"]' && plan.built.finish === "Бета" && !plan.built.route
-    && plan.built.rec?.start === "Дельта" && JSON.stringify(plan.built.rec.stops) === '["Гамма"]' && plan.built.rec.title === "Бета"
-    && JSON.stringify(plan.built.card) === '["Убрать старт","Убрать остановку","Убрать финиш"]'
+    && plan.built.start === "Дельта" && JSON.stringify(plan.built.stops) === '["Альфа","Гамма"]' && plan.built.finish === "Бета" && !plan.built.route
+    && plan.built.rec?.start === "Дельта" && JSON.stringify(plan.built.rec.stops) === '["Альфа","Гамма"]' && plan.built.rec.title === "Бета"
+    && JSON.stringify(plan.built.card) === '["Убрать старт","Убрать остановку","Убрать остановку","Убрать финиш"]'
     && plan.path?.way === "foot" && plan.path.fromMe === false, JSON.stringify(plan));
   // второй «Финиш» — прежний финиш становится предпоследней точкой; в обеих формах маршрута — название и адрес
   // строкой ниже; место из поиска — карта долетает до него, хотя карточка пути сначала показала весь маршрут
@@ -473,11 +481,11 @@ try {
     r.added = atlas.route.state().stops;
     return r; })()`);
   check("второй «Финиш» — прежний становится предпоследней точкой; в карточке — название и адрес строкой ниже; адреса в записи",
-    plan2.finish.finish === "Эпсилон" && JSON.stringify(plan2.finish.stops) === '["Гамма","Бета"]'
-    && plan2.card.join() === "Дельта,Гамма,Бета,Эпсилон|Эпсилон 1, Таллин"
+    plan2.finish.finish === "Эпсилон" && JSON.stringify(plan2.finish.stops) === '["Альфа","Гамма","Бета"]'
+    && plan2.card.join() === "Дельта,Альфа,Гамма,Бета,Эпсилон|Эпсилон 1, Таллин"
     && plan2.recAddr === "Эпсилон 1, Таллин", JSON.stringify(plan2));
   check("место из поиска при раскрытой карточке пути — карта долетает до него, окно места, «+» — перед финишем",
-    plan2.flight.at && plan2.flight.zoom >= 12 && plan2.flight.pop && JSON.stringify(plan2.added) === '["Гамма","Бета","Кадриорг"]', JSON.stringify(plan2));
+    plan2.flight.at && plan2.flight.zoom >= 12 && plan2.flight.pop && JSON.stringify(plan2.added) === '["Альфа","Гамма","Бета","Кадриорг"]', JSON.stringify(plan2));
   check("крестик и «свернуть» карточки пути — вровень с лупой (22 px); у карточки ползунок", plan2.icons.join() === "22,22" && plan2.grip, JSON.stringify(plan2));
   // ползунок карточки: вверх — до самой шапки, вниз — снова во всю высоту
   const dragGrip = async (dy) => {
@@ -495,7 +503,7 @@ try {
   await run(`document.querySelector(".search-card .go-close[title='Точки маршрута']").click(); true`);
   await sleep(600);
   const vSubs = await run(`[...document.querySelectorAll(".route-view .search-history-row")].map((x) => x.querySelector(".search-item-title").textContent.replace(/^[0-9]+/, "") + "|" + x.querySelector(".search-item-sub").textContent)`);
-  check("список точек маршрута: название и адрес строкой ниже", vSubs.join() === "Дельта|,Гамма|,Бета|,Кадриорг|Таллин,Эпсилон|Эпсилон 1, Таллин", JSON.stringify(vSubs));
+  check("список точек маршрута: название и адрес строкой ниже", vSubs.join() === "Дельта|,Альфа|,Гамма|,Бета|,Кадриорг|Таллин,Эпсилон|Эпсилон 1, Таллин", JSON.stringify(vSubs));
   // «Куда» по странам: стран больше одной — страны с флажком и числом; щелчок — записи страны, «назад» — страны
   await run(`document.querySelector(".route-view-back").click(); true`);
   await run(`window.__keepHist = localStorage.getItem("atlas.route.history"); localStorage.setItem("atlas.route.history", JSON.stringify([...JSON.parse(localStorage.getItem("atlas.route.history")),
@@ -2278,29 +2286,32 @@ try {
       const q = c?.getBoundingClientRect(), r = x?.getBoundingClientRect(), t = document.querySelector(".maplibregl-popup .popup-coords")?.getBoundingClientRect();
       return { text: c?.textContent, under: !!q && q.top >= r.bottom - 2 && Math.abs((q.left + q.right) / 2 - (r.left + r.right) / 2) < 30, clear: !!t && t.right <= q.left + 1 }; })()`);
     check("погода места: под крестиком окна — температура и осадки, текст не заходит под них",
-      /^-?[0-9]+°[0-9]+(,[0-9])?$/.test(chip.text) && chip.under && chip.clear, JSON.stringify(chip));
+      /^-?[0-9]+°[0-9]+(,[0-9])?↑$/.test(chip.text) && chip.under && chip.clear, JSON.stringify(chip));
     await run(`document.querySelector(".maplibregl-popup .wx-chip").click(); true`);
-    for (let i = 0; i < 20 && !(await run(`document.querySelectorAll(".wx-bar .wx-h").length > 0 && /Ветер/.test(document.querySelector(".maplibregl-popup .wx-now")?.textContent || "")`)); i++) await sleep(500);
+    for (let i = 0; i < 20 && !(await run(`document.querySelectorAll(".wx-bar .wx-h").length > 0`)); i++) await sleep(500);
     await sleep(500);
-    const wx = await run(`(() => { const b = document.querySelector(".wx-bar"), hs = [...b.querySelectorAll(".wx-h")];
-      return { back: document.querySelector(".maplibregl-popup .wx-back")?.textContent, now: document.querySelector(".maplibregl-popup .wx-now")?.textContent,
-        sub: document.querySelector(".maplibregl-popup .wx-view .popup-sub")?.textContent, actions: !!document.querySelector(".maplibregl-popup .go-actions")?.offsetParent,
+    // щелчок по значку — лента внизу, окно места не меняется (Грегори 2026-11-14: «не меняй окно»)
+    const wx = await run(`(() => { const b = document.querySelector(".wx-bar"), hs = [...b.querySelectorAll(".wx-h")], c = document.querySelector(".maplibregl-popup .wx-chip");
+      return { coords: !!document.querySelector(".maplibregl-popup .popup-coords"), on: c.classList.contains("on"), wind: !!c.querySelector(".wx-dir"),
         bar: !b.hidden, name: b.querySelector(".wx-bar-name").textContent,
         rows: [...b.querySelectorAll(".wx-grid tr:not(.wx-days-row)")].map((tr) => tr.querySelector("th").textContent || (tr.classList.contains("wx-sky-row") ? "☀" : "?")).join(),
         sky: [...b.querySelectorAll(".wx-sky")].filter((td) => td.querySelector("svg") && td.title).length, skyN: b.querySelectorAll(".wx-sky").length, past: b.querySelectorAll(".wx-h.wx-past").length, atIdx: hs.indexOf(b.querySelector(".wx-h.wx-at")),
         heavy: !!atlas.map.getLayer("wind") || atlas.map.getStyle().layers.some((l) => l.id.startsWith("radar-")),
         above: document.querySelector(".maplibregl-popup").getBoundingClientRect().bottom <= b.getBoundingClientRect().top + 1 }; })()`);
-    check("погода места: щелчок — окно погоды с «Назад», лента на место (сейчас в рамке, прошлое есть); ветер и осадки не включились",
-      wx.back === "Место" && /порывы/.test(wx.now) && /^Сейчас · -?[0-9]+°/.test(wx.sub) && !wx.actions && wx.bar && wx.name === "Погода в точке"
-      && wx.past >= 40 && wx.atIdx === wx.past && !wx.heavy && wx.above, JSON.stringify(wx));
+    check("погода места: щелчок по значку — лента прогноза на место (сейчас в рамке, прошлое есть), окно места то же, значок затенён, в нём стрелка ветра; ветер и осадки не включились",
+      wx.coords && wx.on && wx.wind && wx.bar && wx.name === "Погода в точке" && wx.past >= 40 && wx.atIdx === wx.past && !wx.heavy && wx.above, JSON.stringify(wx));
     // порядок строк ленты — как у Windy (Грегори 2026-11-14), под часами — значок погоды у каждого шага
     check("погода места: строки ленты — часы, значок погоды, °C, откуда, ветер, порывы, осадки",
       /^Часы,☀,°C,Откуда,Ветер,Порывы,Осадки(,Волна)?$/.test(wx.rows) && wx.skyN >= 94 && wx.sky === wx.skyN, JSON.stringify({ rows: wx.rows, sky: wx.sky, skyN: wx.skyN }));
     await shot("92-place-weather");
-    // столбец ленты — окно погоды на его время; кнопка «Ветер» в шапке — включает и выключает слой, лента остаётся
+    // колесо мыши листает ленту вбок (Грегори 2026-11-14)
+    const wheel = await run(`(() => { const w = document.querySelector(".wx-bar .wx-grid-wrap"), s0 = w.scrollLeft;
+      w.dispatchEvent(new WheelEvent("wheel", { deltaY: -300, bubbles: true, cancelable: true })); return { s0, s1: w.scrollLeft }; })()`);
+    check("погода места: колесо мыши листает ленту вбок", wheel.s1 < wheel.s0, JSON.stringify(wheel));
+    // столбец ленты — время ленты; кнопка «Ветер» в шапке — включает и выключает слой, лента остаётся
     await run(`(() => { const hs = [...document.querySelectorAll(".wx-bar .wx-h")]; hs[hs.findIndex((x) => x.classList.contains("wx-at")) + 8].click(); return true; })()`);
     await sleep(300);
-    const picked = await run(`document.querySelector(".maplibregl-popup .wx-view .popup-sub")?.textContent`);
+    const picked = await run(`document.querySelector(".wx-bar-when").textContent`);
     await run(`document.querySelector('.wx-bar-layer[data-id="weather/wind"]').click(); true`);
     for (let i = 0; i < 20 && !(await run(`!!atlas.map.getLayer("wind")`)); i++) await sleep(300);
     const windBtn = await run(`({ layer: !!atlas.map.getLayer("wind"), on: document.querySelector('.wx-bar-layer[data-id="weather/wind"]').classList.contains("on"),
@@ -2308,16 +2319,23 @@ try {
     await run(`document.querySelector('.wx-bar-layer[data-id="weather/wind"]').click(); true`);
     await sleep(600);
     const windOff = await run(`({ layer: !!atlas.map.getLayer("wind"), bar: !document.querySelector(".wx-bar").hidden })`);
-    check("погода места: столбец ленты — окно на это время; «Ветер» в шапке ленты включает слой на это время и выключает, лента остаётся",
+    check("погода места: столбец ленты — время ленты; «Ветер» в шапке ленты включает слой на это время и выключает, лента остаётся",
       !/^Сейчас/.test(picked) && windBtn.layer && windBtn.on && windBtn.name === "Погода в точке" && windBtn.at > Date.now() / 1000 + 12 * 3600
       && !windOff.layer && windOff.bar, JSON.stringify({ picked, windBtn, windOff }));
-    // «Назад» — окно места с кнопками, лента ушла, время — снова сейчас
-    await run(`document.querySelector(".maplibregl-popup .wx-back").click(); true`);
+    // второй щелчок по значку — ленты нет, время — снова сейчас; крестик ленты — тоже, значок гаснет
+    await run(`document.querySelector(".maplibregl-popup .wx-chip").click(); true`);
     await sleep(300);
-    const back = await run(`({ coords: !!document.querySelector(".maplibregl-popup .popup-coords"), chip: !!document.querySelector(".maplibregl-popup .wx-chip"),
-      actions: !!document.querySelector(".maplibregl-popup .go-actions")?.offsetParent, bar: !document.querySelector(".wx-bar").hidden,
-      when: document.querySelector(".wx-bar-when").textContent })`);
-    check("погода места: «Назад» — снова окно места, ленты нет", back.coords && back.chip && back.actions && !back.bar && back.when === "Сейчас", JSON.stringify(back));
+    const again = await run(`({ coords: !!document.querySelector(".maplibregl-popup .popup-coords"), on: document.querySelector(".maplibregl-popup .wx-chip").classList.contains("on"),
+      actions: !!document.querySelector(".maplibregl-popup .go-actions")?.offsetParent, navon: !!document.querySelector(".maplibregl-popup .go-navon")?.offsetParent,
+      bar: !document.querySelector(".wx-bar").hidden, when: document.querySelector(".wx-bar-when").textContent })`);
+    await run(`document.querySelector(".maplibregl-popup .wx-chip").click(); true`);
+    await sleep(300);
+    const reopen = await run(`document.querySelector(".maplibregl-popup .wx-chip").classList.contains("on") && !document.querySelector(".wx-bar").hidden`);
+    await run(`document.querySelector(".wx-bar-x").click(); true`);
+    await sleep(300);
+    const shutX = await run(`({ on: document.querySelector(".maplibregl-popup .wx-chip").classList.contains("on"), bar: !document.querySelector(".wx-bar").hidden })`);
+    check("погода места: второй щелчок по значку и крестик ленты убирают её, значок гаснет; без навигации в окне только «Навигация»",
+      again.coords && !again.on && !again.bar && again.when === "Сейчас" && !again.actions && again.navon && reopen && !shutX.on && !shutX.bar, JSON.stringify({ again, reopen, shutX }));
     await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
   }
 

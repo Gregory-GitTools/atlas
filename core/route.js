@@ -131,9 +131,9 @@ export function initRoute({ map, maplibregl, status }) {
 
   // что показать окну навигации: точка, где я, расстояние, сторона, стрелка относительно экрана, путь
   let busy = null; // способ, для которого ищем путь
-  // кнопки маршрута в окне места («Сюда», «Старт», «Добавить», «Финиш», «⋯») — только при навигации
-  // (Грегори 2026-11-14): горит её раздел (включена или открыта строка «Куда» — маршрут составляют и дома)
-  // или маршрут уже собирается; «Поделиться» и «Отметить» — всегда
+  // кнопки окна места — только при навигации (Грегори 2026-11-14: «без навигации — перебор»): горит её
+  // раздел (включена или открыта строка «Куда» — маршрут составляют и дома) или маршрут уже собирается; без
+  // неё — одна кнопка «Навигация» (как в барабане) под крестиком
   let navLit = false;
   const navUi = () => document.body.classList.toggle("go-nav-off", !navLit && !all().length);
   on("module", ({ id, on: v }) => { if (id === "content/navigation") { navLit = !!v; navUi(); } });
@@ -290,9 +290,15 @@ export function initRoute({ map, maplibregl, status }) {
     emit("route-edit", { saved: savedId, ...(start && fin !== start ? { start: pt(start) } : {}), lngLat: fin.lngLat, title: fin.title, address: fin.address || "",
       stops: mid.map(pt), way: route?.way || busy || null });
   };
-  // «Старт» — новый заменяет прежний; «Финиш» — прежний становится предпоследней точкой; «+» — перед финишем
-  // (нет финиша — в конец)
-  const setStart = (p) => { if (same(p, start)) return; stops = stops.filter((s) => !same(s, p)); start = pt(p); changed(); };
+  // «Старт» — прежний становится второй точкой, «Финиш» — прежний предпоследней (Грегори 2026-11-14: правка
+  // того же маршрута, его запись в «Куда»); «+» — перед финишем (нет финиша — в конец)
+  const setStart = (p) => {
+    if (same(p, start)) return;
+    stops = stops.filter((s) => !same(s, p));
+    if (start) stops.unshift(start);
+    start = pt(p);
+    changed();
+  };
   const setFinish = (p) => {
     if (same(p, target)) return;
     stops = stops.filter((s) => !same(s, p));
@@ -395,7 +401,7 @@ export function initRoute({ map, maplibregl, status }) {
   drawMarks();
 
   // ---------- окно места: «Сюда», «Старт», «Добавить», «Финиш», «Поделиться», «Отметить»; «⋯» вверху ----------
-  // Кнопки маршрута — при навигации (см. navUi), маршрут составляют и без GPS; «Сюда» без моего места неактивна
+  // Кнопки — при навигации (см. navUi), маршрут составляют и без GPS; «Сюда» без моего места неактивна
   // место из окна: названия нет — первая часть адреса, адрес — подписью; адреса нет — координаты
   const placeOf = (popup, content) => {
     const { lng, lat } = popup.getLngLat();
@@ -505,7 +511,9 @@ export function initRoute({ map, maplibregl, status }) {
         x.addEventListener("click", () => own.fn(), { capture: true });
       }
     }
-    content.append(row, more, menu);
+    // без навигации — она одна: открыть раздел «Навигация», как кнопкой в барабане; окно остаётся, ряд появится
+    const navOn = button("go-navon", "Навигация — маршрут сюда", NAV_ARROW, () => modules("content").find((m) => m.id === "content/navigation")?.column?.home());
+    content.append(row, more, menu, navOn);
     content.classList.add("has-more");
     // окно стало выше — пусть MapLibre заново выберет, куда его повернуть, чтобы не ушло за край экрана
     popup.setLngLat(popup.getLngLat());

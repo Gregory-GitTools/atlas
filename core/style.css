@@ -1227,7 +1227,6 @@ html, body {
   right: calc(var(--side-r) + var(--button) + var(--gap));
   bottom: calc(var(--gap) + var(--button) + 12px);
   z-index: 12;
-  max-width: 600px;
   margin: 0 auto;
   padding: 2px 6px 4px;
   border-radius: var(--radius);
@@ -1331,10 +1330,11 @@ body.has-photo-strip .wx-bar {
   color: var(--muted);
 }
 
-/* погода места: под крестиком окна — температура и осадки сейчас (в поле справа, текст окна не задевает);
-   щелчок — окно погоды с «Назад» */
+/* погода места: под крестиком окна — температура и осадки сейчас, под ними стрелка ветра (в поле справа,
+   текст окна не задевает); щелчок — лента прогноза внизу, ещё щелчок — убрать; лента на месте — затенён.
+   Рядом со стрелкой ветра без навигации — кнопка «Навигация» (.go-navon, core/route.js) */
 .wx-host {
-  min-height: 50px;
+  min-height: 72px;
 }
 
 .wx-chip {
@@ -1342,9 +1342,11 @@ body.has-photo-strip .wx-bar {
   top: 34px;
   right: 2px;
   display: flex;
-  align-items: center;
-  gap: 3px;
-  max-width: 62px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 62px;
+  height: 44px;
   padding: 3px 4px;
   border: none;
   border-radius: 8px;
@@ -1363,14 +1365,38 @@ body.has-photo-strip .wx-bar {
   background: var(--panel-hover);
 }
 
+.wx-chip.on {
+  background: var(--active);
+}
+
+.wx-chip-row {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
 .wx-chip b {
   font-size: 14px;
 }
 
+.wx-chip .wx-dir {
+  margin-left: 3px;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 20px;
+  -webkit-text-stroke: 1px currentColor;
+}
+
 .wx-chip-rain {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
+  gap: 1px;
   color: #1565c0;
+}
+
+.wx-chip-rain svg {
+  align-self: center;
+  color: #1e88e5;
 }
 
 .wx-chip-rain.dry {
@@ -1379,49 +1405,6 @@ body.has-photo-strip .wx-bar {
 
 .maplibregl-popup-content:has(.wx-chip:not([hidden])) {
   padding-right: 66px;
-}
-
-/* окно места в виде погоды: без кнопок места, «Назад» — вместо названия */
-.wx-mode .go-actions,
-.wx-mode .go-more,
-.wx-mode .go-menu {
-  display: none;
-}
-
-.maplibregl-popup-content.wx-mode {
-  padding-right: 34px;
-}
-
-.wx-back {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  max-width: 100%;
-  margin: -3px 0 0 -6px;
-  padding: 2px 6px 2px 0;
-  border: none;
-  border-radius: 8px;
-  background: none;
-  color: var(--text);
-  font: 600 15px/1.3 var(--font);
-  text-align: left;
-  cursor: pointer;
-}
-
-.wx-back > svg {
-  flex: none;
-  color: var(--tone-weather);
-}
-
-.wx-back > span {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.wx-back:hover {
-  background: var(--panel-hover);
 }
 
 /* фото щита в окне значка */
@@ -3464,9 +3447,14 @@ body.search-hidden .panel-left {
   background: var(--panel-hover);
 }
 
-.go-act > svg {
-  width: 34px;
-  height: 34px;
+/* значки кнопок — один размер, 28 точек: окно места, барабан, лупа поиска (Грегори 2026-11-14: «размеры
+   значков не имеют аналогов — окна меньше, барабан и лупу больше») */
+.go-act > svg,
+.go-navon > svg,
+.layers-circle > svg,
+.search-box > .search-go > svg {
+  width: 28px;
+  height: 28px;
 }
 
 .go-here {
@@ -3516,19 +3504,44 @@ body.search-hidden .panel-left {
   padding-right: 34px;
 }
 
-/* без навигации — только «Поделиться» и «Отметить» (core/route.js, navUi) */
-body.go-nav-off .go-nav,
+/* без навигации кнопок места нет — только «Навигация» под крестиком (у погоды — рядом со стрелкой ветра);
+   с навигацией — полный ряд (core/route.js, navUi; Грегори 2026-11-14) */
+body.go-nav-off .go-actions,
 body.go-nav-off .go-more,
 body.go-nav-off .go-menu {
   display: none;
 }
 
-body.go-nav-off .go-actions {
-  margin-right: 0;
+.go-navon {
+  display: none;
+  position: absolute;
+  top: 34px;
+  right: 2px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--tone-nav);
+  cursor: pointer;
 }
 
-body.go-nav-off .maplibregl-popup-content.has-more:not(:has(.wx-chip:not([hidden]))) {
-  padding-right: 34px;
+body.go-nav-off .go-navon {
+  display: grid;
+  place-items: center;
+}
+
+.go-navon:hover {
+  background: var(--panel-hover);
+}
+
+.maplibregl-popup-content:has(.wx-chip:not([hidden])) .go-navon {
+  top: 58px;
+}
+
+body.go-nav-off .maplibregl-popup-content:has(.go-navon) {
+  min-height: 74px;
 }
 
 .go-menu {

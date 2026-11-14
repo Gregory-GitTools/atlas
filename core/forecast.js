@@ -154,6 +154,12 @@ function table(v, ks, { kite = null, pick } = {}) {
   const { h } = v, nowK = v.nowK();
   const rate = (k) => (v.light(k) ? kiteRate(h.wind_speed_10m[k], h.wind_gusts_10m[k], h.wind_direction_10m[k], kite) : "night");
   const wrap = el("div", "wx-grid-wrap");
+  // колесо мыши листает вбок (Грегори 2026-11-14)
+  wrap.addEventListener("wheel", (e) => {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX) || wrap.scrollWidth <= wrap.clientWidth) return;
+    wrap.scrollLeft += e.deltaY;
+    e.preventDefault();
+  }, { passive: false });
   const grid = el("table", "wx-grid", "", wrap);
   const cols = new Map(); // шаг → клетки столбца
   const row = (label, title) => { const tr = el("tr", "", "", grid); const th = el("th", "", label, tr); if (title) th.title = title; return tr; };
@@ -281,17 +287,17 @@ export async function forecastBox(lngLat, { at = null, title = null, inside = fa
 }
 
 // ---------- погода места (Грегори 2026-11-14) ----------
-// В окне места под крестиком — температура и осадки сейчас; щелчок — окно места сменяется погодой (ветер,
-// температура, осадки, волна на выбранное время), внизу — лента прогноза на место вместо прежнего ползунка
-// времени «Ветра»: 5 прошедших дней бледнее и 7 вперёд, в виду — сейчас. «Назад» — снова окно места, лента
-// уходит (если «Ветер» не включён — ему лента нужна как время). Тяжёлые слои ветра и осадков сами не
-// включаются — их кнопки в шапке ленты
+// В окне места под крестиком — температура, осадки и стрелка ветра сейчас; щелчок — внизу лента прогноза на
+// место (вместо прежнего ползунка времени «Ветра»: 5 прошедших дней бледнее и 7 вперёд, в виду — сейчас),
+// второй щелчок — убрать её; окно места не меняется (Грегори 2026-11-14: «не меняй окно»). Лента закрывается
+// и своим крестиком. Тяжёлые слои ветра и осадков сами не включаются — их кнопки в шапке ленты
 const SVG = (w, inner) => `<svg viewBox="0 0 24 24" width="${w}" height="${w}">${inner}</svg>`;
-const DROP = SVG(11, '<path d="M12 3c-3 4.4-6 7.7-6 11a6 6 0 0 0 12 0c0-3.3-3-6.6-6-11z" fill="currentColor"/>');
-const BACK = SVG(18, '<path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>');
+// капля — высотой с цифру, синяя (Грегори 2026-11-14: мелкая была не видна — точка)
+const DROP = '<svg viewBox="5.5 2.5 13 18" width="8" height="11"><path d="M12 3c-3 4.4-6 7.7-6 11a6 6 0 0 0 12 0c0-3.3-3-6.6-6-11z" fill="currentColor"/></svg>';
 const CLOSE = SVG(22, '<path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>');
 const LAYERS = [["weather/wind", "Ветер"], ["weather/radar", "Осадки"]];
 let ctx = null, at = null, windOn = false, seq = 0, strip = null; // strip — таблица ленты { select }
+let place = null; // точка ленты «lon,lat» — значок погоды этого места затенён
 const bar = el("div", "wx-bar");
 bar.hidden = true;
 bar.dataset.keepClear = ""; // окна на карте держатся выше ленты (core/popups.js)
@@ -337,9 +343,12 @@ export function setForecastTime(t, scroll = true) {
 export const forecastTime = () => at;
 export const forecastOpen = () => !bar.hidden;
 
+const keyOf = ([lon, lat]) => `${(+lon).toFixed(5)},${(+lat).toFixed(5)}`;
 export async function openForecast(lngLat, title) {
   const n = ++seq;
   strip = null;
+  place = keyOf(lngLat);
+  emit("wx-bar", { place });
   name.textContent = title || "Погода в точке";
   name.title = name.textContent;
   bar.hidden = false;
@@ -365,6 +374,8 @@ export function closeForecast() {
   strip = null;
   bar.hidden = true;
   document.body.classList.remove("has-wx-bar");
+  place = null;
+  emit("wx-bar", { place });
   setForecastTime(null);
   if (windOn && ctx) toggle("weather/wind", ctx, false, { by: "forecast" });
 }
@@ -375,15 +386,10 @@ on("wind-time-set", ({ at: t }) => { if (forecastOpen()) setForecastTime(t); }, 
 on("wind-time", (w) => { windOn = w.on; paintWhen(); });
 on("module", ({ id }) => { if (LAYERS.some(([x]) => x === id)) paintLayers(); }, { replay: false });
 
-// окно погоды на месте окна места: back — вернуть окно места (нет — без кнопки «Назад»)
-export function weatherView(lngLat, title, back) {
+// окно погоды в точке (щелчок по узлу «Ветра»): ветер, температура, осадки, волна на выбранное время
+export function weatherView(lngLat, title) {
   const box = el("div", "wx wx-view");
-  if (back) {
-    const b = btn("wx-back", "Назад к окну места", BACK);
-    el("span", "", title || "Место", b);
-    b.addEventListener("click", (e) => { e.stopPropagation(); back(); });
-    box.append(b);
-  } else el("div", "popup-title", title || "Погода в точке", box);
+  el("div", "popup-title", title || "Погода в точке", box);
   const head = el("div", "wx-now wx-now-sub", "Погода…", box);
   const sub = el("div", "popup-sub", "", box);
   load(lngLat).then((r) => {
@@ -397,27 +403,25 @@ export function weatherView(lngLat, title, back) {
   return box;
 }
 
-// значок погоды под крестиком окна места: температура и осадки сейчас; щелчок — окно погоды и лента
+// значок погоды под крестиком окна места: температура и осадки сейчас, под ними — стрелка ветра (цвет — сила);
+// щелчок — лента прогноза на место, ещё щелчок — убрать; пока лента на этом месте — значок затенён
 export function weatherChip(lngLat, title) {
-  const b = btn("wx-chip", "Погода и прогноз", "");
+  const b = btn("wx-chip", "Прогноз погоды", ""), key = keyOf(lngLat);
   b.hidden = true;
   loadWx(lngLat).then((d) => {
-    const v = view({ d }), k = v.nowK(), p = d.hourly.precipitation[k];
-    b.innerHTML = `<b>${r0(d.hourly.temperature_2m[k])}°</b><span class="wx-chip-rain${p >= 0.1 ? "" : " dry"}">${DROP}${r1(p >= 0.1 ? p : 0)}</span>`;
-    b.title = `Сейчас ${r0(d.hourly.temperature_2m[k])}°, осадки ${r1(p)} мм за 3 часа — погода и прогноз`;
+    const v = view({ d }), k = v.nowK(), h = d.hourly, p = h.precipitation[k];
+    b.innerHTML = `<span class="wx-chip-row"><b>${r0(h.temperature_2m[k])}°</b><span class="wx-chip-rain${p >= 0.1 ? "" : " dry"}">${DROP}${r1(p >= 0.1 ? p : 0)}</span></span>`;
+    b.append(arrow(h.wind_direction_10m[k], windColor(h.wind_speed_10m[k]), ""));
+    b.title = `Сейчас ${r0(h.temperature_2m[k])}°, осадки ${r1(p)} мм за 3 часа, ветер ${r0(h.wind_speed_10m[k])} м/с · ${dirName(h.wind_direction_10m[k])} — прогноз`;
     b.hidden = false;
   }).catch(() => b.remove());
+  const paint = () => { b.classList.toggle("on", place === key); b.setAttribute("aria-pressed", String(place === key)); };
+  paint();
+  const unsub = on("wx-bar", () => { if (!b.isConnected) unsub?.(); else paint(); }, { replay: false });
   b.addEventListener("click", (e) => {
     e.stopPropagation();
-    const box = b.parentElement, content = box.closest(".maplibregl-popup-content"), kids = [...box.childNodes];
-    const back = () => {
-      box.replaceChildren(...kids);
-      content?.classList.remove("wx-mode");
-      if (!windOn) closeForecast();
-    };
-    box.replaceChildren(weatherView(lngLat, title, back));
-    content?.classList.add("wx-mode");
-    openForecast(lngLat, title);
+    if (place === key) closeForecast();
+    else openForecast(lngLat, title);
   });
   return b;
 }
