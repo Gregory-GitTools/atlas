@@ -122,6 +122,12 @@ try {
   await run(`new Promise((r) => { const c = () => window.atlas?.map?.loaded() ? r(true) : setTimeout(c, 200); c(); })`);
   await idle();
   check("карта загрузилась", true, await run(`atlas.map.getProjection()?.type`));
+  // фоновый модуль карты — со своего адреса: старый WebView (магнитола, Android-приложение) иначе не грузит
+  // его с unpkg («Worker failed to load»); файл-прослойку находит «Скачать район» (Грегори 2026-11-16)
+  const mlWorker = await run(`(async () => { const ml = await import("https://unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl.mjs");
+    const u = ml.getWorkerUrl(), text = await (await fetch(u)).text();
+    return { own: new URL(u).origin === location.origin, lib: text.includes("unpkg.com/maplibre-gl@6.16.0/dist/maplibre-gl-worker.mjs") }; })()`);
+  check("карта: фоновый модуль MapLibre — со своего адреса (для старого WebView), версия та же", mlWorker.own && mlWorker.lib, JSON.stringify(mlWorker));
   // при открытии — глобус крупно (космоса около 10 % экрана), поворот к Европе (Грегори 2026-11-13)
   await sleep(2800);
   const globe = await run(`(() => { const m = atlas.map, c = m.getCenter(), W = m.getCanvas().clientWidth, H = m.getCanvas().clientHeight; let n = 0, k = 0;

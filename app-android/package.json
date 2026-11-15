@@ -1,0 +1,13 @@
+{
+  "name": "atlas-android",
+  "private": true,
+  "description": "Android-оболочка Atlas: открывает сайт gregory-gittools.github.io/atlas, обновляется вместе с ним",
+  "scripts": {
+    "sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/core": "^8.6.2"
+  }
+}

@@ -14,6 +14,9 @@ import { initForecast } from "./forecast.js";
 import { initPhotoStrip, stripState } from "./photo-strip.js";
 import { initRoute } from "./route.js";
 
+// фоновый модуль карты — со своего адреса (почему — в core/maplibre-worker.js)
+maplibregl.setWorkerUrl(new URL("../core/maplibre-worker.js", import.meta.url).href);
+
 const status = (text) => { document.getElementById("status").textContent = text || ""; };
 
 export const map = new maplibregl.Map({

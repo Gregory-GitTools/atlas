@@ -1,0 +1,40 @@
+# Atlas для Android
+
+Приложение-оболочка (Capacitor 8): открывает сайт https://gregory-gittools.github.io/atlas/ во весь экран.
+Всё, что меняется на сайте, сразу есть и в приложении, его не нужно пересобирать. Пересборка нужна, только если
+меняется сама оболочка: иконка, разрешения, адрес.
+
+- **Положение экрана.** Горизонтально (магнитола 1280×720) — без строки состояния: она появляется, если провести
+  от края экрана. Вертикально (телефон) — как обычно.
+- **Разрешения.** Интернет и местоположение (для «Где я» и навигации).
+- **Первый запуск без сети.** Показывается `www/offline.html` с кнопкой «Повторить». Дальше без сети работает
+  то, что сохранил сервис-воркер сайта, и районы, скачанные через «Скачать район».
+
+## Где что лежит
+
+| Что | Где |
+|---|---|
+| JDK 21, Android SDK | `C:\Users\Gregory\Android\jdk`, `C:\Users\Gregory\Android\sdk` |
+| Ключ подписи | `C:\Users\Gregory\Android\keys\atlas-release.jks` + `keystore.properties` (пароль). **Не в репозитории** |
+| Готовый APK (ставить напрямую) | `android\app\build\outputs\apk\release\app-release.apk` |
+| Пакет для Google Play | `android\app\build\outputs\bundle\release\app-release.aab` |
+
+Ключ подписи нужен для каждого обновления приложения. Если его потерять, то:
+- APK, установленный напрямую, придётся удалить и поставить заново;
+- в Google Play ключ можно сбросить только через поддержку.
+
+Держите копию папки `keys` вне этого компьютера.
+
+## Сборка
+
+```
+cd app-android
+npm install
+npx cap sync android
+cd android
+set JAVA_HOME=C:\Users\Gregory\Android\jdk
+gradlew assembleRelease bundleRelease
+```
+
+Перед выпуском новой сборки в Google Play поднимите `versionCode` в `android/app/build.gradle`.
+Иконки и заставка делаются из `icons/icon-512.png` сайта: `python make_icons.py`.

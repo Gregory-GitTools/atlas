@@ -1,0 +1,12 @@
+{
+  "appId": "io.github.gregorygittools.atlas",
+  "appName": "Atlas",
+  "webDir": "www",
+  "server": {
+    "url": "https://gregory-gittools.github.io/atlas/",
+    "errorPath": "offline.html"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}
