@@ -37,4 +37,4 @@ gradlew assembleRelease bundleRelease
 ```
 
 Перед выпуском новой сборки в Google Play поднимите `versionCode` в `android/app/build.gradle`.
-Иконки и заставка делаются из `icons/icon-512.png` сайта: `python make_icons.py`.
+Иконки и заставка делаются из `icon.png` (логотип Travel Earth): `python make_icons.py`.

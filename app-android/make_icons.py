@@ -1,9 +1,9 @@
-# иконки и заставка приложения из icons/icon-512.png сайта (запуск: python make_icons.py)
+# иконки и заставка приложения из icon.png — логотип Travel Earth (Грегори 2026-11-16); запуск: python make_icons.py
 from pathlib import Path
 from PIL import Image
 
 res = Path("android/app/src/main/res")
-src = Image.open("../icons/icon-512.png").convert("RGBA")
+src = Image.open("icon.png").convert("RGBA")
 
 def fit(size, part, bg=(0, 0, 0, 0)):
     """картинка size×size, глобус занимает долю part по центру"""
