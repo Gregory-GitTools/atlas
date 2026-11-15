@@ -21,6 +21,10 @@
 import { register, modules, toggle } from "../core/modules.js";
 import { profileMenu } from "../core/profiles.js";
 import { cacheGet, cacheSet } from "../core/storage.js";
+import { on } from "../core/events.js";
+import { track, claimLayersNear, nearBox, ownHit, closeAll } from "../core/popups.js";
+import { qleverBox, cellsInView, cellLoader } from "../core/qlever.js";
+import { withWeather } from "../core/place-info.js";
 
 const KINDS = [
   // пешеход с рюкзаком и палкой (Грегори, 2026-10-29, по картинке; босые стопы были «похожи на кальмара»)
@@ -319,26 +323,259 @@ register({
 });
 
 // Горнолыжные спуски (Грегори 2026-11-13: «на кнопке тропы горнолыжные спуски, и они всегда идут с канатными
-// подъёмниками; кнопки можно увязать, но не канатные дороги с горнолыжными спусками»): трассы — готовые
-// картинки Waymarked Trails (цвет — сложность: синие, красные, чёрные; оранжевые — равнинные и санные), под
-// ними все подъёмники из тайлов OpenFreeMap — кресельные и бугельные тоже. Включились спуски — включаются и
-// «Канатные дороги» в «Транспорте» (станции и тросы гондол); канатные дороги спуски не включают
+// подъёмниками; кнопки можно увязать, но не канатные дороги с горнолыжными спусками»). Включились спуски —
+// включаются и «Канатные дороги» в «Транспорте» (станции и тросы гондол); канатные дороги спуски не включают.
+// Издалека (до зума 11) — готовые картинки Waymarked Trails. Вблизи — свои линии из OpenStreetMap (QLever,
+// квадратами по 0,2°, хранятся на устройстве и попадают в «Скачать район»): Грегори 2026-11-15, сценарий —
+// облако на 2800 м, видимость 5 м, подъёмники закрываются: «лучше просто линии, стрелки просто поверх, номера
+// спусков должны быть видны через запотевшие лыжные очки, притянуть на карту номера подъёмников и информацию
+// по клику». Линии — одной толщины на любом масштабе, цвет — сложность (зелёная, синяя, красная, чёрная;
+// вне трассы — оранжевый пунктир), стрелка — куда спуск (в OSM спуск рисуют сверху вниз). Номер трассы —
+// крупная табличка цвета трассы с белым кантом, всегда стоит прямо к экрану (и на наклонённой 3D-карте);
+// подъёмник — тёмная табличка с номером (нет номера — с названием). Щелчок — окно с погодой места
 const SLOPES_ICON = '<circle cx="15.6" cy="3.4" r="2.1"/><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M13.6 7.4 9.8 12.6" stroke-width="3.8"/><path d="M9.8 12.6l3.4 2.6-2 4" stroke-width="3"/><path d="M12.6 8.6l4.2 2.6" stroke-width="2.2"/><path d="M16.8 11.2 19.4 19" stroke-width="1.1"/><path d="M2.4 17.6l18.8 4.4" stroke-width="2"/></g>';
-const SLOPES_SRC = "trails-slopes", SLOPES_LAYER = "trails-slopes-raster", LIFTS_SRC = "trails-slopes-lifts", LIFTS_LAYER = "trails-slopes-lifts-line";
-const GONDOLAS = ["cable_car", "gondola", "mixed_lift"]; // их рисуют «Канатные дороги» (places.js)
-let slopesMap = null;
+const SLOPES_SRC = "trails-slopes", SLOPES_LAYER = "trails-slopes-raster";
+const SKI_SRC = "trails-slopes-lines", SKI_LABELS_SRC = "trails-slopes-labels";
+const PISTE_CASE = "trails-slopes-case", PISTE_LINE = "trails-slopes-line", PISTE_OFF = "trails-slopes-offpiste",
+  PISTE_ARROWS = "trails-slopes-arrows", PISTE_LABELS = "trails-slopes-numbers",
+  LIFTS_LAYER = "trails-slopes-lifts-line", LIFT_LABELS = "trails-slopes-lift-numbers";
+const SKI_LAYERS = [LIFT_LABELS, PISTE_LABELS, PISTE_ARROWS, LIFTS_LAYER, PISTE_OFF, PISTE_LINE, PISTE_CASE];
+const GONDOLAS = ["cable_car", "gondola", "mixed_lift"]; // их тросы рисуют «Канатные дороги» (places.js)
+const SKI_ZOOM = 11, SKI_CELL = 0.2, SKI_FRESH_MS = 30 * 864e5, TAP = 10;
+const PISTE_COLORS = { novice: "#2e9d3a", easy: "#1565c0", intermediate: "#d32f2f", advanced: "#111111", expert: "#111111",
+  freeride: "#ef6c00", extreme: "#ef6c00" };
+const OTHER_COLOR = "#ef6c00", NO_DIFF_COLOR = "#616161", LIFT_COLOR = "#222222";
+const OFF_PISTE = ["freeride", "extreme"];
+const PISTE_KIND = { downhill: "Горнолыжный спуск", nordic: "Беговая лыжня", sled: "Санная трасса", skitour: "Ски-тур",
+  hike: "Зимняя пешая тропа", connection: "Переход между трассами", playground: "Детская площадка", snow_park: "Сноупарк", fatbike: "Трасса для фэтбайка" };
+const PISTE_DIFF = { novice: "для начинающих (зелёная)", easy: "лёгкая (синяя)", intermediate: "средняя (красная)", advanced: "сложная (чёрная)",
+  expert: "очень сложная", freeride: "вне трассы — не готовится и не патрулируется", extreme: "экстремальная — вне трассы" };
+const GROOMING = { classic: "классический ход", skating: "коньковый ход", "classic+skating": "классический и коньковый ход",
+  "classic;skating": "классический и коньковый ход", mogul: "бугры", backcountry: "не готовится" };
+const LIFT_KIND = { chair_lift: "Кресельный подъёмник", gondola: "Гондола", cable_car: "Канатная дорога", mixed_lift: "Кресла и кабины",
+  "t-bar": "Бугель (якорь)", "j-bar": "Бугель (одноместный)", platter: "Бугель (тарелка)", drag_lift: "Бугельный подъёмник",
+  rope_tow: "Верёвочный подъёмник", magic_carpet: "Лента-траволатор", zip_line: "Зиплайн" };
+const SKI_SPARQL = `{ ?osm osmkey:piste:type ?kind . FILTER (?kind != "ice_skate") BIND("piste" AS ?what)
+    OPTIONAL { ?osm osmkey:piste:difficulty ?diff } OPTIONAL { ?osm osmkey:piste:ref ?ref } OPTIONAL { ?osm osmkey:ref ?ref2 }
+    OPTIONAL { ?osm osmkey:piste:name ?name } OPTIONAL { ?osm osmkey:name ?name2 } OPTIONAL { ?osm osmkey:piste:grooming ?groom } }
+  UNION { ?osm osmkey:aerialway ?kind . FILTER (?kind NOT IN ("station", "pylon", "goods")) BIND("lift" AS ?what)
+    OPTIONAL { ?osm osmkey:ref ?ref } OPTIONAL { ?osm osmkey:name ?name } OPTIONAL { ?osm osmkey:aerialway:occupancy ?occ }
+    OPTIONAL { ?osm osmkey:aerialway:capacity ?cap } OPTIONAL { ?osm osmkey:aerialway:duration ?dur } OPTIONAL { ?osm osmkey:opening_hours ?oh }
+    OPTIONAL { ?osm osmkey:aerialway:heating ?heat } OPTIONAL { ?osm osmkey:aerialway:bubble ?bub } }`;
+let slopesMap = null, skiCtx = null, skiOn = false, skiWired = false;
+const pistes = new Map(), lifts = new Map(); // osm → запись из квадрата
+
+// длина линии в метрах и точки через каждые step метров (первая — в first от начала)
+const metres = ([a, b], [c, d]) => Math.hypot((c - a) * Math.cos(((b + d) * Math.PI) / 360), d - b) * 111320;
+const lineLength = (line) => line.reduce((s, p, i) => (i ? s + metres(line[i - 1], p) : 0), 0);
+function pointsAlong(line, first, step) {
+  const out = [];
+  let want = first, done = 0;
+  for (let i = 1; i < line.length; i++) {
+    const d = metres(line[i - 1], line[i]);
+    while (d > 0 && want <= done + d) {
+      const t = (want - done) / d;
+      out.push([line[i - 1][0] + (line[i][0] - line[i - 1][0]) * t, line[i - 1][1] + (line[i][1] - line[i - 1][1]) * t]);
+      want += step;
+    }
+    done += d;
+  }
+  return out;
+}
+
+// ответ QLever → записи квадрата (компактно, для хранения на устройстве)
+function skiRecords(rows) {
+  const byOsm = new Map();
+  for (const { osm, b } of rows) {
+    const v = (k) => b[k]?.value;
+    const lines = [...b.wkt.value.matchAll(/\(([^()]+)\)/g)].map((m) => m[1].split(",").map((p) => p.trim().split(/\s+/).map((n) => +(+n).toFixed(5))));
+    if (!lines.length) continue;
+    const kind = v("kind").split(";")[0];
+    if (v("what") === "lift") {
+      if (osm.startsWith("way/")) byOsm.set(osm, { lift: true, osm, kind, ref: v("ref"), name: v("name"), occ: v("occ"), cap: v("cap"), dur: v("dur"),
+        oh: v("oh"), heat: v("heat"), bub: v("bub"), line: lines[0] });
+    } else {
+      const ref = v("ref") || v("ref2");
+      // отношения повторяют свои линии — нужны только ради номера, если он записан у отношения
+      if (osm.startsWith("relation/") && !ref) continue;
+      byOsm.set(osm, { osm, kind, diff: v("diff"), ref, name: v("name") || v("name2"), groom: v("groom"),
+        area: /^(MULTI)?POLYGON/.test(b.wkt.value), labelOnly: osm.startsWith("relation/"), lines });
+    }
+  }
+  return [...byOsm.values()];
+}
+
+const pisteColor = (p) => (["downhill", "playground", "connection"].includes(p.kind)
+  ? PISTE_COLORS[p.diff] || (p.kind === "playground" ? PISTE_COLORS.novice : NO_DIFF_COLOR) : OFF_PISTE.includes(p.diff) ? PISTE_COLORS[p.diff] : OTHER_COLOR);
+
+function skiData() {
+  const lines = [], labels = [];
+  for (const p of pistes.values()) {
+    const off = OFF_PISTE.includes(p.diff);
+    const props = { osm: p.osm, color: pisteColor(p), off, arrows: (p.kind === "downhill" || p.kind === "sled") && !p.area && !off };
+    if (!p.labelOnly) for (const line of p.lines) lines.push({ type: "Feature", geometry: { type: "LineString", coordinates: line }, properties: props });
+    if (!p.ref) continue;
+    // номер — в 60 м от начала спуска (у самого начала сходятся несколько трасс) и дальше каждые 400 м
+    for (const line of p.lines) {
+      const len = lineLength(line);
+      for (const c of pointsAlong(line, Math.min(60, len / 2), 400)) labels.push({ type: "Feature", geometry: { type: "Point", coordinates: c },
+        properties: { osm: p.osm, label: p.ref, badge: `slope-badge-${props.color}` } });
+    }
+  }
+  for (const l of lifts.values()) {
+    lines.push({ type: "Feature", geometry: { type: "LineString", coordinates: l.line }, properties: { osm: l.osm, lift: true, kind: l.kind } });
+    const label = l.ref || (l.name?.length <= NAME_MAX && l.name) || null;
+    const mid = pointsAlong(l.line, lineLength(l.line) / 2, 1e9)[0];
+    if (label && mid) labels.push({ type: "Feature", geometry: { type: "Point", coordinates: mid }, properties: { osm: l.osm, lift: true, label, badge: `slope-badge-${LIFT_COLOR}` } });
+  }
+  return { lines: { type: "FeatureCollection", features: lines }, labels: { type: "FeatureCollection", features: labels } };
+}
+let skiDirty = false;
+const skiPush = () => {
+  if (skiDirty) return;
+  skiDirty = true;
+  requestAnimationFrame(() => {
+    skiDirty = false;
+    const d = skiData();
+    slopesMap?.getSource(SKI_SRC)?.setData(d.lines);
+    slopesMap?.getSource(SKI_LABELS_SRC)?.setData(d.labels);
+  });
+};
+
+// квадрат: с устройства (свежий — не старше месяца) или из QLever; без сети — и старый
+const skiKey = (box) => `slopes:${box[0]}:${box[1]}`;
+async function skiCell(box) {
+  const key = skiKey(box), kept = await cacheGet(key).catch(() => null);
+  let recs = kept?.recs;
+  if (!kept || Date.now() - kept.t > SKI_FRESH_MS) {
+    try {
+      recs = skiRecords(await qleverBox("?wkt ?what ?diff ?ref ?ref2 ?name ?name2 ?groom ?occ ?cap ?dur ?oh ?heat ?bub", SKI_SPARQL, box, 60000));
+      await cacheSet(key, { t: Date.now(), recs }).catch(() => {});
+    } catch (err) { if (!recs) throw err; }
+  }
+  return recs;
+}
+const skiLoader = cellLoader(SKI_CELL, async (box) => {
+  for (const r of await skiCell(box)) (r.lift ? lifts : pistes).set(r.osm, r);
+  skiPush();
+}, () => skiUpdate());
+function skiUpdate() {
+  if (skiOn && slopesMap && slopesMap.getZoom() >= SKI_ZOOM) skiLoader.request(cellsInView(slopesMap, SKI_CELL, 0.3));
+}
+
+// «Скачать район» при включённых спусках — и спуски с подъёмниками района
+on("trip-prepare", (job) => {
+  if (!skiOn) return;
+  job.tasks.push((async () => {
+    const [w, s, e, n] = job.box, keys = [];
+    for (let x = Math.floor(w / SKI_CELL); x <= Math.floor(e / SKI_CELL) && keys.length < 60; x++) {
+      for (let y = Math.floor(s / SKI_CELL); y <= Math.floor(n / SKI_CELL) && keys.length < 60; y++) {
+        if (job.stopped) return { keys };
+        const box = [x * SKI_CELL, y * SKI_CELL, (x + 1) * SKI_CELL, (y + 1) * SKI_CELL].map((v) => +v.toFixed(3));
+        if (await skiCell(box).then(() => true, () => false)) keys.push(skiKey(box));
+      }
+    }
+    return { keys };
+  })());
+}, { replay: false });
+
+// табличка номера: цвет трассы, белый кант; растягивается по длине номера
+function skiBadge(map, color) {
+  const id = `slope-badge-${color}`;
+  if (map.hasImage(id)) return;
+  const s = 32, c = Object.assign(document.createElement("canvas"), { width: s, height: s }).getContext("2d");
+  c.beginPath();
+  c.roundRect(2, 2, s - 4, s - 4, 8);
+  c.fillStyle = color;
+  c.fill();
+  c.lineWidth = 3;
+  c.strokeStyle = "#fff";
+  c.stroke();
+  map.addImage(id, c.getImageData(0, 0, s, s), { pixelRatio: 2, stretchX: [[11, 21]], stretchY: [[11, 21]], content: [8, 7, 24, 25] });
+}
+// стрелка вдоль линии: белый уголок с тёмным контуром
+function skiArrow(map) {
+  if (map.hasImage("slope-arrow")) return;
+  const s = 28, c = Object.assign(document.createElement("canvas"), { width: s, height: s }).getContext("2d");
+  c.lineCap = "round";
+  c.lineJoin = "round";
+  c.beginPath();
+  c.moveTo(8, 6);
+  c.lineTo(19, 14);
+  c.lineTo(8, 22);
+  c.strokeStyle = "#000";
+  c.lineWidth = 8;
+  c.stroke();
+  c.strokeStyle = "#fff";
+  c.lineWidth = 4.5;
+  c.stroke();
+  map.addImage("slope-arrow", c.getImageData(0, 0, s, s), { pixelRatio: 2 });
+}
 
 function slopesOn(map) {
   if (map.getSource(SLOPES_SRC)) return;
   const firstSymbol = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
   map.addSource(SLOPES_SRC, { type: "raster", tileSize: 256, maxzoom: 17, tiles: ["https://tile.waymarkedtrails.org/slopes/{z}/{x}/{y}.png"],
     attribution: 'Спуски: <a href="https://waymarkedtrails.org" target="_blank">Waymarked Trails</a> (CC BY-SA)' });
-  map.addLayer({ id: SLOPES_LAYER, type: "raster", source: SLOPES_SRC, minzoom: 8 }, firstSymbol);
-  map.addSource(LIFTS_SRC, { type: "vector", url: "https://tiles.openfreemap.org/planet" });
-  map.addLayer({ id: LIFTS_LAYER, type: "line", source: LIFTS_SRC, "source-layer": "transportation", minzoom: 12,
-    filter: ["all", ["==", ["get", "class"], "aerialway"], ["!", ["in", ["get", "subclass"], ["literal", GONDOLAS]]]],
-    layout: { "line-cap": "round" },
-    paint: { "line-color": "#222", "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1.2, 17, 3] } }, firstSymbol);
+  map.addLayer({ id: SLOPES_LAYER, type: "raster", source: SLOPES_SRC, minzoom: 8, maxzoom: SKI_ZOOM }, firstSymbol);
+  const d = skiData();
+  map.addSource(SKI_SRC, { type: "geojson", data: d.lines, tolerance: 0.2 });
+  map.addSource(SKI_LABELS_SRC, { type: "geojson", data: d.labels });
+  for (const color of [...new Set(Object.values(PISTE_COLORS)), OTHER_COLOR, NO_DIFF_COLOR, LIFT_COLOR]) skiBadge(map, color);
+  skiArrow(map);
+  const piste = ["!", ["has", "lift"]];
+  // одна толщина на любом масштабе (Грегори: «толщину трудно удерживать при масштабировании — лучше просто линии»)
+  map.addLayer({ id: PISTE_CASE, type: "line", source: SKI_SRC, minzoom: SKI_ZOOM, filter: ["all", piste, ["!", ["get", "off"]]],
+    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#fff", "line-width": 5, "line-opacity": 0.8 } }, firstSymbol);
+  map.addLayer({ id: PISTE_LINE, type: "line", source: SKI_SRC, minzoom: SKI_ZOOM, filter: ["all", piste, ["!", ["get", "off"]]],
+    layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 3 } }, firstSymbol);
+  map.addLayer({ id: PISTE_OFF, type: "line", source: SKI_SRC, minzoom: SKI_ZOOM, filter: ["all", piste, ["get", "off"]],
+    layout: { "line-join": "round" }, paint: { "line-color": ["get", "color"], "line-width": 3, "line-dasharray": [2, 1.5] } }, firstSymbol);
+  map.addLayer({ id: LIFTS_LAYER, type: "line", source: SKI_SRC, minzoom: SKI_ZOOM,
+    filter: ["all", ["has", "lift"], ["!", ["in", ["get", "kind"], ["literal", GONDOLAS]]]],
+    layout: { "line-cap": "round" }, paint: { "line-color": LIFT_COLOR, "line-width": 2 } }, firstSymbol);
+  // стрелки и номера — поверх подписей карты
+  map.addLayer({ id: PISTE_ARROWS, type: "symbol", source: SKI_SRC, minzoom: 13, filter: ["all", piste, ["get", "arrows"]],
+    layout: { "symbol-placement": "line", "symbol-spacing": 90, "icon-image": "slope-arrow", "icon-rotation-alignment": "map",
+      "icon-pitch-alignment": "viewport", "icon-size": ["interpolate", ["linear"], ["zoom"], 13, 1.1, 16, 1.6], "icon-allow-overlap": true, "icon-ignore-placement": true } });
+  const badges = (size) => ({ "text-field": ["get", "label"], "text-font": ["Noto Sans Bold"], "text-size": size, "text-max-width": 8,
+    "text-padding": 1, "icon-image": ["get", "badge"], "icon-text-fit": "both", "icon-text-fit-padding": [1, 4, 0, 4] });
+  map.addLayer({ id: PISTE_LABELS, type: "symbol", source: SKI_LABELS_SRC, minzoom: 12, filter: ["!", ["has", "lift"]],
+    layout: badges(["interpolate", ["linear"], ["zoom"], 12, 15, 14, 20, 16, 24]), paint: { "text-color": "#fff" } });
+  map.addLayer({ id: LIFT_LABELS, type: "symbol", source: SKI_LABELS_SRC, minzoom: 13, filter: ["has", "lift"],
+    layout: badges(["interpolate", ["linear"], ["zoom"], 13, 13, 16, 18]), paint: { "text-color": "#fff" } });
+  claimLayersNear(TAP, LIFT_LABELS, PISTE_LABELS, LIFTS_LAYER, PISTE_OFF, PISTE_LINE);
+}
+
+// окно трассы или подъёмника: номер, название, сложность / вид, места, время в пути, часы; погода места
+function skiInfo(rec, lngLat) {
+  const box = document.createElement("div");
+  const add = (cls, text) => text && box.append(Object.assign(document.createElement("div"), { className: cls, textContent: text }));
+  let title;
+  if (rec.lift) {
+    title = [rec.ref, rec.name].filter(Boolean).join(" · ") || LIFT_KIND[rec.kind] || "Подъёмник";
+    add("popup-title", title);
+    add("popup-sub", LIFT_KIND[rec.kind] || rec.kind);
+    const dur = rec.dur && `в пути ${rec.dur.replace(".", ",")} мин`;
+    add("popup-row", [rec.occ && `мест: ${rec.occ}`, rec.cap && `${rec.cap} чел./ч`, dur, `${Math.round(lineLength(rec.line) / 10) * 10} м`].filter(Boolean).join(" · "));
+    add("popup-row", [rec.heat === "yes" && "подогрев сидений", rec.bub === "yes" && "колпак от ветра"].filter(Boolean).join(", "));
+    add("popup-row", rec.oh && `Часы работы: ${rec.oh}`);
+  } else {
+    title = [rec.ref && `Трасса ${rec.ref}`, rec.name].filter(Boolean).join(" · ") || PISTE_KIND[rec.kind] || "Трасса";
+    add("popup-title", title);
+    add("popup-sub", [PISTE_KIND[rec.kind] || rec.kind, PISTE_DIFF[rec.diff]].filter(Boolean).join(", "));
+    add("popup-row", GROOMING[rec.groom] && `Подготовка: ${GROOMING[rec.groom]}`);
+  }
+  return withWeather(box, lngLat, title);
+}
+function skiClick(e) {
+  if (!skiOn || ownHit(slopesMap, e.point, SKI_LAYERS)) return; // чужой значок (фото, спот) — его окно
+  const f = SKI_LAYERS.map((id) => slopesMap.getLayer(id) && slopesMap.queryRenderedFeatures(nearBox(e.point, TAP), { layers: [id] })[0]).find(Boolean);
+  const rec = f && (pistes.get(f.properties.osm) || lifts.get(f.properties.osm));
+  if (!rec) return;
+  const ll = f.geometry.type === "Point" ? f.geometry.coordinates : [e.lngLat.lng, e.lngLat.lat];
+  closeAll();
+  track(new skiCtx.maplibregl.Popup({ offset: 10, maxWidth: "280px" })).setLngLat(ll).setDOMContent(skiInfo(rec, ll)).addTo(slopesMap);
 }
 
 // «Канатные дороги» — отметить в меню «Транспорта» и включить его; отмечено (или всё без выбора) — не трогать
@@ -356,16 +593,27 @@ register({
   ...common,
   id: "trails/slopes",
   title: "Горнолыжные спуски",
-  hint: "Трассы по цвету сложности, с подъёмниками",
+  hint: "Трассы по цвету сложности, с номерами и подъёмниками",
   icon: chipIcon(SLOPES_ICON),
-  sends: "район карты (Waymarked Trails, OpenFreeMap)",
+  sends: "район карты (Waymarked Trails, QLever — OpenStreetMap)",
   async enable(ctx) {
     slopesMap = ctx.map;
+    skiCtx = ctx;
+    skiOn = true;
     slopesOn(ctx.map);
+    if (!skiWired) {
+      skiWired = true;
+      ctx.map.on("idle", skiUpdate);
+      ctx.map.on("click", skiClick);
+    }
+    skiUpdate();
     await withLifts(ctx);
   },
   disable() {
-    for (const id of [LIFTS_LAYER, SLOPES_LAYER]) if (slopesMap?.getLayer(id)) slopesMap.removeLayer(id);
-    for (const id of [LIFTS_SRC, SLOPES_SRC]) if (slopesMap?.getSource(id)) slopesMap.removeSource(id);
+    skiOn = false;
+    skiLoader.forgetPending();
+    for (const id of [...SKI_LAYERS, SLOPES_LAYER]) if (slopesMap?.getLayer(id)) slopesMap.removeLayer(id);
+    for (const id of [SKI_LABELS_SRC, SKI_SRC, SLOPES_SRC]) if (slopesMap?.getSource(id)) slopesMap.removeSource(id);
   },
+  stats: () => ({ pistes: pistes.size, lifts: lifts.size, numbered: [...pistes.values()].filter((p) => p.ref).length }),
 });

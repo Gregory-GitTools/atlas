@@ -1354,7 +1354,7 @@ body.has-photo-strip .wx-bar {
 
 /* погода места: под крестиком окна — температура и осадки сейчас, под ними стрелка ветра (в поле справа,
    текст окна не задевает); щелчок — лента прогноза внизу, ещё щелчок — убрать; лента на месте — затенён.
-   Без навигации «Навигация» (.go-navon, core/route.js) — в шапке, на месте «⋯» */
+   «Навигация» (.go-navon, core/route.js) — в шапке: без навигации на месте «⋯», при ней — левее, затенена */
 .wx-host {
   min-height: 72px;
 }
@@ -3541,10 +3541,11 @@ body.go-nav-off .go-menu {
 }
 
 .go-navon {
-  display: none;
+  display: grid;
+  place-items: center;
   position: absolute;
   top: 0;
-  right: 32px;
+  right: 64px;
   width: 32px;
   height: 32px;
   padding: 0;
@@ -3556,12 +3557,27 @@ body.go-nav-off .go-menu {
 }
 
 body.go-nav-off .go-navon {
-  display: grid;
-  place-items: center;
+  right: 32px;
 }
 
 .go-navon:hover {
   background: var(--panel-hover);
+}
+
+/* навигация включена — кнопка затенена, щелчок выключает (Грегори 2026-11-15) */
+.go-navon.on {
+  background: var(--active);
+}
+
+/* место в первой строке под «Навигацию» левее «⋯» */
+.go-head-gap {
+  float: right;
+  width: 32px;
+  height: 22px;
+}
+
+body.go-nav-off .go-head-gap {
+  display: none;
 }
 
 .go-menu {

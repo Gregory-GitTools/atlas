@@ -139,8 +139,8 @@ async function pointContent(lngLat) {
   return box;
 }
 
-// температура и осадки под крестиком окна места (Грегори 2026-11-14)
-const withWeather = (box, lngLat, title) => {
+// температура и осадки под крестиком окна места (Грегори 2026-11-14); им же пользуются окна модулей (спуски)
+export const withWeather = (box, lngLat, title) => {
   if (!allowed(self())) return box;
   box.classList.add("wx-host");
   box.prepend(weatherChip(Array.isArray(lngLat) ? lngLat : [lngLat.lng, lngLat.lat], title));

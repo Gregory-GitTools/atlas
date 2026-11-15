@@ -137,7 +137,10 @@ export function initRoute({ map, maplibregl, status }) {
   // раздел (включена или открыта строка «Куда» — маршрут составляют и дома) или маршрут уже собирается; без
   // неё — одна кнопка «Навигация» (как в барабане) в шапке, на месте «⋯»
   let navLit = false;
-  const navUi = () => document.body.classList.toggle("go-nav-off", !navLit && !all().length);
+  const navUi = () => {
+    document.body.classList.toggle("go-nav-off", !navLit && !all().length);
+    for (const b of document.querySelectorAll(".go-navon")) { const lit = !document.body.classList.contains("go-nav-off"); b.classList.toggle("on", lit); b.title = lit ? "Выключить навигацию" : "Навигация — маршрут сюда"; }
+  };
   on("module", ({ id, on: v }) => { if (id === "content/navigation") { navLit = !!v; navUi(); } });
   const show = () => {
     navUi();
@@ -513,8 +516,19 @@ export function initRoute({ map, maplibregl, status }) {
         x.addEventListener("click", () => own.fn(), { capture: true });
       }
     }
-    // без навигации — она одна: открыть раздел «Навигация», как кнопкой в барабане; окно остаётся, ряд появится
-    const navOn = button("go-navon", "Навигация — маршрут сюда", NAV_ARROW, () => modules("content").find((m) => m.id === "content/navigation")?.column?.home());
+    // «Навигация» в шапке — переключатель, как кнопка в барабане (Грегори 2026-11-15: «вернуть в свёрнутый вид
+    // только через барабан»): без навигации открывает раздел, окно остаётся и получает ряд; при навигации
+    // затенена (левее «⋯») — выключает её, как крестик кнопки в барабане, окно снова свёрнутое
+    const navOn = button("go-navon", "Навигация — маршрут сюда", NAV_ARROW, () => {
+      const nav = modules("content").find((m) => m.id === "content/navigation")?.column;
+      if (document.body.classList.contains("go-nav-off")) nav?.home();
+      else nav?.close();
+    });
+    const paintNav = () => { const lit = !document.body.classList.contains("go-nav-off"); navOn.classList.toggle("on", lit); navOn.title = lit ? "Выключить навигацию" : "Навигация — маршрут сюда"; };
+    paintNav();
+    // строка шапки уступает место кнопке «Навигация» рядом с «⋯»
+    const gap = h("span", "go-head-gap");
+    content.firstElementChild?.prepend(gap);
     content.append(row, more, menu, navOn);
     content.classList.add("has-more");
     // окно стало выше — пусть MapLibre заново выберет, куда его повернуть, чтобы не ушло за край экрана

@@ -158,9 +158,9 @@ try {
     c3.pitch >= 55 && c3.label === "3D" && cN.pitch === 0 && cN.bearing === 0 && cN.label === "С" && !cN.rotate
     && c2.pitch === 0 && c2.label === "2D" && c2.rotate, JSON.stringify([c3, cN, c2]));
   // издалека космос не растёт: наклон сам уменьшается, со шкалы 100 км — 2D, компас 3D не предлагает
-  const far = await run(`(async () => { const m = atlas.map, at = async (zoom) => { m.jumpTo({ zoom, pitch: 70 }); await new Promise((r) => setTimeout(r, 50)); return Math.round(m.getPitch()); };
+  const far = await run(`(async () => { const m = atlas.map, at = async (zoom) => { m.jumpTo({ zoom, pitch: 75 }); await new Promise((r) => setTimeout(r, 50)); return Math.round(m.getPitch()); };
     const r = { near: await at(13), mid: await at(7.5), far: await at(5) }; await new Promise((r) => setTimeout(r, 100)); r.label = document.querySelector(".compass-mode").textContent; m.jumpTo({ pitch: 0 }); return r; })()`);
-  check("наклон: вблизи 70°, при отдалении меньше, на 100 км — 2D", far.near === 70 && far.mid > 0 && far.mid < 70 && far.far === 0 && far.label === "2D", JSON.stringify(far));
+  check("наклон: вблизи 75°, при отдалении меньше, на 100 км — 2D", far.near === 75 && far.mid > 0 && far.mid < 75 && far.far === 0 && far.label === "2D", JSON.stringify(far));
   // навигация (подставные координаты): включаю у Таллина — сразу 3D, я внизу, масштаб прежний (Грегори
   // 2026-11-10); карта по ходу движения (на восток, потом на север), метка — стрелка; сдвинул карту — сама не
   // возвращается, кнопка «Навигация» — ко мне; выровнял рукой — 2D, кнопкой — я в центре;
@@ -407,7 +407,7 @@ try {
     const p = track(new atlas.ctx.maplibregl.Popup({ maxWidth: "280px" })).setLngLat([24.76, 59.43]).setHTML('<div class="popup-title">Проба</div>').addTo(atlas.map);
     const q = (c) => p.getElement().querySelector(c), seen = (c) => !!q(c) && q(c).offsetParent !== null;
     const r = { shown: [...p.getElement().querySelectorAll(".go-act, .go-more")].filter((b) => b.offsetParent).map((b) => b.title).join(),
-      navon: seen(".go-navon"), disabled: q(".go-here")?.disabled, start: seen(".go-begin") && !q(".go-begin").disabled, finish: seen(".go-end") && !q(".go-end").disabled, add: seen(".go-add") && !q(".go-add").disabled };
+      navon: seen(".go-navon"), navLit: !!q(".go-navon")?.classList.contains("on"), disabled: q(".go-here")?.disabled, start: seen(".go-begin") && !q(".go-begin").disabled, finish: seen(".go-end") && !q(".go-end").disabled, add: seen(".go-add") && !q(".go-add").disabled };
     const row = q(".go-actions").getBoundingClientRect(), box = p.getElement().getBoundingClientRect();
     r.fits = row.right <= box.right + 1 && [...p.getElement().querySelectorAll(".go-act")].filter((b) => b.offsetParent).every((b) => Math.abs(b.getBoundingClientRect().top - row.top) < 2);
     p.remove(); return r; })()`;
@@ -423,12 +423,19 @@ try {
   await run(`${wheelNav}.click(); true`);
   await sleep(300);
   const noHere = await run(popRow);
+  // включённая «Навигация» в окне — затенена, второй клик выключает навигацию (Грегори 2026-11-15), окно остаётся
+  const navOffInPop = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
+    const p = track(new atlas.ctx.maplibregl.Popup({ maxWidth: "280px" })).setLngLat([24.76, 59.43]).setHTML('<div class="popup-title">Проба</div>').addTo(atlas.map);
+    p.getElement().querySelector(".go-navon").click(); await new Promise((r) => setTimeout(r, 300));
+    const r = { open: p.isOpen(), lit: !!${wheelNav}?.classList.contains("on"), btnLit: p.getElement().querySelector(".go-navon").classList.contains("on"),
+      row: [...p.getElement().querySelectorAll(".go-act")].filter((b) => b.offsetParent).length };
+    p.remove(); return r; })()`);
   await run(`import(new URL("core/search.js", location.href)).then((m) => { m.setSearchMode(null); return true; })`);
   await sleep(200);
   const noNav2 = await run(popRow);
-  check("окно места без навигации — только кнопка «Навигация» (открывает раздел, окно остаётся); раздел открыт (без GPS) — «Сюда» видна и неактивна, «Старт», «Добавить», «Финиш», «Поделиться», «Отметить», «⋯»; ряд в одну строку",
-    noNav.shown === "" && noNav.navon && !noHere.navon && navInPop.open && navInPop.lit && navInPop.row === 6 && noNav2.shown === noNav.shown && noNav2.navon && /^Сюда,Старт,Добавить в путь,Финиш,Поделиться,Отметить,Ещё$/.test(noHere.shown)
-    && noHere.disabled && noHere.start && noHere.finish && noHere.add && noHere.fits && noNav.fits, JSON.stringify({ noNav, navInPop, noHere, noNav2 }));
+  check("окно места без навигации — только кнопка «Навигация» (открывает раздел, окно остаётся); раздел открыт — «Навигация» затенена и выключает его; (без GPS) «Сюда» видна и неактивна, «Старт», «Добавить», «Финиш», «Поделиться», «Отметить», «⋯»; ряд в одну строку",
+    noNav.shown === "" && noNav.navon && !noNav.navLit && noHere.navon && noHere.navLit && navOffInPop.open && !navOffInPop.lit && !navOffInPop.btnLit && navOffInPop.row === 0 && navInPop.open && navInPop.lit && navInPop.row === 6 && noNav2.shown === noNav.shown && noNav2.navon && /^Сюда,Старт,Добавить в путь,Финиш,Поделиться,Отметить,Ещё$/.test(noHere.shown)
+    && noHere.disabled && noHere.start && noHere.finish && noHere.add && noHere.fits && noNav.fits, JSON.stringify({ noNav, navInPop, noHere, navOffInPop, noNav2 }));
   // планирование дома: первая точка — метка; «Финиш» — маршрут (запись в «Куда» со стартом); «+» — перед
   // финишем; новый «Старт» — прежний становится второй точкой (Грегори 2026-11-14); способ — путь по точкам маршрута, без меня; программа сама не прокладывает
   const plan = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
@@ -930,15 +937,31 @@ try {
     await run(`atlas.toggle("places/transport", false)`);
     // «Горнолыжные спуски» (в «Тропах»): трассы и все подъёмники, включают «Канатные дороги» в «Транспорте» и
     // запоминают это; выключили спуски — канатные дороги остаются (Грегори 2026-11-13)
-    await run(`atlas.map.jumpTo({ center: [10.3, 46.98], zoom: 12.4 }); atlas.toggle("trails/slopes", true)`);
+    // вблизи — свои линии из OSM (QLever): номера трасс табличками, стрелки, подъёмники с подписями; щелчок по номеру —
+    // окно трассы (Грегори 2026-11-15: «номера спусков должны быть видны через запотевшие лыжные очки»)
+    await run(`atlas.map.jumpTo({ center: [10.245, 47.135], zoom: 14 }); atlas.toggle("trails/slopes", true)`);
     await idle();
-    for (let i = 0; i < 20 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["trails-slopes-lifts-line"] }).length > 0`)); i++) { await run(`atlas.map.triggerRepaint(); true`); await sleep(1000); }
+    const skiCount = (id) => `atlas.map.queryRenderedFeatures({ layers: ["${id}"] }).length`;
+    for (let i = 0; i < 60 && !(await run(`${skiCount("trails-slopes-numbers")} > 0 && ${skiCount("trails-slopes-lifts-line")} > 0`)); i++) { await run(`atlas.map.triggerRepaint(); true`); await sleep(1000); }
     const ski = await run(`(() => { const tr = atlas.modules().find((m) => m.id === "places/transport");
-      return { raster: !!atlas.map.getLayer("trails-slopes-raster"), chairs: atlas.map.queryRenderedFeatures({ layers: ["trails-slopes-lifts-line"] }).length,
+      return { raster: !!atlas.map.getLayer("trails-slopes-raster"), chairs: ${skiCount("trails-slopes-lifts-line")},
+        numbers: ${skiCount("trails-slopes-numbers")}, arrows: ${skiCount("trails-slopes-arrows")}, liftNumbers: ${skiCount("trails-slopes-lift-numbers")},
+        font: atlas.map.getLayoutProperty("trails-slopes-numbers", "text-font")?.[0],
         tr: tr.active, marked: tr.menu.items().filter((i) => i.active).map((i) => i.id), kept: JSON.parse(localStorage.getItem("atlas.layers.on") || "[]").includes("places/transport"),
         gondolas: atlas.map.getLayoutProperty("places-lift-line", "visibility") }; })()`);
     await shot("85-slopes");
-    await run(`atlas.toggle("trails/slopes", false)`);
+    const skiAt = await run(`(() => { const c = atlas.map.project(atlas.map.getCenter());
+      const p = atlas.map.queryRenderedFeatures({ layers: ["trails-slopes-numbers"] }).map((f) => atlas.map.project(f.geometry.coordinates))
+        .sort((a, b) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(b.x - c.x, b.y - c.y))[0];
+      return p && [Math.round(p.x), Math.round(p.y)]; })()`);
+    if (skiAt) await clickAt(...skiAt);
+    for (let i = 0; i < 10 && !(await run(`!!document.querySelector(".maplibregl-popup .popup-title")`)); i++) await sleep(300);
+    const skiPop = await run(`({ title: document.querySelector(".maplibregl-popup .popup-title")?.textContent || "", sub: document.querySelector(".maplibregl-popup .popup-sub")?.textContent || "",
+      wx: !!document.querySelector(".maplibregl-popup .wx-chip"), kept: atlas.modules().find((m) => m.id === "trails/slopes").stats().numbered })`);
+    check("«Горнолыжные спуски» вблизи: номера трасс табличками (жирным), стрелки, номера подъёмников; щелчок по номеру — окно трассы с погодой",
+      ski.numbers > 0 && ski.arrows > 0 && ski.liftNumbers > 0 && /Bold/.test(ski.font) && /^Трасса \S+/.test(skiPop.title) && /спуск|лыжня|трасса/i.test(skiPop.sub) && skiPop.wx && skiPop.kept > 0,
+      JSON.stringify({ ski, skiAt, skiPop }));
+    await run(`document.querySelector(".maplibregl-popup-close-button")?.click(); atlas.toggle("trails/slopes", false)`);
     const skiOff = await run(`({ raster: !!atlas.map.getLayer("trails-slopes-raster"), tr: atlas.modules().find((m) => m.id === "places/transport").active })`);
     check("«Горнолыжные спуски»: трассы и подъёмники, включают «Канатные дороги»; выключили спуски — канатные дороги остались",
       ski.raster && ski.chairs > 0 && ski.tr && ski.marked.join() === "lifts" && ski.kept && ski.gondolas === "visible" && !skiOff.raster && skiOff.tr, JSON.stringify({ ski, skiOff }));

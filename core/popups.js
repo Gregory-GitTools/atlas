@@ -67,12 +67,18 @@ export function initPopups(map) {
 
 // Свои кликабельные слои модулей (флажки мест, значки экскурсий…): щелчок по ним обрабатывает сам
 // модуль, общее «окно места» по такому щелчку не открывается
-const own = new Set();
-export const claimLayers = (...ids) => ids.forEach((id) => own.add(id));
+// слой → допуск в точках экрана (0 — точно в точку); тонкие линии (спуски, подъёмники) пальцем точно не
+// попасть — им claimLayersNear, и модуль ищет щелчок тем же квадратом (nearBox)
+const own = new Map();
+export const claimLayers = (...ids) => ids.forEach((id) => own.set(id, own.get(id) || 0));
+export const claimLayersNear = (pad, ...ids) => ids.forEach((id) => own.set(id, pad));
+export const nearBox = ({ x, y }, pad) => [[x - pad, y - pad], [x + pad, y + pad]];
 // except — свои слои, которые не считать (стрелка ветра уступает значку спота под ней)
 export const ownHit = (map, point, except = []) => {
-  const layers = [...own].filter((id) => map.getLayer(id) && !except.includes(id));
-  return layers.length > 0 && map.queryRenderedFeatures(point, { layers }).length > 0;
+  const layers = [...own.keys()].filter((id) => map.getLayer(id) && !except.includes(id));
+  const exact = layers.filter((id) => !own.get(id));
+  return (exact.length > 0 && map.queryRenderedFeatures(point, { layers: exact }).length > 0)
+    || layers.some((id) => own.get(id) > 0 && map.queryRenderedFeatures(nearBox(point, own.get(id)), { layers: [id] }).length > 0);
 };
 
 // Модуль забрал щелчки по карте себе (рисование трека): окно места не открывается, пока не отпустит
