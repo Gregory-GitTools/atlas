@@ -263,8 +263,12 @@ try {
   const W = PHONE ? 390 : 1200;
   await run(`(() => { document.querySelectorAll(".search-results").forEach((m) => (m.hidden = true)); return true; })()`);
   const cardShown = await run(`!document.querySelector(".search-card").hidden`);
+  // карта ещё может лететь к пути карточки — щелчок по летящей карте её только останавливает
+  for (let i = 0; i < 20 && (await run(`atlas.map.isMoving()`)); i++) await sleep(250);
   for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: PHONE ? W / 2 : W - 300, y: 620, button: "left", clickCount: 1 });
-  await sleep(2500);
+  // окно ждёт адрес из сети — ждём окно, а не просто паузу
+  for (let i = 0; i < 30 && !(await run(`!!document.querySelector(".maplibregl-popup .go-add")`)); i++) await sleep(300);
+  await sleep(300);
   const mapPop = await run(`(() => { const p = [...document.querySelectorAll(".maplibregl-popup")].pop(); const r = { open: !!p, add: !!p?.querySelector(".go-add:not([hidden])") }; document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); return r; })()`);
   check("навигация: при открытой карточке пути щелчок по карте открывает окно места с «Добавить»", cardShown && mapPop.open && mapPop.add, JSON.stringify({ cardShown, mapPop }));
   // маршрут с остановкой — сам в списке «Куда» (значок маршрута); его точки — своим списком, как история:
@@ -504,7 +508,7 @@ try {
   await sleep(600);
   const vSubs = await run(`[...document.querySelectorAll(".route-view .search-history-row")].map((x) => x.querySelector(".search-item-title").textContent.replace(/^([0-9]+|START)/, "") + "|" + x.querySelector(".search-item-sub").textContent)`);
   check("список точек маршрута: название и адрес строкой ниже", vSubs.join() === "Дельта|,Альфа|,Гамма|,Бета|,Кадриорг|Таллин,Эпсилон|Эпсилон 1, Таллин", JSON.stringify(vSubs));
-  // «Куда» по странам: стран больше одной — страны с флажком и числом; щелчок — записи страны, «назад» — страны
+  // «Куда» по странам: всегда (и при одной) — страны с флажком и числом; щелчок — записи страны, «назад» — страны
   await run(`document.querySelector(".route-view-back").click(); true`);
   await run(`window.__keepHist = localStorage.getItem("atlas.route.history"); localStorage.setItem("atlas.route.history", JSON.stringify([...JSON.parse(localStorage.getItem("atlas.route.history")),
     { lngLat: [11.39, 47.26], title: "Инсбрук", address: "Тироль" }, { lngLat: [7.75, 46.02], title: "Церматт", address: "Вале" }, { lngLat: [11.4, 47.27], title: "Халль", address: "Тироль" }]));
@@ -557,6 +561,10 @@ try {
   await run(`(() => { const i = document.querySelector(".search-box input"); i.value = ""; i.dispatchEvent(new Event("input")); return true; })()`);
   await run(`(() => { (document.querySelector(".search-results").hidden || document.querySelector(".search-box input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))); return true; })()`);
   await clickInput();
+  // «Куда» всегда по странам — сначала страна
+  const land1 = await run(`(() => { const b = ${navList}.querySelectorAll(".nav-country"), clear = !!${navList}.querySelector(".search-history-clear");
+    b[0]?.click(); document.querySelector(".search-box input").focus(); return b.length + (clear ? "+clear" : ""); })()`);
+  await sleep(300);
   const hist = await run(`({ rows: ${navList}.querySelectorAll(".search-history-row").length, open: !${navList}.hidden,
     clear: !!${navList}.querySelector(".search-history-clear"), grip: !!${navList}.querySelector(".search-grip"), card: !${navPanel}.hidden })`);
   // набор — подсказки из уже найденного
@@ -566,13 +574,18 @@ try {
   check("набор — первой строкой «Искать «…» везде — Enter»", /Искать «Про» везде/.test(every) && /Enter/.test(every), every);
   await run(`(() => { const i = document.querySelector(".search-box input"); i.value = ""; i.dispatchEvent(new Event("input")); return true; })()`);
   await clickInput();
+  // открыта страна — щелчок по строке ведёт к началу (к странам), следующий — закрыть
+  const toLands = await run(`!${navList}.hidden && !${navList}.querySelector(".route-view-head") && ${navList}.querySelectorAll(".nav-country").length === 1`);
+  await clickInput();
   const shut = await run(`${navList}.hidden`);
   await clickInput();
+  await run(`(${navList}.querySelector(".nav-country")?.click(), true)`);
+  await sleep(300);
   await run(`${navList}.querySelector(".search-history-row:last-child .search-delete").click(); true`);
   const left = await run(`JSON.parse(localStorage.getItem("atlas.route.history") || "[]").length`);
-  check("навигация: место из «Куда» — точка, подсказки закрылись; щелчок по строке — история (отдельно от карточки), набор — подходящие, второй щелчок — закрыть",
+  check("навигация: место из «Куда» — точка, подсказки закрылись; щелчок по строке — страны («Очистить историю» под ними), в стране — история (отдельно от карточки), набор — подходящие, второй щелчок — закрыть",
     found > 0 && /Kadri|Кадри/i.test(picked.target) && picked.history.length === 2 && !picked.list && picked.card && picked.placeholder === "Добавить точку"
-    && hist.rows === 2 && hist.open && hist.clear && hist.grip && !hist.card && JSON.stringify(typed) === '["Проба"]' && shut && left === 1, JSON.stringify({ found, picked, hist, typed, shut, left }));
+    && land1 === "1+clear" && hist.rows === 2 && hist.open && !hist.clear && hist.grip && !hist.card && JSON.stringify(typed) === '["Проба"]' && toLands && shut && left === 1, JSON.stringify({ found, picked, land1, hist, typed, toLands, shut, left }));
   // «Свернуть» карточку — в строке стрелка; щелчок по ней — карточка снова
   await run(`(() => { (document.querySelector(".search-results").hidden || document.querySelector(".search-box input").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))); return true; })()`);
   const held = await run(`atlas.geo.state().hold`);
@@ -2207,11 +2220,13 @@ try {
     check("ветер: узлы сетки (щёлкаются, прогноз)", w.length > 0, `${w.length} узлов, ${w.slice(0, 5).join(", ")} м/с`);
     // лента прогноза вместо ползунка (Грегори 2026-11-14): 5 прошедших дней (бледнее) и 7 вперёд по 3 часа,
     // в рамке и в виду — сейчас; в шапке — кнопки «Ветер» (включён — затенена) и «Осадки»; кнопки карты не закрывает
+    // (на телефоне лента лежит под ними — кнопки поверх и нажимаются, Грегори 2026-11-15)
     const wind = `atlas.modules().find((m) => m.id === "weather/wind")`;
     for (let i = 0; i < 20 && !(await run(`document.querySelectorAll(".wx-bar .wx-h").length > 0`)); i++) await sleep(500);
     await sleep(300);
     const barNow = await run(`(() => { const b = document.querySelector(".wx-bar"), r = b.getBoundingClientRect(),
-      hit = [...document.querySelectorAll(".btn.glass, .wheel-toggle")].filter((x) => x.offsetParent).some((x) => { const q = x.getBoundingClientRect(); return q.right > r.left && q.left < r.right && q.bottom > r.top && q.top < r.bottom; });
+      hit = [...document.querySelectorAll(".btn.glass, .wheel-toggle")].filter((x) => x.offsetParent).some((x) => { const q = x.getBoundingClientRect(); return q.right > r.left && q.left < r.right && q.bottom > r.top && q.top < r.bottom
+        && !x.contains(document.elementFromPoint((q.left + q.right) / 2, (q.top + q.bottom) / 2)); });
       const hs = [...b.querySelectorAll(".wx-h")], at = b.querySelector(".wx-h.wx-at"), q = at?.getBoundingClientRect(), w = b.querySelector(".wx-grid-wrap").getBoundingClientRect();
       return { shown: !b.hidden, name: b.querySelector(".wx-bar-name").textContent, when: b.querySelector(".wx-bar-when").textContent, cols: hs.length,
         past: b.querySelectorAll(".wx-h.wx-past").length, atIdx: hs.indexOf(at), inView: !!q && q.left >= w.left && q.right <= w.right + 1,

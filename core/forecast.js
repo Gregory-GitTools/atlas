@@ -432,5 +432,6 @@ export function weatherChip(lngLat, title) {
 
 export function initForecast(c) {
   ctx = c;
-  document.body.append(bar);
+  // в окне карты, а не в body: кнопки углов карты (масштаб, «где я», компас) могут лечь поверх ленты
+  (c.map?.getContainer() || document.body).append(bar);
 }

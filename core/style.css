@@ -1247,6 +1247,26 @@ body.has-photo-strip .wx-bar {
   bottom: 110px;
 }
 
+/* телефон: лента — в самом низу во всю ширину, под полупрозрачными кнопками (Грегори 2026-11-15: «для чего
+   мы их делали прозрачными? ничего ценного они не закроют») */
+@media (max-width: 600px) {
+  .wx-bar {
+    left: 6px;
+    right: 6px;
+    bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* кнопки углов карты — поверх ленты (лента в окне карты, core/forecast.js); масштаб на ленте не нужен */
+  body.has-wx-bar .maplibregl-ctrl-bottom-left,
+  body.has-wx-bar .maplibregl-ctrl-bottom-right {
+    z-index: 13;
+  }
+
+  body.has-wx-bar .maplibregl-ctrl-scale {
+    visibility: hidden;
+  }
+}
+
 .wx-bar-top {
   display: flex;
   align-items: center;

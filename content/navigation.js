@@ -182,12 +182,19 @@ function suggestions(q) {
   if (!q) openRoute = null;
   // маршрут в работе — выбранное из истории место тоже окном на карте (Добавить или Сюда)
   const pickIn = (e) => (state.target && !e.saved ? place({ lngLat: e.lngLat, title: e.title, address: e.address || "" }) : choose(e));
-  // по странам, как альбомы: стран больше одной — сначала список стран с флажками, щелчок — записи страны;
+  // по странам, как альбомы: всегда (и при одной стране — Грегори 2026-11-15: «однозначность интерфейса») сначала
+  // список стран с флажками, щелчок — записи страны;
   // набирают текст — подходящие из всех стран
   locate();
   const by = countries();
-  if (openCountry && (!by.has(openCountry) || by.size < 2)) openCountry = null;
-  if (!q && !openCountry && by.size > 1) return [...by].map(([name, { n, iso }]) => countryRow(name, n, iso));
+  if (openCountry && !by.has(openCountry)) openCountry = null;
+  if (!q && !openCountry && by.size) {
+    // «Очистить историю» — под странами (в стране — нет)
+    const clear = h("button", "search-history-clear", "Очистить историю");
+    clear.type = "button";
+    clear.addEventListener("click", (e) => { e.stopPropagation(); saveList(HISTORY, []); render(); });
+    return [...[...by].map(([name, { n, iso }]) => countryRow(name, n, iso)), clear];
+  }
   if (!q && openCountry) out.push(countryHead(openCountry, by.get(openCountry).iso));
   const inCountry = !q && !!openCountry;
   const hist = historyList({ key: HISTORY, id, clear: !inCountry,

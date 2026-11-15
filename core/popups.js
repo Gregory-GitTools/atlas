@@ -18,6 +18,8 @@ export function track(popup) {
     if (!el || !popup._map) return;
     watch = new ResizeObserver(() => requestAnimationFrame(() => keepOnScreen(popup)));
     watch.observe(el);
+    // нижние полосы (лента прогноза) появились или выросли — окно тоже уходит выше них
+    document.querySelectorAll("[data-keep-clear]").forEach((b) => watch.observe(b));
   });
   return popup;
 }
