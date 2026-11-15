@@ -10,7 +10,7 @@
 // без типа (из QLever) — см. ROADMAP
 import { register } from "../core/modules.js";
 import { track, claimLayers } from "../core/popups.js";
-import { featureContent } from "../core/place-info.js";
+import { featureContent, withWeather } from "../core/place-info.js";
 import { profileMenu } from "../core/profiles.js";
 import { qleverBox, cellsInView, cellLoader } from "../core/qlever.js";
 
@@ -344,8 +344,10 @@ function wire({ map, maplibregl }) {
     const n = ++click;
     const content = await featureContent(f);
     if (n !== click) return;
+    // и у флажков мест — погода места (Грегори 2026-11-15: «на именованных точках на карте погоды нет»)
+    const title = content.querySelector(".popup-title")?.textContent || "";
     track(new maplibregl.Popup({ offset: [0, -30], maxWidth: "280px" }))
-      .setLngLat(f.geometry.coordinates).setDOMContent(content).addTo(map);
+      .setLngLat(f.geometry.coordinates).setDOMContent(withWeather(content, f.geometry.coordinates, title)).addTo(map);
   });
 }
 

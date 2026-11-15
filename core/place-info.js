@@ -104,6 +104,9 @@ export async function featureContent(f) {
   if (!allowed(self())) return box;
   const tags = await withTimeout(osmTags(f).catch(() => null), 2500, null);
   if (!tags) return box;
+  // в тайлах названия нет (станция канатки из QLever…) — берётся из OSM (Грегори 2026-11-15: «названия не везде»)
+  const own = !name && (tags[`name:${uiLanguage()}`] || tags.name);
+  if (own) { box.firstElementChild.textContent = own; if (kind) box.append(h("popup-sub", kind)); }
   const about = await withTimeout(wiki(tags).catch(() => null), 2500, null);
   if (about) {
     box.append(h("popup-wiki", about.text));

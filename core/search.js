@@ -24,6 +24,7 @@ import { emit, on } from "./events.js";
 import * as settings from "./settings.js";
 import { uiLanguage } from "./labels.js";
 import { track } from "./popups.js";
+import { withWeather } from "./place-info.js";
 import { closeOpen } from "./panel.js";
 import { historyList, remember as rememberIn } from "./history.js";
 import { backable } from "./back.js";
@@ -92,7 +93,10 @@ export function initSearch({ map, maplibregl }) {
   const cardBox = bar.querySelector(".search-card");
   const list = bar.querySelector(".search-results");
   let cursor = null; // display_name выделенной стрелками строки
-  let marker = null;
+  // найденное место остаётся на карте, пока его не сняли крестиком строки (Грегори 2026-11-15): ушли в
+  // «Навигацию» или «Треки» — отметка на месте, вернулись к лупе — её название снова в строке
+  let marker = null, markTitle = "";
+  const plainText = () => (marker ? markTitle : "");
   let cardOpen = true; // карточка пути развёрнута (свернули — стрелка в строке)
   let folded = null, leftOpen = false; // свёрнутое окно раздела { id, icon, title }; открыто ли окно слева
   on("panel-fold", (f) => { folded = f; leftOpen = !!leftOpen && !f; refresh(false); }, { replay: false });
@@ -105,7 +109,7 @@ export function initSearch({ map, maplibregl }) {
   }, { replay: false });
   const unfoldPanel = () => { cardOpen = false; close(); emit("panel-fold-request", { fold: false }); };
   // «Поиск места» в барабане — из режима раздела в обычный поиск: окно раздела закрыть, режим снять
-  on("search-plain", () => { closeOpen("left"); setMode(null); input.value = ""; clearBtn.hidden = true; }, { replay: false });
+  on("search-plain", () => { closeOpen("left"); setMode(null); input.value = plainText(); clearBtn.hidden = !input.value; }, { replay: false });
   // открыт ли поиск (кнопка справа вверху) — карточка пути видна только с ним
   let searchOn = false, cardShown = false, routeViewing = false;
   on("search-shown", (v) => { searchOn = v; refresh(false); });
@@ -115,8 +119,8 @@ export function initSearch({ map, maplibregl }) {
     if (mode === m) return;
     const old = mode;
     mode = m;
-    input.value = "";
-    clearBtn.hidden = true;
+    input.value = m ? "" : plainText();
+    clearBtn.hidden = !input.value;
     close();
     cardOpen = true;
     input.placeholder = m?.placeholder || "Поиск места";
@@ -295,8 +299,9 @@ export function initSearch({ map, maplibregl }) {
     const content = document.createElement("div");
     content.append(Object.assign(document.createElement("div"), { className: "popup-title", textContent: title }),
       Object.assign(document.createElement("div"), { className: "popup-sub", textContent: r.display_name }));
+    markTitle = title;
     marker = new maplibregl.Marker({ color: "#e53935" }).setLngLat(lngLat)
-      .setPopup(track(new maplibregl.Popup({ offset: 30 }).setDOMContent(content))).addTo(map);
+      .setPopup(track(new maplibregl.Popup({ offset: 30, maxWidth: "280px" }).setDOMContent(withWeather(content, lngLat, title)))).addTo(map);
     const [s, n, w, e] = r.boundingbox.map(Number); // boundingbox: юг, север, запад, восток
     map.fitBounds([[w, s], [e, n]], { padding: 80, maxZoom: 16, duration: 2500 });
     emit("place", { lngLat, title, address: r.display_name });
@@ -348,8 +353,8 @@ export function initSearch({ map, maplibregl }) {
     input.value = "";
     clearBtn.hidden = true;
     if (mode) { mode.filter(""); if (mode.list) suggest(); return; }
-    marker?.remove();
-    marker = null;
+    // сняли найденное место — тихо: отметка с карты, без списка истории (Грегори 2026-11-15)
+    if (marker) { marker.remove(); marker = null; markTitle = ""; close(); input.blur(); return; }
     suggest();
   });
   showList = () => { if (leftOpen) emit("panel-fold-request", { fold: true }); suggest(); };

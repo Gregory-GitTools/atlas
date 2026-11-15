@@ -1354,7 +1354,7 @@ body.has-photo-strip .wx-bar {
 
 /* погода места: под крестиком окна — температура и осадки сейчас, под ними стрелка ветра (в поле справа,
    текст окна не задевает); щелчок — лента прогноза внизу, ещё щелчок — убрать; лента на месте — затенён.
-   «Навигация» (.go-navon, core/route.js) — в шапке: без навигации на месте «⋯», при ней — левее, затенена */
+   «Навигация» (.go-navon, core/route.js) — в шапке у крестика, всегда на одном месте; при навигации затенена */
 .wx-host {
   min-height: 72px;
 }
@@ -3435,7 +3435,7 @@ body.search-hidden .panel-left {
 }
 
 /* окно места при навигации (Грегори 2026-11-09): слева направо — стрелка «Сюда», «Добавить», «Поделиться»,
-   «Отметить»; кнопки как в карточке пути, значки почти во всю кнопку. Вверху, левее крестика, — «⋯» */
+   «Отметить»; кнопки как в карточке пути, значки почти во всю кнопку; последней — узкая «⋯» */
 .go-actions {
   display: flex;
   flex-wrap: nowrap;
@@ -3515,13 +3515,15 @@ body.search-hidden .panel-left {
   color: #e53935;
 }
 
-.go-more {
-  position: absolute;
-  top: 0;
-  right: 32px;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+/* кнопки ряда делят его поровну, «⋯» — узкая, последней (Грегори 2026-11-15: «многоточие правей») */
+.go-actions > .go-act {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.go-actions > .go-more {
+  flex: 0 0 24px;
+  width: 24px;
 }
 
 .maplibregl-popup-content.has-more {
@@ -3532,7 +3534,7 @@ body.search-hidden .panel-left {
   --pr: 34px;
 }
 
-/* без навигации кнопок места нет — только «Навигация» в шапке, на месте «⋯» (Грегори 2026-11-14);
+/* без навигации кнопок места нет — только «Навигация» в шапке у крестика (Грегори 2026-11-14);
    с навигацией — полный ряд (core/route.js, navUi; Грегори 2026-11-14) */
 body.go-nav-off .go-actions,
 body.go-nav-off .go-more,
@@ -3545,7 +3547,7 @@ body.go-nav-off .go-menu {
   place-items: center;
   position: absolute;
   top: 0;
-  right: 64px;
+  right: 32px;
   width: 32px;
   height: 32px;
   padding: 0;
@@ -3554,10 +3556,6 @@ body.go-nav-off .go-menu {
   background: none;
   color: var(--tone-nav);
   cursor: pointer;
-}
-
-body.go-nav-off .go-navon {
-  right: 32px;
 }
 
 .go-navon:hover {
@@ -3569,21 +3567,11 @@ body.go-nav-off .go-navon {
   background: var(--active);
 }
 
-/* место в первой строке под «Навигацию» левее «⋯» */
-.go-head-gap {
-  float: right;
-  width: 32px;
-  height: 22px;
-}
-
-body.go-nav-off .go-head-gap {
-  display: none;
-}
-
+/* меню «⋯» — над рядом, у правого края */
 .go-menu {
   position: absolute;
-  top: 34px;
-  right: 8px;
+  bottom: 52px;
+  right: 4px;
   z-index: 2;
 }
 

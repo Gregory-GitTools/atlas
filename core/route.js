@@ -486,7 +486,8 @@ export function initRoute({ map, maplibregl, status }) {
     const paintMark = (b) => { const on_ = isMarked(placeOf(popup, content)); b.innerHTML = on_ ? MARKED_ICON : MARK_ICON; b.classList.toggle("on", on_); b.title = on_ ? "Снять отметку" : "Отметить"; };
     paintMark(mark);
     row.append(go, begin, add, end, button("go-act go-share", "Поделиться", SHARE_ICON, () => share(placeOf(popup, content))), mark);
-    // «⋯» — рядом с крестиком: «Сохранить маршрут» (есть цель — текущий путь, нет — путь сюда)
+    // «⋯» — последней в ряду (Грегори 2026-11-15: «Навигации место постоянное — многоточие правей»):
+    // «Сохранить маршрут» (есть цель — текущий путь, нет — путь сюда)
     const menu = h("div", "go-menu menu");
     menu.hidden = true;
     const item = (text, fn) => {
@@ -516,9 +517,9 @@ export function initRoute({ map, maplibregl, status }) {
         x.addEventListener("click", () => own.fn(), { capture: true });
       }
     }
-    // «Навигация» в шапке — переключатель, как кнопка в барабане (Грегори 2026-11-15: «вернуть в свёрнутый вид
-    // только через барабан»): без навигации открывает раздел, окно остаётся и получает ряд; при навигации
-    // затенена (левее «⋯») — выключает её, как крестик кнопки в барабане, окно снова свёрнутое
+    // «Навигация» в шапке у крестика, всегда на одном месте — переключатель, как кнопка в барабане (Грегори
+    // 2026-11-15: «вернуть в свёрнутый вид только через барабан»): без навигации открывает раздел, окно остаётся
+    // и получает ряд; при навигации затенена — выключает её, как крестик кнопки в барабане, окно снова свёрнутое
     const navOn = button("go-navon", "Навигация — маршрут сюда", NAV_ARROW, () => {
       const nav = modules("content").find((m) => m.id === "content/navigation")?.column;
       if (document.body.classList.contains("go-nav-off")) nav?.home();
@@ -526,10 +527,8 @@ export function initRoute({ map, maplibregl, status }) {
     });
     const paintNav = () => { const lit = !document.body.classList.contains("go-nav-off"); navOn.classList.toggle("on", lit); navOn.title = lit ? "Выключить навигацию" : "Навигация — маршрут сюда"; };
     paintNav();
-    // строка шапки уступает место кнопке «Навигация» рядом с «⋯»
-    const gap = h("span", "go-head-gap");
-    content.firstElementChild?.prepend(gap);
-    content.append(row, more, menu, navOn);
+    row.append(more);
+    content.append(row, menu, navOn);
     content.classList.add("has-more");
     // окно стало выше — пусть MapLibre заново выберет, куда его повернуть, чтобы не ушло за край экрана
     popup.setLngLat(popup.getLngLat());

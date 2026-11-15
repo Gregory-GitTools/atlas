@@ -410,6 +410,9 @@ try {
       navon: seen(".go-navon"), navLit: !!q(".go-navon")?.classList.contains("on"), disabled: q(".go-here")?.disabled, start: seen(".go-begin") && !q(".go-begin").disabled, finish: seen(".go-end") && !q(".go-end").disabled, add: seen(".go-add") && !q(".go-add").disabled };
     const row = q(".go-actions").getBoundingClientRect(), box = p.getElement().getBoundingClientRect();
     r.fits = row.right <= box.right + 1 && [...p.getElement().querySelectorAll(".go-act")].filter((b) => b.offsetParent).every((b) => Math.abs(b.getBoundingClientRect().top - row.top) < 2);
+    // «Навигация» — всегда на одном месте у крестика; «⋯» — правее всех в ряду (Грегори 2026-11-15)
+    const nav = q(".go-navon").getBoundingClientRect(); r.navAt = [Math.round(box.right - nav.right), Math.round(nav.top - box.top)];
+    r.moreRight = !seen(".go-more") || [...p.getElement().querySelectorAll(".go-act")].filter((b) => b.offsetParent).every((b) => b.getBoundingClientRect().right <= q(".go-more").getBoundingClientRect().left + 1);
     p.remove(); return r; })()`;
   const noNav = await run(popRow);
   // «Навигация» в окне — как кнопка в барабане: раздел открылся, окно осталось
@@ -433,9 +436,9 @@ try {
   await run(`import(new URL("core/search.js", location.href)).then((m) => { m.setSearchMode(null); return true; })`);
   await sleep(200);
   const noNav2 = await run(popRow);
-  check("окно места без навигации — только кнопка «Навигация» (открывает раздел, окно остаётся); раздел открыт — «Навигация» затенена и выключает его; (без GPS) «Сюда» видна и неактивна, «Старт», «Добавить», «Финиш», «Поделиться», «Отметить», «⋯»; ряд в одну строку",
+  check("окно места без навигации — только кнопка «Навигация» (открывает раздел, окно остаётся); раздел открыт — «Навигация» на том же месте, затенена и выключает его; (без GPS) «Сюда» видна и неактивна, «Старт», «Добавить», «Финиш», «Поделиться», «Отметить», «⋯»; ряд в одну строку",
     noNav.shown === "" && noNav.navon && !noNav.navLit && noHere.navon && noHere.navLit && navOffInPop.open && !navOffInPop.lit && !navOffInPop.btnLit && navOffInPop.row === 0 && navInPop.open && navInPop.lit && navInPop.row === 6 && noNav2.shown === noNav.shown && noNav2.navon && /^Сюда,Старт,Добавить в путь,Финиш,Поделиться,Отметить,Ещё$/.test(noHere.shown)
-    && noHere.disabled && noHere.start && noHere.finish && noHere.add && noHere.fits && noNav.fits, JSON.stringify({ noNav, navInPop, noHere, navOffInPop, noNav2 }));
+    && noHere.disabled && noHere.start && noHere.finish && noHere.add && noHere.fits && noNav.fits && noHere.moreRight && noHere.navAt.join() === noNav.navAt.join(), JSON.stringify({ noNav, navInPop, noHere, navOffInPop, noNav2 }));
   // планирование дома: первая точка — метка; «Финиш» — маршрут (запись в «Куда» со стартом); «+» — перед
   // финишем; новый «Старт» — прежний становится второй точкой (Грегори 2026-11-14); способ — путь по точкам маршрута, без меня; программа сама не прокладывает
   const plan = await run(`(async () => { const { track } = await import(new URL("core/popups.js", location.href));
@@ -762,6 +765,19 @@ try {
     await new Promise((r) => setTimeout(r, 300));
     return { n, marker: !!document.querySelector(".maplibregl-marker"), history: JSON.parse(localStorage.getItem("atlas.search.history") || "[]").length }; })()`);
   check("поиск мест", search.n > 0 && search.marker && search.history === 1, JSON.stringify(search));
+  // найденное остаётся на карте и в другом режиме строки; вернулись к лупе — название снова в строке;
+  // крестик — тихо: отметка с карты, без списка истории (Грегори 2026-11-15)
+  const keepMark = await run(`(async () => { const s = await import(new URL("core/search.js", location.href)), ev = await import(new URL("core/events.js", location.href));
+    const i = document.querySelector(".search-box input"), wait = (t) => new Promise((r) => setTimeout(r, t)), title = i.value;
+    s.setSearchMode({ title: "Проба", icon: "", placeholder: "Проба", filter() {} }); await wait(200);
+    const inMode = { text: i.value, marker: !!document.querySelector(".maplibregl-marker") };
+    ev.emit("search-plain"); await wait(200);
+    const back = { text: i.value, clear: !document.querySelector(".search-clear").hidden };
+    document.querySelector(".search-clear").click(); await wait(300);
+    return { title, inMode, back, gone: !document.querySelector(".maplibregl-marker"), list: !document.querySelector(".search-results").hidden, text: i.value }; })()`);
+  check("поиск: отметка остаётся при смене режима, у лупы её название снова в строке; крестик тихо убирает её без истории",
+    keepMark.title && !keepMark.inMode.text && keepMark.inMode.marker && keepMark.back.text === keepMark.title && keepMark.back.clear && keepMark.gone && !keepMark.list && !keepMark.text,
+    JSON.stringify(keepMark));
   // окно поиска — общепринятое (Грегори 2026-11-05): щелчок по строке — подсказки (история), набор — из уже
   // найденного, второй щелчок — закрыть
   const tapInput = async () => {
