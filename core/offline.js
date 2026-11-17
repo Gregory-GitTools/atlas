@@ -11,7 +11,7 @@
 import * as settings from "./settings.js";
 import { cacheGet, cacheSet, cacheDelete, persist, keepForTrip } from "./storage.js";
 import { repoFiles, repoText } from "./repo.js";
-import { emit } from "./events.js";
+import { emit, current } from "./events.js";
 
 export const TRIP_CACHE = "atlas-trip";
 const APP_CACHE = "atlas-app"; // тот же, что в sw.js
@@ -37,6 +37,49 @@ const tileRange = ([w, s, e, n], z) => {
 };
 const countAt = (b, z) => { const r = tileRange(b, z); return (r.x1 - r.x0 + 1) * (r.y1 - r.y0 + 1); };
 
+// «Скачать вдоль маршрута»: полоса по BUF_KM в обе стороны от линии маршрута (проложенного пути, иначе
+// прямых между точками); мелкие зумы (до CORRIDOR_FROM) — прямоугольник вокруг всего маршрута, их мало
+const BUF_KM = 3, CORRIDOR_FROM = 11;
+const tileXY = ([lon, lat], z) => {
+  const k = 2 ** z, r = Math.max(-85, Math.min(85, lat)) * Math.PI / 180;
+  return [((lon + 180) / 360) * k, ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * k];
+};
+const lineBox = (line) => {
+  const xs = line.map((p) => p[0]), ys = line.map((p) => p[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)].map((v) => +v.toFixed(5));
+};
+function corridor(line, z) {
+  const k = 2 ** z, out = new Set();
+  for (let i = 0; i < line.length; i++) {
+    const a = line[i], b = line[i + 1] || a;
+    const tileKm = (40075 * Math.cos((a[1] * Math.PI) / 180)) / k, r = Math.ceil(BUF_KM / tileKm);
+    const [ax, ay] = tileXY(a, z), [bx, by] = tileXY(b, z);
+    const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) * 2)); // шаг — полплитки
+    for (let s = 0; s < steps; s++) {
+      const cx = Math.floor(ax + ((bx - ax) * s) / steps), cy = Math.floor(ay + ((by - ay) * s) / steps);
+      for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) {
+        const x = cx + dx, y = cy + dy;
+        if (y >= 0 && y < k) out.add(`${((x % k) + k) % k}/${y}`);
+      }
+    }
+  }
+  return [...out].map((t) => t.split("/").map(Number));
+}
+// плитки района на зуме z: прямоугольник или полоса вдоль маршрута
+function areaTiles(area, z) {
+  if (area.line && z >= CORRIDOR_FROM) return corridor(area.line, z);
+  const r = tileRange(area.box, z), out = [];
+  for (let x = r.x0; x <= r.x1; x++) for (let y = r.y0; y <= r.y1; y++) out.push([x, y]);
+  return out;
+}
+// линия маршрута из «Навигации» (событие route): не меньше двух точек
+// карту можно скачать, только если её стиль — у OpenFreeMap («Яркая», «Контрастная»): спутник Esri и карты
+// CARTO хранить нельзя (условия) — кнопки неактивны, в подсказке сказано, какую карту выбрать
+import { currentBasemap } from "./basemaps.js";
+export const basemapOk = () => { const b = currentBasemap(); return typeof b.style === "string" && HOSTS.test(b.style); };
+export const routeLine = () => { const l = current("route")?.line; return Array.isArray(l) && l.length > 1 ? l : null; };
+export const routeFits = () => { const l = routeLine(); return !!l && corridor(l, VECTOR_MAX).length <= TILE_LIMIT; };
+
 export const viewBox = (map) => {
   const b = map.getBounds();
   return [b.getWest(), Math.max(-85, b.getSouth()), b.getEast(), Math.min(85, b.getNorth())].map((v) => +v.toFixed(5));
@@ -45,7 +88,7 @@ export const viewBox = (map) => {
 export const fits = (map) => { const b = viewBox(map); return b[2] - b[0] < 180 && countAt(b, VECTOR_MAX) <= TILE_LIMIT; };
 
 // что скачивать: адреса плиток по шаблонам источников карты + описания, стиль, шрифты, значки
-async function plan(map, box) {
+async function plan(map, area) {
   const style = map.getStyle();
   const urls = new Set(), templates = new Map(); // шаблон → наибольший зум
   const add = (t, max) => templates.set(t, Math.max(templates.get(t) ?? 0, max));
@@ -60,11 +103,10 @@ async function plan(map, box) {
   // тени, 3D и горизонтали берут высоты через свой источник (maplibre-contour) — те же картинки AWS
   if (/elevation-tiles-prod|dem-contour/.test(JSON.stringify(style.sources || {}))) add(DEM, DEM_MAX);
   for (const [t, max] of templates) for (let z = 0; z <= max; z++) {
-    const r = tileRange(box, z);
-    for (let x = r.x0; x <= r.x1; x++) for (let y = r.y0; y <= r.y1; y++) urls.add(t.replace("{z}", z).replace("{x}", x).replace("{y}", y));
+    for (const [x, y] of areaTiles(area, z)) urls.add(t.replace("{z}", z).replace("{x}", x).replace("{y}", y));
   }
   // стиль подложки (без сети карта открывается с ним), шрифты подписей, значки
-  const basemap = (await import("./basemaps.js")).currentBasemap();
+  const basemap = currentBasemap();
   if (typeof basemap.style === "string" && HOSTS.test(basemap.style)) urls.add(basemap.style);
   if (style.glyphs && HOSTS.test(style.glyphs)) {
     const stacks = new Set(["Noto Sans Regular", "Noto Sans Bold", "Noto Sans Italic"]);
@@ -108,8 +150,8 @@ async function appFiles() {
 }
 
 // название района: город или край в центре карты (Nominatim; только по нажатию «Скачать»)
-async function placeName(map) {
-  const c = map.getCenter();
+async function placeName(map, at = null) {
+  const c = at ? { lng: at[0], lat: at[1] } : map.getCenter();
   try {
     const ctl = new AbortController(); setTimeout(() => ctl.abort(), 4000);
     const j = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&accept-language=ru&lat=${c.lat.toFixed(4)}&lon=${c.lng.toFixed(4)}`, { signal: ctl.signal }).then((r) => r.json());
@@ -139,17 +181,20 @@ async function texts(box, country) {
   return { kept, files: files.length, tours };
 }
 
-// скачать видимый район; onProgress() — после каждой порции
-export async function downloadArea(map, onProgress) {
+// скачать видимый район (line — полосу вдоль маршрута); onProgress() — после каждой порции
+export async function downloadArea(map, onProgress, line = null) {
   if (job) return null;
   job = { done: 0, total: 0, stopped: false };
   try {
     await persist();
-    const box = viewBox(map);
+    const box = line ? lineBox(line) : viewBox(map);
     job.phase = "Готовлю экскурсии и разговорники";
     onProgress?.();
-    const [tiles, files, place] = await Promise.all([plan(map, box), appFiles(), placeName(map)]);
-    const { title, country } = place;
+    // название маршрута — по его концам («Старт — Финиш»), страна — по финишу
+    const pts = line && current("route")?.points;
+    const [tiles, files, place] = await Promise.all([plan(map, { box, line }), appFiles(), placeName(map, line ? line[line.length - 1] : null)]);
+    const title = line ? `Маршрут: ${pts?.length > 1 ? `${pts[0].title} — ${pts[pts.length - 1].title}` : place.title}` : place.title;
+    const { country } = place;
     const extra = await texts(box, country);
     if (job.stopped) return null;
     job.phase = "";
@@ -182,7 +227,7 @@ export async function downloadArea(map, onProgress) {
     if (job.stopped) { await dropKeys(keys); return null; }
     const id = Date.now().toString(36);
     await cacheSet(`trip/${id}`, [...keys, ...extra.kept.map((k) => `idb:${k}`)]);
-    const item = { id, title, country, box, tiles: keys.length, bytes, failed, texts: extra.files, tours: extra.tours, saved: new Date().toISOString() };
+    const item = { id, title, country, box, route: !!line, tiles: keys.length, bytes, failed, texts: extra.files, tours: extra.tours, saved: new Date().toISOString() };
     settings.set("trips", [...trips(), item]);
     return item;
   } finally { job = null; onProgress?.(); }

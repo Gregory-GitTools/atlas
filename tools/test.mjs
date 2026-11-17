@@ -1344,7 +1344,10 @@ try {
           let sid = 0;
           const spend = new Map();
           sws.onmessage = (m) => { const d = JSON.parse(m.data); if (spend.has(d.id)) { spend.get(d.id)(d.result); spend.delete(d.id); } };
-          const srun = (expr) => new Promise((r) => { const id = ++sid; spend.set(id, r); sws.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression: expr, awaitPromise: true, returnByValue: true } })); })
+          // шаг галереи, не ответивший за 2 минуты, — ошибка «шаг завис», как у run (2026-11-17: полный прогон
+          // провисел ночь на «Фоне» — нейросеть в браузере без экрана)
+          const srun = (expr) => Promise.race([new Promise((r) => { const id = ++sid; spend.set(id, r); sws.send(JSON.stringify({ id, method: "Runtime.evaluate", params: { expression: expr, awaitPromise: true, returnByValue: true } })); }),
+            sleep(120000).then(() => { throw new Error("шаг завис: " + expr.replace(/\s+/g, " ").slice(0, 160)); })])
             .then((r) => r.result?.value);
           // «Сохранить» и «Оригинал» не выходят из правки — она открывается снова с записанным снимком;
           // дождаться этого и выйти, как рукой
@@ -2414,6 +2417,13 @@ try {
   // в «atlas-trip» (ключ OpenFreeMap без номера выпуска — плитка с чужим выпуском отдаётся с устройства),
   // шрифты, значки, файлы программы и библиотеки; большой район — кнопка неактивна с подсказкой; удалить
   if (want("core/offline")) {
+    // скачивается только «Яркая» и «Контрастная»: на «Тёмной» (CARTO) кнопка неактивна, сказано почему
+    const carto = await run(`(async () => { const b = await import("./core/basemaps.js"); b.setBasemap(b.BASEMAPS.find((x) => x.id === "dark")); await new Promise((r) => setTimeout(r, 1500));
+      (await import("./core/events.js")).emit("settings-open"); await new Promise((r) => setTimeout(r, 800));
+      const r = { off: document.querySelector(".trip-dl").disabled, why: document.querySelector(".trip-why").textContent };
+      b.setBasemap(b.BASEMAPS.find((x) => x.id === "liberty")); await new Promise((r) => setTimeout(r, 1500)); return r; })()`);
+    check("без сети: «Тёмную» скачать нельзя — кнопка неактивна, сказано, какую выбрать", carto.off && carto.why.includes("«Яркую»"), JSON.stringify(carto));
+    await idle();
     await run(`atlas.map.jumpTo({ center: [24.745, 59.437], zoom: 15, pitch: 0, bearing: 0 }); navigator.serviceWorker.ready.then(() => true)`);
     await idle();
     await run(`document.querySelector('[data-panel="settings"]').hidden ? (async () => { (await import("./core/events.js")).emit("settings-open"); await new Promise((r) => setTimeout(r, 800)); return true; })() : true`);
@@ -2446,11 +2456,26 @@ try {
     check("без сети: экскурсии страны — места остановок найдены заранее", tx.tours === 0 || tx.geo > 0, JSON.stringify(tx));
     await run(`atlas.map.jumpTo({ center: [10, 50], zoom: 5 }); new Promise((r) => setTimeout(() => r(true), 800))`);
     const big = await run(`({ off: document.querySelector(".trip-dl").disabled, why: document.querySelector(".trip-why").textContent, dim: +getComputedStyle(document.querySelector(".trip-dl")).opacity })`);
-    check("без сети: большой район — кнопка неактивна и блёклая, сказано почему", big.off && big.dim < 0.6 && big.why.includes("Приблизьте"), JSON.stringify(big));
+    check("без сети: большой район — кнопка неактивна и блёклая, сказано почему", big.off && big.dim < 0.6 && /приблизьте/i.test(big.why), JSON.stringify(big));
     await run(`(async () => { [...document.querySelectorAll(".trip-list .text-btn")].filter((b) => b.textContent === "Удалить").at(-1).click(); for (let i = 0; i < 30 && document.querySelector(".trip-list")?.children.length > ${before}; i++) await new Promise((r) => setTimeout(r, 200)); return true; })()`);
     const gone = await run(`(async () => { const st = await import("./core/storage.js"); return { list: (await import("./core/offline.js")).trips().length, keys: (await (await caches.open("atlas-trip")).keys()).length,
       copies: await new Promise((r) => { const q = indexedDB.open("atlas"); q.onsuccess = () => { const k = q.result.transaction("cache").objectStore("cache").getAllKeys(); k.onsuccess = () => r(k.result.filter((x) => String(x).startsWith("trip/repo/")).length); }; }) }; })()`);
     check("без сети: «Удалить» убирает район, его плитки и копии текстов", gone.list === before && (before > 0 || gone.keys === 0 && gone.copies === 0), JSON.stringify(gone));
+    // вдоль маршрута: без маршрута кнопка неактивна (сказано почему); маршрут Таллин — Кейла (прямые, ~25 км) —
+    // полоса плиток вдоль него, а не прямоугольник; название — по концам маршрута
+    const noRoute = await run(`(async () => { atlas.route.setTarget(null); await new Promise((r) => setTimeout(r, 300)); return { off: document.querySelector(".trip-dl-route").disabled, why: document.querySelector(".trip-why").textContent }; })()`);
+    check("без сети: «Скачать вдоль маршрута» без маршрута неактивна, сказано почему", noRoute.off && noRoute.why.includes("составьте маршрут"), JSON.stringify(noRoute));
+    const rt = await run(`(async () => { const o = await import("./core/offline.js");
+      atlas.route.setStart({ lngLat: [24.745, 59.437], title: "Таллин" }); atlas.route.setFinish({ lngLat: [24.42, 59.31], title: "Кейла" });
+      await new Promise((r) => setTimeout(r, 400)); const before = o.trips().length, b = document.querySelector(".trip-dl-route"); const on = !b.disabled; b.click();
+      for (let i = 0; i < 300 && o.trips().length === before; i++) await new Promise((r) => setTimeout(r, 1000));
+      const t = o.trips().at(-1), list = (await (await import("./core/storage.js")).cacheGet("trip/" + t.id)) || [];
+      const z14 = list.filter((k) => k.includes("/planet/_/14/")).length;
+      const [w, s, e, n] = t.box, k = 2 ** 14, tx = (x) => Math.floor((x + 180) / 360 * k), ty = (y) => { const r = y * Math.PI / 180; return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * k); };
+      const pad = Math.ceil(3 / (40075 * Math.cos(n * Math.PI / 180) / k)), rect = (tx(e) - tx(w) + 1 + 2 * pad) * (ty(s) - ty(n) + 1 + 2 * pad); // прямоугольник с той же каймой
+      return { on, title: t.title, route: t.route, z14, rect, bytes: t.bytes }; })()`);
+    check("без сети: «Скачать вдоль маршрута» — полоса вдоль пути, название по концам", rt.on && rt.route && rt.title === "Маршрут: Таллин — Кейла" && rt.z14 > 20 && rt.z14 < rt.rect * 0.8, JSON.stringify(rt));
+    await run(`(async () => { const o = await import("./core/offline.js"); await o.removeTrip(o.trips().at(-1).id); atlas.route.setTarget(null); return true; })()`);
     await run(`document.querySelector('[data-panel="settings"] .panel-btn[title=Закрыть]').click(); true`);
   }
 

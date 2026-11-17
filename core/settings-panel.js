@@ -4,7 +4,7 @@
 import { createPanel } from "./panel.js";
 import { on, emit } from "./events.js";
 import { modules, available, toggle, onRegister, isBlocked, setBlocked, offline, setOffline, isMobile } from "./modules.js";
-import { downloadArea, downloading, stopDownload, trips, removeTrip, fits } from "./offline.js";
+import { downloadArea, downloading, stopDownload, trips, removeTrip, fits, routeLine, routeFits, basemapOk } from "./offline.js";
 import * as settings from "./settings.js";
 import { usage, models, removeModel, formatBytes, persist, viewCache, clearViewCache } from "./storage.js";
 import { installSection, openedForInstall } from "./install.js";
@@ -107,30 +107,38 @@ export function initSettingsPanel(ctx) {
   let tripUi = null;
   const tripState = () => {
     if (!tripUi) return;
-    const { dl, stop, prog, why } = tripUi;
+    const { dl, dlRoute, stop, prog, why } = tripUi;
     const job = downloading(), big = !fits(ctx.map), net = !offline() && navigator.onLine;
-    dl.disabled = !!job || big || !net;
+    const line = routeLine(), long = !!line && !routeFits(), map = basemapOk();
+    dl.disabled = !!job || big || !net || !map;
+    dlRoute.disabled = !!job || !line || long || !net || !map;
     stop.hidden = !job;
     prog.textContent = !job ? "" : job.phase ? `${job.phase}…` : `Скачивается: ${job.total ? Math.floor((job.done / job.total) * 100) : 0} %`;
-    why.textContent = !net ? "Нужен интернет." : big ? "Приблизьте карту: район для скачивания — примерно до 100 км." : "";
+    why.textContent = [!net && "Нужен интернет.", net && !map && "Эту карту скачать нельзя — выберите в «Картах» «Яркую» или «Контрастную».", net && map && big && "Район на карте: приблизьте карту — примерно до 100 км.",
+      net && map && !line && "Вдоль маршрута: сначала составьте маршрут в «Навигации» — две точки или больше.", net && map && long && "Маршрут слишком длинный для скачивания — примерно до 1000 км."].filter(Boolean).join(" ");
   };
   ctx.map.on("moveend", () => !panel.el.hidden && tripState());
+  on("basemap", () => !panel.el.hidden && tripState(), { replay: false });
+  on("route", () => !panel.el.hidden && tripState(), { replay: false });
   function tripSection() {
     const box = h("div", "trip-box");
     const row = h("div", "set-row");
     const dl = h("button", "text-btn trip-dl", "Скачать район на карте");
+    const dlRoute = h("button", "text-btn trip-dl-route", "Скачать вдоль маршрута");
     const stop = h("button", "text-btn", "Остановить");
     const prog = h("span", "set-hint trip-prog"), why = h("p", "set-hint trip-why");
-    dl.addEventListener("click", async () => {
-      const done = downloadArea(ctx.map, tripState);
+    const start = async (line) => {
+      const done = downloadArea(ctx.map, tripState, line);
       tripState();
       const item = await done.catch((err) => { ctx.status(`Не скачалось: ${err.message}`); return null; });
       if (item) ctx.status(`Скачано: ${item.title}, ${formatBytes(item.bytes)}`);
       if (!panel.el.hidden) render();
-    });
+    };
+    dl.addEventListener("click", () => start(null));
+    dlRoute.addEventListener("click", () => start(routeLine()));
     stop.addEventListener("click", () => stopDownload());
-    row.append(dl, prog, stop);
-    tripUi = { dl, stop, prog, why };
+    row.append(dl, dlRoute, prog, stop);
+    tripUi = { dl, dlRoute, stop, prog, why };
     tripState();
     const list = h("div", "set-list trip-list");
     for (const t of trips()) {
@@ -145,7 +153,7 @@ export function initSettingsPanel(ctx) {
       btns.append(show, del);
       list.append(netRow(t.title, `${formatBytes(t.bytes)}${t.tours ? ` · экскурсий: ${t.tours}` : ""} · ${new Date(t.saved).toLocaleDateString("ru")}`, btns));
     }
-    box.append(row, why, list, h("p", "set-hint", "Скачивается то, что видно на карте сейчас: карта до отдельных домов и тропинок, высоты — если включены тени или горизонтали, и сама программа. Вместе с ней — все экскурсии и разговорники, а у экскурсий этой страны — места остановок. Без сети она откроется и покажет этот район; скачанное берётся с устройства и в сети, чтобы не тратить роуминг. Спутник, тропы, погода, поиск и снимки в слайд-шоу экскурсий — только в сети."));
+    box.append(row, why, list, h("p", "set-hint", "«Район на карте» — то, что видно на карте сейчас; «Вдоль маршрута» — полоса по 3 км в обе стороны от маршрута из «Навигации» (от старта до финиша). Скачивается карта до отдельных домов и тропинок, высоты — если включены тени или горизонтали, и сама программа. Вместе с ней — все экскурсии и разговорники, а у экскурсий этой страны — места остановок. Без сети она откроется и покажет этот район; скачанное берётся с устройства и в сети, чтобы не тратить роуминг. Спутник, тропы, погода, поиск и снимки в слайд-шоу экскурсий — только в сети."));
     return box;
   }
 

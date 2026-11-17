@@ -154,6 +154,8 @@ export function initRoute({ map, maplibregl, status }) {
       distance: d, side: b === null ? "" : SIDES[Math.round(b / 45) % 8], arrow: b === null ? 0 : b - map.getBearing(),
       main: d === null ? "" : `${km(d)} ${SIDES[Math.round(b / 45) % 8]}`,
       route: route && { way: route.way, title: way.title, distance: route.distance, duration: route.duration, text: `${way.title}: ${km(route.distance)} · ${time(route.duration)}`, points: route.coords.length },
+      // линия маршрута для «Скачать вдоль маршрута» (core/offline.js): проложенный путь, иначе прямые между точками
+      line: route ? route.coords : pts.map((p) => p.lngLat),
     });
   };
 
