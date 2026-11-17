@@ -60,7 +60,26 @@ addEventListener("keydown", (e) => {
   closeAll();
 }, true);
 
+// нижние полосы поверх карты (лента прогноза) — их высота в переменной --bottom-clear у body: окна разделов
+// слева и сообщения держатся выше (Грегори 2026-11-17, экран магнитолы 1280×720: окно настроек заходило на ленту)
+const bottomClear = () => {
+  let h = 0;
+  for (const b of document.querySelectorAll("[data-keep-clear]")) {
+    const q = b.getBoundingClientRect();
+    if (!b.hidden && q.height && getComputedStyle(b).display !== "none") h = Math.max(h, innerHeight - q.top);
+  }
+  document.body.style.setProperty("--bottom-clear", `${Math.round(h)}px`);
+};
+const clearWatch = new ResizeObserver(bottomClear);
+const seen = new WeakSet();
+const watchBars = () => document.querySelectorAll("[data-keep-clear]").forEach((b) => { if (!seen.has(b)) { seen.add(b); clearWatch.observe(b); new MutationObserver(bottomClear).observe(b, { attributes: true, attributeFilter: ["hidden", "class", "style"] }); } });
+addEventListener("resize", bottomClear);
+
 export function initPopups(map) {
+  watchBars();
+  // полосы живут в окне карты или прямо в body
+  for (const host of [document.body, map.getContainer()]) new MutationObserver(watchBars).observe(host, { childList: true });
+  bottomClear();
   // кроме того, как навигация ведёт карту за мной (каждый замер GPS) — иначе окно не успеть прочитать
   map.on("movestart", (e) => { if (!e.navFollow) closeAll(); });
 }

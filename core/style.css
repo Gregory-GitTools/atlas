@@ -96,7 +96,7 @@ html, body {
 .status {
   position: fixed;
   left: 50%;
-  bottom: 96px;
+  bottom: max(96px, calc(var(--bottom-clear, 0px) + 12px)); /* над лентой прогноза */
   z-index: 30;
   transform: translateX(-50%);
   max-width: calc(100vw - 32px);
@@ -1941,7 +1941,8 @@ body.has-photo-strip .status {
   right: auto;
   width: 400px;
   max-width: calc(100vw - 2 * var(--gap));
-  max-height: calc(100vh - var(--top-inset) - 48px - 3 * var(--gap) - 200px);
+  /* снизу — не меньше 200 точек и не на ленте прогноза (--bottom-clear, core/popups.js) */
+  max-height: calc(100vh - var(--top-inset) - 48px - 3 * var(--gap) - max(200px, var(--bottom-clear, 0px)));
 }
 
 /* поиск спрятан двойным щелчком по лупе — панели слева поднимаются к верху */
@@ -1961,7 +1962,7 @@ body.has-photo-strip .status {
     right: calc(var(--side-r) + var(--gap) + var(--button));
     width: auto;
     max-width: none;
-    max-height: 55vh;
+    max-height: min(55vh, calc(100vh - var(--top-inset) - 48px - 3 * var(--gap) - var(--bottom-clear, 0px)));
   }
 }
 

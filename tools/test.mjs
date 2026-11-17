@@ -221,9 +221,10 @@ try {
   check("навигация: выровнял рукой — 2D, кнопкой «Навигация» — я в центре", flat.mode === "2d" && !flat.follow && flatBack.follow && flatBack.mode === "2d"
     && Math.abs(flatBack.me.x) <= 3 && Math.abs(flatBack.me.y) <= 3 && flatBack.chevron, JSON.stringify({ flat, flatBack }));
   // компас по кругу до «С» (из 2D — через 3D; если наклон на этом масштабе недоступен — сразу «С»)
+  // (на экране магнитолы переход дольше — ждём 3,5 с)
   for (let k = 0; k < 3 && (await run(`document.querySelector(".compass-mode").textContent`)) !== "С"; k++) {
     await run(`document.querySelector(".compass-btn").click(); true`);
-    await sleep(2000);
+    await sleep(CAR ? 3500 : 2000);
   }
   await sleep(1000);
   const nN = await nav();
@@ -2356,7 +2357,7 @@ try {
   if (want("core/forecast")) {
     await run(`atlas.map.jumpTo({ center: [24.75, 59.437], zoom: 11 }); true`);
     await idle();
-    await clickAt(40, 400);
+    await clickAt(...(CAR ? [640, 100] : [40, 400])); // на магнитоле в 40, 400 — подпись Табасалу
     for (let i = 0; i < 20 && !(await run(`!!document.querySelector(".maplibregl-popup .wx-chip:not([hidden])")`)); i++) await sleep(500);
     const chip = await run(`(() => { const c = document.querySelector(".maplibregl-popup .wx-chip"), x = document.querySelector(".maplibregl-popup-close-button");
       const q = c?.getBoundingClientRect(), r = x?.getBoundingClientRect(), t = document.querySelector(".maplibregl-popup .popup-coords")?.getBoundingClientRect();
@@ -2380,6 +2381,13 @@ try {
     check("погода места: строки ленты — часы, значок погоды, °C, откуда, ветер, порывы, осадки",
       /^Часы,☀,°C,Откуда,Ветер,Порывы,Осадки(,Волна)?$/.test(wx.rows) && wx.skyN >= 94 && wx.sky === wx.skyN, JSON.stringify({ rows: wx.rows, sky: wx.sky, skyN: wx.skyN }));
     await shot("92-place-weather");
+    // окно раздела слева и сообщение — выше ленты (Грегори 2026-11-17: на магнитоле окно настроек заходило на ленту)
+    const clear = await run(`(async () => { (await import("./core/events.js")).emit("settings-open"); await new Promise((r) => setTimeout(r, 800));
+      atlas.ctx.status("Проба сообщения"); await new Promise((r) => setTimeout(r, 200));
+      const bar = document.querySelector(".wx-bar").getBoundingClientRect().top, p = document.querySelector('[data-panel="settings"]').getBoundingClientRect().bottom, s = document.querySelector(".status").getBoundingClientRect().bottom;
+      document.querySelector('[data-panel="settings"] .panel-btn[title=Закрыть]').click(); atlas.ctx.status("");
+      return { bar: Math.round(bar), panel: Math.round(p), status: Math.round(s) }; })()`);
+    check("погода места: окно слева и сообщение — выше ленты прогноза", clear.panel <= clear.bar && clear.status <= clear.bar, JSON.stringify(clear));
     // колесо мыши листает ленту вбок: к себе — назад, в прошлое (Грегори 2026-11-14: «наоборот»)
     const wheel = await run(`(() => { const w = document.querySelector(".wx-bar .wx-grid-wrap"), s0 = w.scrollLeft;
       w.dispatchEvent(new WheelEvent("wheel", { deltaY: 300, bubbles: true, cancelable: true })); return { s0, s1: w.scrollLeft }; })()`);
@@ -2408,9 +2416,9 @@ try {
     await sleep(300);
     const reopen = await run(`document.querySelector(".maplibregl-popup .wx-chip").classList.contains("on") && !document.querySelector(".wx-bar").hidden`);
     // лента открыта — значок в окне другого места тоже затенён, щелчок убирает ленту, а не открывает заново
-    await clickAt(60, 430); // первый щелчок по карте закрывает окно, второй — окно другого места
+    await clickAt(...(CAR ? [760, 110] : [60, 430])); // первый щелчок по карте закрывает окно, второй — окно другого места
     await sleep(300);
-    await clickAt(60, 430);
+    await clickAt(...(CAR ? [760, 110] : [60, 430]));
     for (let i = 0; i < 20 && !(await run(`!!document.querySelector(".maplibregl-popup .wx-chip:not([hidden])")`)); i++) await sleep(500);
     const other = await run(`document.querySelector(".maplibregl-popup .wx-chip").classList.contains("on")`);
     await run(`document.querySelector(".maplibregl-popup .wx-chip").click(); true`);
