@@ -27,6 +27,7 @@ export function initSettingsPanel(ctx) {
 
     body.push(shareRow(ctx));
     body.push(h("h3", "set-title", "Установка"), installSection());
+    body.push(h("h3", "set-title", "Размер кнопок и текста"), sizeSection());
 
     // свои разделы модулей (например, папка «Моих альбомов»)
     for (const m of modules().filter((m) => m.settings && available(m))) {
@@ -180,6 +181,42 @@ export function initSettingsPanel(ctx) {
 // иначе ссылка копируется
 const SHARE_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11A2.99 2.99 0 0 0 21 5a3 3 0 1 0-5.91.7L8.04 9.81A2.99 2.99 0 0 0 3 12a3 3 0 0 0 5.04 2.19l7.12 4.16c-.05.21-.08.43-.08.65A2.92 2.92 0 1 0 18 16.08z"/></svg>';
 export const SITE = "https://gregory-gittools.github.io/atlas/";
+
+// размер кнопок и текста (core/ui-scale.js; Грегори 2026-11-17, магнитола): «Авто» — крупный на широком
+// сенсорном экране лёжа (машина), иначе обычный. Где браузер так не умеет (компьютер) — кнопки неактивны,
+// под ними почему
+const SIZES = [["auto", "Авто"], [1, "Обычный"], [1.25, "Крупный"], [1.5, "Очень крупный"]];
+function sizeSection() {
+  const ui = window.atlasUi;
+  const box = h("div", "size-box");
+  const row = h("div", "set-row");
+  const hint = h("p", "set-hint");
+  const why = h("p", "set-hint trip-why size-why");
+  const paint = () => {
+    const no = !ui || !ui.supported; // компьютер: страницу так не растянуть — там Ctrl и +
+    row.querySelectorAll("button").forEach((b) => {
+      const v = SIZES[+b.dataset.i][0];
+      b.classList.toggle("on", !no && ui.choice === v);
+      b.disabled = no;
+    });
+    hint.textContent = no ? "" : ui.choice === "auto" ? `Сейчас ${ui.auto > 1 ? "крупный — экран машины" : "обычный"}. Крупный — на широком сенсорном экране лёжа (магнитола).` : "";
+    why.textContent = no ? "На компьютере размер меняют клавиши Ctrl и + или Ctrl и −." : "";
+  };
+  SIZES.forEach(([v, label], i) => {
+    const b = h("button", "text-btn size-btn", label);
+    b.dataset.i = i;
+    b.addEventListener("click", () => {
+      ui.set(v);
+      paint();
+    });
+    row.append(b);
+  });
+  const again = () => (box.isConnected ? paint() : removeEventListener("atlas-ui-scale", again));
+  addEventListener("atlas-ui-scale", again);
+  paint();
+  box.append(row, hint, why);
+  return box;
+}
 
 function shareRow(ctx) {
   const b = h("button", "share-btn");

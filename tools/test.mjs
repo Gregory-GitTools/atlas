@@ -13,9 +13,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(ROOT, "test-output");
 const PHONE = process.argv.includes("--phone");
 // --car — магнитола (ISUDAR, Android, 1280×720 лёжа, сенсорный экран; Грегори 2026-11-15): раскладка как на
-// компьютере по ширине, но устройство — Android (WebView), касания вместо мыши
+// компьютере по ширине, но устройство — Android (WebView), касания вместо мыши; сам крупный вид (core/ui-scale.js):
+// страница 1024×576 в точках CSS — в них и касания
 const CAR = process.argv.includes("--car");
-const VH = PHONE ? 800 : CAR ? 720 : 800; // высота экрана: «я» в навигации — на четверть высоты ниже центра
+const VH = PHONE ? 800 : CAR ? 576 : 800; // высота экрана: «я» в навигации — на четверть высоты ниже центра
 // --only=photo — проверить только разделы модулей, в id которых есть это слово (быстро при отладке; несколько — через запятую)
 const ONLY = process.argv.find((a) => a.startsWith("--only="))?.slice(7);
 // несколько через запятую: --only=layers/beaches,weather/wind
@@ -276,12 +277,12 @@ try {
   // карточка пути открыта — щелчок по карте всё равно открывает окно места (Грегори 2026-11-10: «после выбора
   // финиша невозможно поставить вторую точку»): карточка — не меню, которое первый щелчок только закрывает
   // окна на карте закрываем Esc: крестик в окне точки маршрута её убирает (а щелчок может попасть по флажку)
-  const W = PHONE ? 390 : CAR ? 1280 : 1200;
+  const W = PHONE ? 390 : CAR ? 1024 : 1200;
   await run(`(() => { document.querySelectorAll(".search-results").forEach((m) => (m.hidden = true)); return true; })()`);
   const cardShown = await run(`!document.querySelector(".search-card").hidden`);
   // карта ещё может лететь к пути карточки — щелчок по летящей карте её только останавливает
   for (let i = 0; i < 20 && (await run(`atlas.map.isMoving()`)); i++) await sleep(250);
-  for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: PHONE ? W / 2 : W - 300, y: 620, button: "left", clickCount: 1 });
+  for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: PHONE ? W / 2 : W - 300, y: CAR ? 480 : 620, button: "left", clickCount: 1 });
   // окно ждёт адрес из сети — ждём окно, а не просто паузу
   for (let i = 0; i < 30 && !(await run(`!!document.querySelector(".maplibregl-popup .go-add")`)); i++) await sleep(300);
   await sleep(300);
@@ -316,7 +317,7 @@ try {
   // щелчок по строке поиска — маршрут в работе: список точек остаётся, набор ищет дополнительную точку;
   // найденное — наше окно места на карте («Добавить»); «Все места» — к началу списка «Куда»
   const vHold = await run(`atlas.geo.state().hold`);
-  for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: PHONE ? 60 : 300, y: 700, button: "left", clickCount: 1 });
+  for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: PHONE ? 60 : 300, y: VH - 100, button: "left", clickCount: 1 });
   await sleep(2500);
   const vMap = await run(`({ pop: !!document.querySelector(".maplibregl-popup .go-add:not([hidden])"), view: !!document.querySelector(".search-results:not([hidden]) .route-view") })`);
   await run(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); true`);
@@ -2432,6 +2433,25 @@ try {
     check("погода места: второй щелчок по значку (и в окне другого места) и крестик ленты убирают её, значок гаснет; без навигации в окне только «Навигация»",
       again.coords && !again.on && !again.bar && again.when === "Сейчас" && !again.actions && again.navon && reopen && other && otherOff && !shutX.on && !shutX.bar, JSON.stringify({ again, reopen, other, otherOff, shutX }));
     await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
+  }
+
+  // размер кнопок и текста (core/ui-scale.js, Грегори 2026-11-17): на магнитоле сам крупный (страница 1024×576
+  // растянута на экран, карта рисуется подробнее — не размыта); на телефоне выбирается в настройках и
+  // возвращается; на компьютере кнопки неактивны с подсказкой про Ctrl и +
+  if (want("core/ui-scale")) {
+    const st = `({ s: atlasUi.scale, w: innerWidth, h: innerHeight, pr: atlas.map.getPixelRatio(), dpr: devicePixelRatio })`;
+    const u0 = await run(st);
+    check(`размер: ${CAR ? "на магнитоле сам крупный, карта не размыта" : "обычный"}`, CAR ? u0.s === 1.25 && u0.w === 1024 && u0.h === 576 && u0.pr === 1.25 * u0.dpr : u0.s === 1 && u0.pr === u0.dpr, JSON.stringify(u0));
+    const ui = await run(`(async () => { (await import("./core/events.js")).emit("settings-open"); await new Promise((r) => setTimeout(r, 800));
+      const b = [...document.querySelectorAll(".size-btn")]; return { n: b.length, off: b.map((x) => x.disabled), on: b.map((x) => x.classList.contains("on")), why: document.querySelector(".size-why")?.textContent }; })()`);
+    if (!PHONE && !CAR) check("размер: на компьютере кнопки неактивны, сказано про Ctrl и +", ui.n === 4 && ui.off.every(Boolean) && ui.why.includes("Ctrl"), JSON.stringify(ui));
+    else check("размер: в настройках четыре кнопки, выбрано «Авто»", ui.n === 4 && !ui.off.some(Boolean) && ui.on[0] && !ui.why, JSON.stringify(ui));
+    if (PHONE) {
+      const big = await run(`(async () => { document.querySelectorAll(".size-btn")[2].click(); await new Promise((r) => setTimeout(r, 800)); return ${st}; })()`);
+      const back = await run(`(async () => { document.querySelectorAll(".size-btn")[0].click(); await new Promise((r) => setTimeout(r, 800)); return ${st}; })()`);
+      check("размер: «Крупный» на телефоне — страница уже в 1,25 раза, «Авто» — как было", big.s === 1.25 && big.w === 312 && big.pr === 1.25 * big.dpr && back.s === 1 && back.w === u0.w, JSON.stringify({ big, back }));
+    }
+    await run(settingsToggle);
   }
 
   // «Скачать район» (core/offline.js, sw.js): маленький район — кнопка в настройках, пакет в списке, плитки

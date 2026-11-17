@@ -28,6 +28,8 @@ export const map = new maplibregl.Map({
   // наклон — до 70° вместо стандартных 60 (Грегори, 2026-10-28 и 2026-11-02: «ещё на 5 градусов»);
   // издалека меньше — см. tiltLimit в controls.js
   maxPitch: MAX_PITCH,
+  // крупный вид (core/ui-scale.js) растягивает страницу — карта рисуется во столько же раз подробнее, без размытия
+  pixelRatio: (devicePixelRatio || 1) * (window.atlasUi?.scale || 1),
   // подписи кнопок и шкалы MapLibre — по-русски
   locale: {
     "AttributionControl.ToggleAttribution": "Источники карты",
@@ -39,6 +41,7 @@ export const map = new maplibregl.Map({
     "CooperativeGesturesHandler.MobileHelpText": "Двигайте карту двумя пальцами",
   },
 });
+addEventListener("atlas-ui-scale", () => map.setPixelRatio((devicePixelRatio || 1) * (window.atlasUi?.scale || 1)));
 map.on("style.load", () => map.setProjection({ type: "globe" }));
 // при открытии глобус крупно — космоса около 10 % экрана — и лёгкий поворот к Европе (Грегори 2026-11-13).
 // Глобус на экране меньше расчётного (перспектива) — масштаб подбирается замером: точка на глобусе
