@@ -67,6 +67,33 @@ export async function viewCache() {
     t.onerror = () => reject(t.error);
   });
 }
+// сколько места что занимает — для обзора в настройках (Грегори 2026-11-17, план «Карта без сети»):
+// треки, копии записей для поездок, запомненное при просмотре — по записям хранилища (примерно, по длине JSON);
+// плитки поездок — из их списка; модели — из своего списка; остальное (файлы программы, служебное браузера) — разница
+export async function storageParts() {
+  const d = await db();
+  const parts = await new Promise((resolve, reject) => {
+    const t = d.transaction("cache", "readonly"), req = t.objectStore("cache").openCursor();
+    const p = { tracks: 0, trip: 0, view: 0 };
+    req.onsuccess = () => {
+      const c = req.result;
+      if (!c) return;
+      if (typeof c.key === "string") {
+        let b = c.key.length;
+        try { b += JSON.stringify(c.value)?.length || 0; } catch { /* не строка */ }
+        if (c.key.startsWith("tracks/")) p.tracks += b;
+        else if (c.key.startsWith("trip/")) p.trip += b;
+        else if (!MINE.test(c.key)) p.view += b;
+      }
+      c.continue();
+    };
+    t.oncomplete = () => resolve(p);
+    t.onerror = () => reject(t.error);
+  });
+  const { usage: total, quota, persisted } = await usage();
+  return { ...parts, models: Object.values(models()).reduce((s, m) => s + (m.bytes || 0), 0), total, quota, persisted };
+}
+
 // забыть запомненное при просмотре (треки и выбранные папки остаются)
 export async function clearViewCache() {
   const d = await db();
@@ -133,4 +160,4 @@ export async function removeModel(id) {
 }
 
 export const formatBytes = (n) =>
-  n >= 1e9 ? `${(n / 1e9).toFixed(1)} ГБ` : n >= 1e6 ? `${Math.round(n / 1e6)} МБ` : n >= 1e3 ? `${Math.round(n / 1e3)} КБ` : `${n} Б`;
+  n >= 1e9 ? `${(n / 1e9).toFixed(1).replace(".", ",")} ГБ` : n >= 1e6 ? `${Math.round(n / 1e6)} МБ` : n >= 1e3 ? `${Math.round(n / 1e3)} КБ` : `${n} Б`;

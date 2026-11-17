@@ -428,6 +428,51 @@ html, body {
   background: var(--panel);
 }
 
+/* обзор места на устройстве (настройки): полоса долей и строки с цветной точкой */
+.place-sum {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.place-bar {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--panel-hover);
+}
+
+.place-seg {
+  flex: none;
+  height: 100%;
+}
+
+.place-row {
+  padding: 4px 0;
+}
+
+.place-row.empty {
+  color: var(--muted);
+}
+
+.place-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.place-row.empty .place-dot {
+  opacity: 0.35;
+}
+
+.place-size {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* выбранный размер кнопок и текста (настройки) */
 .size-btn.on,
 .size-btn.on:hover {
@@ -436,7 +481,8 @@ html, body {
 }
 
 /* почему «Скачать район» неактивна — заметно, рядом с кнопкой */
-.trip-why:not(:empty) {
+.trip-why:not(:empty),
+.size-why:not(:empty) {
   margin: 4px 0 0;
   color: #b3261e;
 }

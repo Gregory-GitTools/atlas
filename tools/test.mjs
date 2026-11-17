@@ -2483,6 +2483,12 @@ try {
         app: app.length, lib: app.some((u) => u.includes("maplibre-gl.mjs")), nav: app.some((u) => u.endsWith("/content/navigation.js")), index: app.some((u) => u.endsWith("/index.html")),
         ctl: !!navigator.serviceWorker.controller, row: [...document.querySelectorAll(".trip-list .set-item-title")].map((e) => e.textContent), dl: !document.querySelector(".trip-dl").disabled }; })()`);
     check("без сети: район скачан — плитки, шрифты, значки, в списке с названием", r.tiles > 10 && r.bytes > 0 && r.tile && r.glyph && r.sprite && r.row.includes(r.title) && r.dl, JSON.stringify({ ...r, prog }));
+    // место на устройстве: всего, полоса и строки; скачанная поездка — в «Картах для поездок»
+    const place = await run(`(async () => { (await import("./core/events.js")).emit("settings-open"); await new Promise((r) => setTimeout(r, 1200));
+      const rows = [...document.querySelectorAll(".place-row")].map((r) => [r.querySelector(".set-item-title").textContent, r.querySelector(".place-size").textContent]);
+      return { sum: document.querySelector(".place-sum")?.textContent, segs: document.querySelectorAll(".place-seg").length, rows }; })()`);
+    check("место на устройстве: занято всего, полоса по видам, скачанная карта — в «Картах для поездок»", /^Занято \d/.test(place.sum || "") && place.segs >= 1 && place.rows.length === 5
+      && place.rows[0][0] === "Карты для поездок" && /[КМГ]Б$/.test(place.rows[0][1]), JSON.stringify(place));
     check("без сети: файлы программы и библиотеки на устройстве", r.app > 30 && r.lib && r.nav && r.index, `${r.app} файлов`);
     check("без сети: скачанная плитка отдаётся с устройства и при новом выпуске карты", r.ctl && r.fake > 0, `${r.fake} байт`);
     await shot("97-offline-settings");
