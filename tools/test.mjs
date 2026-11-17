@@ -1,4 +1,4 @@
-// Проверка Atlas: node tools/test.mjs [--phone] [--only=photo]
+// Проверка Atlas: node tools/test.mjs [--phone | --car] [--only=photo]
 // Поднимает свой сервер на свободном порту, открывает приложение в Chrome без окна (headless),
 // включает и выключает каждый модуль из реестра, открывает панели, снимает экраны в test-output/
 // и собирает ошибки. Код выхода 1 — если были ошибки. Только встроенное в Node, без пакетов.
@@ -12,6 +12,10 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(ROOT, "test-output");
 const PHONE = process.argv.includes("--phone");
+// --car — магнитола (ISUDAR, Android, 1280×720 лёжа, сенсорный экран; Грегори 2026-11-15): раскладка как на
+// компьютере по ширине, но устройство — Android (WebView), касания вместо мыши
+const CAR = process.argv.includes("--car");
+const VH = PHONE ? 800 : CAR ? 720 : 800; // высота экрана: «я» в навигации — на четверть высоты ниже центра
 // --only=photo — проверить только разделы модулей, в id которых есть это слово (быстро при отладке; несколько — через запятую)
 const ONLY = process.argv.find((a) => a.startsWith("--only="))?.slice(7);
 // несколько через запятую: --only=layers/beaches,weather/wind
@@ -102,7 +106,12 @@ const idle = () => run(`new Promise((r) => { const t = Date.now(); const c = () 
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT);
 await send("Runtime.enable");
-await send("Emulation.setDeviceMetricsOverride", PHONE ? { width: 390, height: 800, deviceScaleFactor: 2, mobile: true } : { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false });
+await send("Emulation.setDeviceMetricsOverride", PHONE ? { width: 390, height: 800, deviceScaleFactor: 2, mobile: true }
+  : CAR ? { width: 1280, height: 720, deviceScaleFactor: 1, mobile: true } : { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false });
+if (CAR) {
+  await send("Emulation.setUserAgentOverride", { userAgent: "Mozilla/5.0 (Linux; Android 10; ISUDAR) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/113.0.0.0 Safari/537.36 wv" });
+  await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+}
 await send("Page.navigate", { url });
 const report = [];
 let lastCheck = "";
@@ -182,7 +191,7 @@ try {
   await sleep(2500);
   const n2 = await nav();
   check("навигация: при начале — 3D, я внизу, масштаб не тронут, кнопка «Навигация»",
-    n2.follow && n2.mode === "3d" && n2.zoom === 14.3 && n2.pitch >= 55 && Math.abs(n2.me.x) <= 3 && Math.abs(n2.me.y - 200) <= 8 && /^Навигация/.test(n2.title), JSON.stringify(n2));
+    n2.follow && n2.mode === "3d" && n2.zoom === 14.3 && n2.pitch >= 55 && Math.abs(n2.me.x) <= 3 && Math.abs(n2.me.y - VH / 4) <= 8 && /^Навигация/.test(n2.title), JSON.stringify(n2));
   await goTo(59.437, 24.7455);
   await sleep(2500);
   const navE = await nav();
@@ -191,7 +200,7 @@ try {
   const navN = await nav();
   const near = (a, b) => Math.abs(((a - b + 540) % 360) - 180) <= 5;
   check("навигация: 3D — я внизу, карта по ходу движения, метка — стрелка, масштаб прежний", navE.mode === "3d" && navE.pitch >= 55 && near(navE.heading, 90) && near(navE.bearing, 90)
-    && navE.chevron && navE.zoom === 14.3 && Math.abs(navE.me.y - 200) <= 8 && near(navN.heading, 0) && near(navN.bearing, 0) && navN.zoom === 14.3, JSON.stringify([navE, navN]));
+    && navE.chevron && navE.zoom === 14.3 && Math.abs(navE.me.y - VH / 4) <= 8 && near(navN.heading, 0) && near(navN.bearing, 0) && navN.zoom === 14.3, JSON.stringify([navE, navN]));
   // сдвинул карту рукой — сама не возвращается; кнопка «Навигация» — снова ко мне
   await run(`atlas.map.fire("dragstart", { originalEvent: new MouseEvent("mousedown") }); atlas.map.panBy([200, 0], { duration: 0 }); true`);
   const away = await run(`atlas.geo.state().follow`);
@@ -266,7 +275,7 @@ try {
   // карточка пути открыта — щелчок по карте всё равно открывает окно места (Грегори 2026-11-10: «после выбора
   // финиша невозможно поставить вторую точку»): карточка — не меню, которое первый щелчок только закрывает
   // окна на карте закрываем Esc: крестик в окне точки маршрута её убирает (а щелчок может попасть по флажку)
-  const W = PHONE ? 390 : 1200;
+  const W = PHONE ? 390 : CAR ? 1280 : 1200;
   await run(`(() => { document.querySelectorAll(".search-results").forEach((m) => (m.hidden = true)); return true; })()`);
   const cardShown = await run(`!document.querySelector(".search-card").hidden`);
   // карта ещё может лететь к пути карточки — щелчок по летящей карте её только останавливает
@@ -818,12 +827,16 @@ try {
 
   // окно места: щелчок по пустой точке — координаты; щелчок по подписи города — название и вид;
   // щелчок при открытом окне — только закрывает
+  // на магнитоле — касание пальцем
   const clickAt = async (x, y) => {
-    for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
+    // (synthesizeTapGesture в Chrome без экрана не даёт click — только касания; настоящий палец даёт, как и эти события)
+    if (CAR) for (const [type, touchPoints] of [["touchStart", [{ x, y }]], ["touchEnd", []]]) { await send("Input.dispatchTouchEvent", { type, touchPoints }); await sleep(60); }
+    else for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
   };
   await run(`document.querySelector(".search-clear").click(); document.activeElement.blur(); document.body.click(); atlas.map.jumpTo({ center: [24.75, 59.437], zoom: 11 }); true`);
   await idle();
-  await clickAt(40, 400);
+  // на магнитоле (1280×720) в точке 40, 400 — подпись посёлка Табасалу; пустое место — море над Таллином
+  await clickAt(...(CAR ? [640, 100] : [40, 400]));
   await sleep(2500);
   const empty = await run(`document.querySelector(".maplibregl-popup .popup-coords")?.textContent || ""`);
   check("щелчок по карте — координаты", /^\d+\.\d+, \d+\.\d+$/.test(empty), empty);
@@ -2545,6 +2558,8 @@ try {
   const after = await run(centerKey);
   check("колесо: колёсико мыши крутит барабан", before !== after, `${before} → ${after}`);
   // подпись — только у центральной кнопки, промежуток в центре небольшой
+  // подпись видна 2,5 с после остановки барабана — ждём, пока он встанет (на медленном экране дольше)
+  await run(`(async () => { for (let i = 0; i < 30 && !document.querySelector(".wheel-tip").classList.contains("show"); i++) await new Promise((r) => setTimeout(r, 100)); return true; })()`);
   const tipInfo = await run(`({ tip: document.querySelector(".wheel-tip").classList.contains("show") ? document.querySelector(".wheel-tip").textContent : "",
     center: document.querySelector('.layers-circle[data-key=' + JSON.stringify(${centerKey}) + ']').ariaLabel,
     titles: document.querySelectorAll(".wheel-layers .layers-circle[title]").length })`);
