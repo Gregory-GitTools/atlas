@@ -2592,8 +2592,8 @@ try {
   const after = await run(centerKey);
   check("колесо: колёсико мыши крутит барабан", before !== after, `${before} → ${after}`);
   // подпись — только у центральной кнопки, промежуток в центре небольшой
-  // подпись видна 2,5 с после остановки барабана — ждём, пока он встанет (на медленном экране дольше)
-  await run(`(async () => { for (let i = 0; i < 30 && !document.querySelector(".wheel-tip").classList.contains("show"); i++) await new Promise((r) => setTimeout(r, 100)); return true; })()`);
+  // подпись видна 2,5 с после остановки барабана — ждём, пока он встанет (на медленном экране дольше, до 6 с)
+  await run(`(async () => { for (let i = 0; i < 60 && !document.querySelector(".wheel-tip").classList.contains("show"); i++) await new Promise((r) => setTimeout(r, 100)); return true; })()`);
   const tipInfo = await run(`({ tip: document.querySelector(".wheel-tip").classList.contains("show") ? document.querySelector(".wheel-tip").textContent : "",
     center: document.querySelector('.layers-circle[data-key=' + JSON.stringify(${centerKey}) + ']').ariaLabel,
     titles: document.querySelectorAll(".wheel-layers .layers-circle[title]").length })`);
