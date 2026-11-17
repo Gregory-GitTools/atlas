@@ -1,4 +1,5 @@
-# Значки Atlas: глобус с меридианами и красной меткой. Запуск: python tools/make-icons.py (нужен Pillow)
+# Значки Atlas. Установка — логотип Travel Earth (app-android/icon.png); логотип на кнопке в программе — глобус с меридианами
+# и красной меткой. Запуск: python tools/make-icons.py (нужен Pillow)
 from pathlib import Path
 from PIL import Image, ImageDraw
 
@@ -42,10 +43,28 @@ def draw(rim=S * 0.028, pin_rim=S * 0.022, light=False, size=0.44):
     return img
 
 
-big = draw()
-for size, name in ((512, "icon-512.png"), (192, "icon-192.png"), (180, "apple-touch-icon.png"), (32, "icon-32.png")):
-    big.resize((size, size), Image.LANCZOS).save(OUT / name)
-big.resize((256, 256), Image.LANCZOS).save(OUT / "app.ico", sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
+# значки установки (ярлык Windows, PWA, iPhone, вкладка) — логотип Travel Earth, тот же, что у приложения
+# Android (Грегори 2026-11-17: «поменять на Travel Earth во всех инсталяторах»); глобус с меткой ниже — только логотип в программе
+logo = Image.open(OUT.parent / "app-android" / "icon.png").convert("RGBA")
+logo = logo.crop(logo.getbbox())
+
+
+def square(size, part, bg=(0, 0, 0, 0)):
+    """логотип по центру квадрата size×size, по большей стороне — доля part"""
+    out = Image.new("RGBA", (size, size), bg)
+    k = size * part / max(logo.size)
+    w, h = round(logo.width * k), round(logo.height * k)
+    out.alpha_composite(logo.resize((w, h), Image.LANCZOS), ((size - w) // 2, (size - h) // 2))
+    return out
+
+
+for size, name in ((512, "icon-512.png"), (192, "icon-192.png"), (32, "icon-32.png")):
+    square(size, 0.98).save(OUT / name)
+# «maskable» — Android и Windows обрезают углы: логотип в безопасном круге (80 %), фон — цвет темы
+square(512, 0.72, (32, 33, 36, 255)).save(OUT / "icon-maskable.png")
+# iPhone прозрачное заливает чёрным — свой светлый фон
+square(180, 0.86, (245, 243, 239, 255)).convert("RGB").save(OUT / "apple-touch-icon.png")
+square(256, 0.98).save(OUT / "app.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 # логотип на кнопке справа вверху (Грегори, 2026-10-29): глобус светлее, вокруг метки — чёткий кант;
 # шар во всю картинку и без белого ободка (Грегори, 2026-11-04: «у логотипа остался белый ободок»)
 draw(rim=0, pin_rim=S * 0.016, light=True, size=0.5).resize((96, 96), Image.LANCZOS).save(OUT / "logo.png")
