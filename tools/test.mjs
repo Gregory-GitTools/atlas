@@ -2435,6 +2435,43 @@ try {
     await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
   }
 
+  // HEIC с iPhone (core/heic.js): Chrome сам не показывает — декодер libheif по первому снимку; картинка, копия
+  // для <img>, дата и место из EXIF; в своей папке — альбом с миниатюрой (tools/test-photo.heic — выдуманный 96×64)
+  if (want("core/heic")) {
+    const h = await run(`(async () => { const m = await import("./core/heic.js"); const blob = await (await fetch("tools/test-photo.heic")).blob();
+      const bmp = await m.heicBitmap(blob); const c = new OffscreenCanvas(bmp.width, bmp.height).getContext("2d"); c.drawImage(bmp, 0, 0);
+      const top = [...c.getImageData(10, 10, 1, 1).data], low = [...c.getImageData(10, 55, 1, 1).data];
+      const jpg = await m.heicViewable(blob), img = new Image(); img.src = URL.createObjectURL(jpg); await img.decode();
+      const e = await (await import("https://unpkg.com/exifr@7.1.3/dist/full.esm.mjs")).default.parse(blob, { gps: true, exif: true });
+      return { w: bmp.width, h: bmp.height, top, low, type: jpg.type, iw: img.naturalWidth, lat: e?.latitude, lon: e?.longitude, date: e?.DateTimeOriginal?.toISOString?.() }; })()`);
+    check("HEIC: снимок раскрыт — размер и цвета на месте, для просмотра — JPEG", h.w === 96 && h.h === 64 && h.top[2] > 150 && h.low[1] > 120 && h.low[2] < 120
+      && h.iw === 96 && (h.type === "image/jpeg" || h.type === "image/heic" || h.type === ""), JSON.stringify(h));
+    check("HEIC: дата и место из EXIF", Math.abs(h.lat - 59.437) < 0.001 && Math.abs(h.lon - 24.745) < 0.001 && /^2024-05-01/.test(h.date || ""), JSON.stringify(h));
+    if (!PHONE && !CAR) {
+      const al = `atlas.modules().find((m) => m.id === "content/albums")`;
+      await run(`(async () => { const data = await (await fetch("tools/test-photo.heic")).blob();
+        const file = { kind: "file", name: "IMG_0001.HEIC", getFile: async () => new File([data], "IMG_0001.HEIC", { lastModified: 1 }) };
+        const dir = (name, items) => ({ kind: "directory", name, items, async *entries() { for (const i of items) yield [i.name, i]; }, async *values() { for (const i of items) yield i; },
+          getDirectoryHandle: async () => { throw new DOMException("нет", "NotFoundError"); }, isSameEntry: async (o) => o?.name === name,
+          queryPermission: async () => "granted", requestPermission: async () => "granted" });
+        window.showDirectoryPicker = async () => dir("iPhone", [dir("20240501 Снимки iPhone", [file])]); return true; })()`);
+      await run(`${al}.pickFolder(); true`);
+      for (let i = 0; i < 30 && !(await run(`${al}.stats().photos >= 1 && !${al}.stats().busy`)); i++) await sleep(500);
+      await run(openLayers("content/albums"));
+      await sleep(800);
+      await run(`${al}.openFirst("Снимки iPhone")`);
+      for (let i = 0; i < 40 && !(await run(`!!document.querySelector(".al-cell img")?.naturalWidth`)); i++) await sleep(500);
+      const a = await run(`(() => { const s = ${al}.stats(), img = document.querySelector(".al-cell img"); return { open: s.open, cells: document.querySelectorAll(".al-cell").length, img: img?.naturalWidth || 0,
+        country: document.querySelector('[data-panel="albums"] .panel-title')?.textContent, est: s.countries.some((c) => /Эстония/.test(c)) }; })()`);
+      check("HEIC: в своей папке — альбом, место по EXIF (Эстония), миниатюра", a.open === "Снимки iPhone" && a.cells === 1 && a.img > 0 && a.est, JSON.stringify(a));
+      await shot("98-heic-album");
+      await run(`${al}.forgetFolder("iPhone"); true`);
+      await run(exitMode);
+      await sleep(300);
+      await run(closeLayers);
+    }
+  }
+
   // размер кнопок и текста (core/ui-scale.js, Грегори 2026-11-17): на магнитоле сам крупный (страница 1024×576
   // растянута на экран, карта рисуется подробнее — не размыта); на телефоне выбирается в настройках и
   // возвращается; на компьютере кнопки неактивны с подсказкой про Ctrl и +

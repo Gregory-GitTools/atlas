@@ -447,7 +447,7 @@ function show(i) {
   const eb = $(".edit-btn");
   eb.disabled = !p.edit;
   if (!document.body.classList.contains("editing")) eb.title = p.edit ? "Править снимок"
-    : p.video ? "Ролики не правятся" : "Править можно свои снимки из папки на компьютере";
+    : p.video ? "Ролики не правятся" : p.heic ? "Снимки iPhone (HEIC) пока не правятся" : "Править можно свои снимки из папки на компьютере";
   for (const f of onShow) f(p);
 }
 const onShow = new Set();

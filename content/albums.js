@@ -26,6 +26,7 @@ import { cacheGet, cacheSet, cacheDelete } from "../core/storage.js";
 import { track, claimLayers } from "../core/popups.js";
 import { setStripItems, selectStripItem, openGalleryWith, touchUI } from "../core/photo-strip.js";
 import { PLAYER } from "../core/player.js";
+import { HEIC_RE, heicBitmap, heicViewable } from "../core/heic.js";
 
 const svg = (d, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor"><path d="${d}"/></svg>`;
 const STACK_D = "M22 16V4c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2zm-11-4 2.03 2.71L16 11l4 5H8l3-4zM2 6v14c0 1.1.9 2 2 2h14v-2H4V6H2z";
@@ -37,7 +38,7 @@ const FOLDER_ICON = svg("M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 
 const BACK = svg("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z", 20);
 const COLOR = "#7c4dff"; // --tone-my
 const VIDEO_RE = /\.(mov|mp4|m4v)$/i;
-const MEDIA_RE = /\.(jpe?g|webp|png|mov|mp4|m4v)$/i;
+const MEDIA_RE = /\.(jpe?g|webp|png|heic|heif|mov|mp4|m4v)$/i; // HEIC — снимки iPhone (core/heic.js)
 // трек поездки лежит с её снимками (Грегори 2026-11-08: «сканировать папку с фото на наличие .GPX и
 // хранить их с фотографиями»; папка может быть и только с треком) — на карте линией, в шапке альбома —
 // «Просмотр трека» (открывает «Мои треки», стрелка оттуда — назад в альбом)
@@ -370,9 +371,23 @@ async function frameOf(blob) {
     return await createImageBitmap(v, { resizeWidth: 480, resizeHeight: Math.round((480 * v.videoHeight) / v.videoWidth), resizeQuality: "medium" });
   } finally { URL.revokeObjectURL(url); }
 }
+// HEIC в Chrome раскрывает декодер — около секунды на снимок: готовая миниатюра 480 px помнится на устройстве
+// (`thumb/<ключ снимка>`, файл поменялся — ключ другой), второй раз альбом открывается сразу
+async function heicThumb(p) {
+  const file = await fileOf(p);
+  const key = `thumb/${p.handle ? `local/${p.path}|${file.size}|${file.lastModified}` : p.key}`;
+  const hit = await cacheGet(key).catch(() => null);
+  if (hit instanceof Blob) return createImageBitmap(hit);
+  const bmp = await heicBitmap(file, { resizeWidth: 480, resizeQuality: "medium" });
+  const c = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height });
+  c.getContext("2d").drawImage(bmp, 0, 0);
+  c.toBlob((b) => b && cacheSet(key, b).catch(() => {}), "image/jpeg", 0.85);
+  return bmp;
+}
 async function makeThumb(p) {
   // поворот из EXIF браузер учитывает сам (imageOrientation по умолчанию — from-image)
   const bmp = p.video ? await frameOf(p.proxy ? await p.proxy.getFile() : await fileOf(p)).catch((err) => { p.noFrame = true; throw err; })
+    : HEIC_RE.test(p.name) ? await heicThumb(p)
     : await createImageBitmap(await fileOf(p), { resizeWidth: 480, resizeQuality: "medium" });
   const side = Math.min(bmp.width, bmp.height), sx = (bmp.width - side) / 2, sy = (bmp.height - side) / 2;
   const c = Object.assign(document.createElement("canvas"), { width: THUMB, height: THUMB });
@@ -393,10 +408,11 @@ async function makeThumb(p) {
 // (у живого фото — и его ролик: kind "live")
 const fulls = [];
 async function fullOf(f, id) {
-  if (f.url) return f.url;
+  if (f.url) return HEIC_RE.test(f.name) ? fullOf({ ...f, url: "", handle: { getFile: () => fileOf(f) } }, id) : f.url;
   const hit = fulls.find((x) => x.id === id);
   if (hit) return hit.url;
-  const url = URL.createObjectURL(await f.handle.getFile());
+  const file = await f.handle.getFile();
+  const url = URL.createObjectURL(HEIC_RE.test(f.name) ? await heicViewable(file) : file);
   fulls.push({ id, url });
   if (fulls.length > 8) URL.revokeObjectURL(fulls.shift().url);
   return url;
@@ -610,7 +626,7 @@ function gallery(a, startId, play = false) {
   openGalleryWith(ids.map((id) => galleryItem(photos.get(id))), startId || ids[0], media, { play });
 }
 const galleryItem = (p) => ({ id: p.id, thumb: p.thumb, full: p.url, title: p.album.title, credit: [photoDate(p), p.name].filter(Boolean).join(" · "),
-  coordinates: p.rec?.lat ? pt(p) : null, video: p.video, live: !!p.live, edit: editInfo(p) });
+  coordinates: p.rec?.lat ? pt(p) : null, video: p.video, live: !!p.live, heic: HEIC_RE.test(p.name), edit: editInfo(p) });
 
 function fitAlbum(a) {
   const pts = [...photosOf(a).map((id) => photos.get(id)).filter((p) => p.rec?.lat).map(pt),
@@ -923,7 +939,8 @@ async function digest(file) {
 }
 // отпечаток картинки: 9×8 серых точек, бит — светлее ли точка соседа справа
 async function dhash(p) {
-  const bmp = await createImageBitmap(await p.handle.getFile(), { resizeWidth: 9, resizeHeight: 8, resizeQuality: "high" });
+  const file = await p.handle.getFile(), size = { resizeWidth: 9, resizeHeight: 8, resizeQuality: "high" };
+  const bmp = HEIC_RE.test(p.name) ? await heicBitmap(file, size) : await createImageBitmap(file, size);
   const c = new OffscreenCanvas(9, 8).getContext("2d");
   c.drawImage(bmp, 0, 0);
   const d = c.getImageData(0, 0, 9, 8).data, gray = (i) => d[i * 4] * 0.3 + d[i * 4 + 1] * 0.59 + d[i * 4 + 2] * 0.11;
