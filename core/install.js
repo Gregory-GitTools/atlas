@@ -48,7 +48,7 @@ export function installSection() {
       btn.hidden = true;
     } else if (isMobile()) {
       lead.textContent = "Значок «Atlas» на экран телефона.";
-      btn.innerHTML = `<img class="logo" src="icons/icon-32.png" alt="">Установить`;
+      btn.innerHTML = `<img class="logo" src="icons/te-32.png" alt="">Установить`;
       btn.disabled = !prompt;
       if (!prompt) hint.textContent = "Если кнопка серая — меню браузера ⋮ → «Добавить на главный экран».";
     } else if (!IS_EDGE && IS_WINDOWS && !LOCAL) {

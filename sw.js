@@ -4,10 +4,11 @@
 //  • Библиотеки с номером версии (unpkg, jsdelivr) не меняются — сначала кэш (без сети тоже есть).
 //  • Карта (OpenFreeMap, высоты AWS): скачанная «Скачать район» плитка, шрифт, значок — сразу с
 //    устройства, и в сети тоже (роуминг дорогой); стиль и описание карты — сначала из сети (за 4 с),
-//    без неё — скачанные. Чего нет на устройстве — из сети как обычно, ничего не запоминается.
+//    без неё — скачанные или последняя удачная копия (atlas-map-style). Чего нет на устройстве — из сети как обычно, ничего не запоминается.
 //    Ключ плитки OpenFreeMap — без номера выпуска карты (то же правило — tileKey в core/offline.js)
 const CACHE = "atlas-app";
 const TRIP = "atlas-trip";
+const STYLE = "atlas-map-style"; // последние стили и описания карт — без сети глобус есть всегда
 const MAP_HOST = /^https:\/\/(tiles\.openfreemap\.org|s3\.amazonaws\.com\/elevation-tiles-prod)\//;
 const LIB = /^https:\/\/(unpkg\.com|cdn\.jsdelivr\.net)\/.+@\d/;
 const tileKey = (u) => u.replace(/^(https:\/\/tiles\.openfreemap\.org\/planet)\/[^/]+\/(\d+\/\d+\/\d+\.pbf)$/, "$1/_/$2");
@@ -48,8 +49,13 @@ self.addEventListener("fetch", (e) => {
   if (MAP_HOST.test(req.url)) {
     if (FIXED.test(url.pathname)) e.respondWith(fromTrip(req.url).then((hit) => hit || fetch(req)));
     else {
-      const net = fetch(req);
-      e.respondWith(timeout(net, 4000).catch(async () => (await fromTrip(req.url)) || net));
+      // стиль и описание карты — последняя удачная копия всегда на устройстве (Грегори 2026-11-18: «в режиме
+      // полёта видно только звёздное небо» — копия браузера живёт сутки и час, без неё глобус не рисуется)
+      const net = fetch(req).then((res) => {
+        if (res.ok) { const copy = res.clone(); caches.open(STYLE).then((c) => c.put(tileKey(req.url), copy)); }
+        return res;
+      });
+      e.respondWith(timeout(net, 4000).catch(async () => (await fromTrip(req.url)) || (await caches.open(STYLE).then((c) => c.match(tileKey(req.url)))) || net));
     }
   }
 });

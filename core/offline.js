@@ -126,7 +126,7 @@ async function plan(map, area) {
 // файлы программы: обход импортов от index.html (свои файлы и библиотеки с номером версии с unpkg)
 async function appFiles() {
   const root = new URL("./", location.href);
-  const seen = new Set(), queue = ["./", "index.html", "manifest.json", "core/app.js", "core/style.css", "icons/icon-192.png", "icons/icon-512.png"].map((p) => new URL(p, root).href);
+  const seen = new Set(), queue = ["./", "index.html", "manifest.json", "core/app.js", "core/style.css", "icons/te-192.png", "icons/te-512.png"].map((p) => new URL(p, root).href);
   while (queue.length && seen.size < 400) {
     const u = queue.shift();
     if (seen.has(u)) continue;

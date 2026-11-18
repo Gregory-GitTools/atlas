@@ -63,6 +63,10 @@ const CHEVRON = `<svg class="geo-chevron" viewBox="0 0 40 40" width="40" height=
 export function addGeolocate(map, maplibregl, status) {
   let watch = null, follow = false, position = null, shownPos = null, marker = null, btn;
   let heading = null, moveHeading = null, anchor = null, lastFix = 0, lastSpeed = 0, first = true, anim = 0, back = null;
+  // запасной замер (сеть, Wi-Fi) и подсказка, если долго нет ни одного (Грегори 2026-11-18: «на магнитоле после
+  // включения геолокации не видно моё местоположение» — раньше без замера было тихо)
+  let rough = null, lastPrecise = 0, hint = 0, said = false;
+  const SEARCH = "Ищу, где вы… Если долго — проверьте, что на устройстве включено местоположение (GPS) и программе оно разрешено";
   // открыта карточка пути — карта за мной не ходит: на экране весь путь (Грегори 2026-11-06: «не
   // позиционируем моё положение при открытой карточке; закрыли — сразу ко мне, без задержки»)
   let hold = false, tilting = false;
@@ -140,8 +144,14 @@ export function addGeolocate(map, maplibregl, status) {
     follow = true;
     first = true;
     listenCompass();
-    watch = navigator.geolocation.watchPosition((pos) => {
-      const now = Date.now(), gap = lastFix ? Math.min(1500, Math.max(300, now - lastFix)) : 0;
+    const onFix = (pos, precise) => {
+      if (watch === null) return;
+      const now = Date.now();
+      // грубый замер не перебивает точный (точный был за последние 5 с)
+      if (precise) lastPrecise = now; else if (now - lastPrecise < 5000) return;
+      clearTimeout(hint);
+      if (said) { said = false; status(""); }
+      const gap = lastFix ? Math.min(1500, Math.max(300, now - lastFix)) : 0;
       lastFix = now;
       lastSpeed = pos.coords.speed || 0;
       position = [pos.coords.longitude, pos.coords.latitude];
@@ -155,15 +165,27 @@ export function addGeolocate(map, maplibregl, status) {
       if (gap) glide(position, gap); else { marker.setLngLat((shownPos = position)); emit("me", { lngLat: position }); }
       update();
       if (follow) center(gap || 800);
-    }, (err) => {
-      // запрет — выключить совсем, иначе спрашивали бы при каждом запуске; остальное (ещё ищет спутники,
-      // замер не успел) — молча: при начале навигации сообщений не надо (Грегори 2026-11-06)
-      if (err.code === err.PERMISSION_DENIED) { stop(); status("Нет доступа к местоположению — разрешите его браузеру"); }
-    }, { enableHighAccuracy: true, maximumAge: 1000 });
+    };
+    // запрет — выключить совсем, иначе спрашивали бы при каждом запуске; остальное (ещё ищет спутники,
+    // замер не успел) — молча: при начале навигации сообщений не надо (Грегори 2026-11-06)
+    const onErr = (err) => { if (err.code === err.PERMISSION_DENIED) { stop(); status("Нет доступа к местоположению — разрешите его программе"); } };
+    watch = navigator.geolocation.watchPosition((pos) => onFix(pos, true), onErr, { enableHighAccuracy: true, maximumAge: 1000 });
+    // 10 с без замера — подсказка и замер попроще (по сети): без спутников (гараж, магнитола без антенны)
+    // точка хоть примерно; спутники нашлись — снова точная
+    hint = setTimeout(() => {
+      if (watch === null || lastFix) return;
+      said = true;
+      status(SEARCH);
+      rough = navigator.geolocation.watchPosition((pos) => onFix(pos, false), () => {}, { enableHighAccuracy: false, maximumAge: 60000 });
+    }, 10000);
     update();
   };
   const stop = () => {
     if (watch !== null) navigator.geolocation.clearWatch(watch);
+    if (rough !== null) navigator.geolocation.clearWatch(rough);
+    clearTimeout(hint);
+    if (said) { said = false; status(""); }
+    rough = null; lastPrecise = 0;
     watch = null; follow = false; position = shownPos = null; heading = moveHeading = null; anchor = null; lastFix = 0;
     cancelAnimationFrame(anim);
     clearTimeout(back); back = null;

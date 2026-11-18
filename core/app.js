@@ -119,3 +119,13 @@ addCompass(map);
 window.atlas.geo = addGeolocate(map, maplibregl, status);
 window.atlas.route = initRoute(ctx);
 await loadAll();
+
+// без сети (Грегори 2026-11-18: «в режиме полёта видно только звёздное небо») — сказать, что карта есть только
+// в скачанных районах; нет ни одного — где скачать. Сеть пропала на ходу — то же
+{
+  const { trips } = await import("./offline.js");
+  const say = () => { if (!navigator.onLine) status(trips().length ? "Нет сети — карта видна в скачанных районах" : "Нет сети — карта видна только в скачанных районах. Скачать: Настройки → «Карта без сети»"); };
+  say();
+  addEventListener("offline", say);
+  addEventListener("online", () => status(""));
+}

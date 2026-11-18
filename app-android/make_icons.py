@@ -17,7 +17,9 @@ for d in res.glob("mipmap-*dpi"):
     fit(n, 0.92).save(d / "ic_launcher.png")
     fit(n, 0.92).save(d / "ic_launcher_round.png")
     m = Image.open(d / "ic_launcher_foreground.png").size[0]
-    fit(m, 0.62).save(d / "ic_launcher_foreground.png")  # безопасная зона адаптивной иконки — 66 из 108
+    # фон значка прозрачный (values/ic_launcher_background.xml; Грегори 2026-11-18: «везде логотип на прозрачном
+    # фоне»); безопасная зона адаптивной иконки — 66 из 108
+    fit(m, 0.66).save(d / "ic_launcher_foreground.png")
 
 for p in res.glob("drawable*/splash.png"):
     w, h = Image.open(p).size
