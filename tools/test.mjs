@@ -2435,6 +2435,29 @@ try {
     await run(`document.querySelector(".maplibregl-popup")?.remove(); true`);
   }
 
+  // GPS приложения Android (AtlasGps в MainActivity, Грегори 2026-11-19: «магнитола не определяет локацию»): окно
+  // браузера замера не даёт — через 10 с подсказка, сколько видно спутников; замер приложения ставит метку; выключили — GPS приложения выключен
+  if (want("core/native-gps")) {
+    await send("Emulation.setGeolocationOverride", {}); // браузер места не знает
+    await run(`(() => { const calls = []; window.AtlasGps = { calls, start: () => calls.push("start"), stop: () => calls.push("stop"),
+      info: () => JSON.stringify({ allowed: true, hasGps: true, gps: true, net: false, sats: 7, used: 2, running: true }) }; return true; })()`);
+    await run(`document.querySelector(".geo-btn").click(); true`);
+    await sleep(11500);
+    const g1 = await run(`({ text: document.querySelector("#status").textContent, calls: AtlasGps.calls.slice(), dot: !!document.querySelector(".geo-dot") })`);
+    check("GPS приложения: включён с навигацией, через 10 с без замера — сколько видно спутников", g1.calls[0] === "start" && /видно 7, для замера годится 2/.test(g1.text) && !g1.dot, JSON.stringify(g1));
+    await run(`atlasNativeFix({ lat: 59.437, lon: 24.745, acc: 5, alt: null, heading: null, speed: null, t: Date.now(), precise: true }); true`);
+    await sleep(1200);
+    const g2 = await run(`({ text: document.querySelector("#status").textContent, dot: !!document.querySelector(".geo-dot"), pos: atlas.geo.state().position })`);
+    check("GPS приложения: замер — метка на месте, подсказка убрана", g2.dot && !g2.text && Math.abs(g2.pos[0] - 24.745) < 1e-6, JSON.stringify(g2));
+    await run(`document.querySelector(".geo-btn").click(); true`);
+    await sleep(300);
+    if (await run(`atlas.geo.state().on`)) await run(`document.querySelector(".geo-btn").click(); true`);
+    const g3 = await run(`({ calls: AtlasGps.calls.slice(), fix: window.atlasNativeFix })`);
+    check("GPS приложения: навигацию выключили — GPS приложения выключен", g3.calls.includes("stop") && !g3.fix, JSON.stringify(g3));
+    await run(`delete window.AtlasGps; true`);
+    await send("Emulation.setGeolocationOverride", { latitude: 59.437, longitude: 24.745, accuracy: 5 });
+  }
+
   // HEIC с iPhone (core/heic.js): Chrome сам не показывает — декодер libheif по первому снимку; картинка, копия
   // для <img>, дата и место из EXIF; в своей папке — альбом с миниатюрой (tools/test-photo.heic — выдуманный 96×64)
   if (want("core/heic")) {

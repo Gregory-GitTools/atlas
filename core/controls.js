@@ -67,6 +67,19 @@ export function addGeolocate(map, maplibregl, status) {
   // включения геолокации не видно моё местоположение» — раньше без замера было тихо)
   let rough = null, lastPrecise = 0, hint = 0, said = false;
   const SEARCH = "Ищу, где вы… Если долго — проверьте, что на устройстве включено местоположение (GPS) и программе оно разрешено";
+  // приложение Android даёт GPS напрямую (AtlasGps в MainActivity, Грегори 2026-11-19: «магнитола не определяет
+  // локацию» — геолокация окна идёт через службы Google, на магнитоле их может не быть) и видит спутники
+  const nat = () => window.AtlasGps;
+  let skyTimer = 0;
+  const skyText = () => {
+    let g;
+    try { g = JSON.parse(nat().info()); } catch { return SEARCH; }
+    if (!g.allowed) return "Нет доступа к местоположению — разрешите его программе в настройках устройства";
+    if (!g.hasGps) return "У этого устройства нет приёмника GPS — место только примерно, по сети";
+    if (!g.gps) return "На устройстве выключено местоположение (GPS) — включите его в настройках";
+    if (!g.sats) return "Ищу спутники: пока не видно ни одного. Под крышей и в гараже их нет. Если и на открытом месте 0 — проверьте антенну GPS магнитолы";
+    return `Ищу спутники: видно ${g.sats}, для замера годится ${g.used} (нужно 4). На открытом месте быстрее`;
+  };
   // открыта карточка пути — карта за мной не ходит: на экране весь путь (Грегори 2026-11-06: «не
   // позиционируем моё положение при открытой карточке; закрыли — сразу ко мне, без задержки»)
   let hold = false, tilting = false;
@@ -149,7 +162,7 @@ export function addGeolocate(map, maplibregl, status) {
       const now = Date.now();
       // грубый замер не перебивает точный (точный был за последние 5 с)
       if (precise) lastPrecise = now; else if (now - lastPrecise < 5000) return;
-      clearTimeout(hint);
+      clearTimeout(hint); clearTimeout(skyTimer);
       if (said) { said = false; status(""); }
       const gap = lastFix ? Math.min(1500, Math.max(300, now - lastFix)) : 0;
       lastFix = now;
@@ -170,12 +183,20 @@ export function addGeolocate(map, maplibregl, status) {
     // замер не успел) — молча: при начале навигации сообщений не надо (Грегори 2026-11-06)
     const onErr = (err) => { if (err.code === err.PERMISSION_DENIED) { stop(); status("Нет доступа к местоположению — разрешите его программе"); } };
     watch = navigator.geolocation.watchPosition((pos) => onFix(pos, true), onErr, { enableHighAccuracy: true, maximumAge: 1000 });
+    if (nat()) {
+      window.atlasNativeFix = (f) => onFix({ coords: { latitude: f.lat, longitude: f.lon, accuracy: f.acc, altitude: f.alt, heading: f.heading, speed: f.speed }, timestamp: f.t }, f.precise);
+      try { nat().start(); } catch { /* старое приложение */ }
+    }
     // 10 с без замера — подсказка и замер попроще (по сети): без спутников (гараж, магнитола без антенны)
     // точка хоть примерно; спутники нашлись — снова точная
     hint = setTimeout(() => {
       if (watch === null || lastFix) return;
       said = true;
-      status(SEARCH);
+      if (nat()) {
+        try { nat().start(); } catch { /* */ } // разрешение могли дать только что
+        const tell = () => { if (watch !== null && !lastFix) { status(skyText()); skyTimer = setTimeout(tell, 3000); } };
+        tell();
+      } else status(SEARCH);
       rough = navigator.geolocation.watchPosition((pos) => onFix(pos, false), () => {}, { enableHighAccuracy: false, maximumAge: 60000 });
     }, 10000);
     update();
@@ -183,7 +204,8 @@ export function addGeolocate(map, maplibregl, status) {
   const stop = () => {
     if (watch !== null) navigator.geolocation.clearWatch(watch);
     if (rough !== null) navigator.geolocation.clearWatch(rough);
-    clearTimeout(hint);
+    clearTimeout(hint); clearTimeout(skyTimer);
+    if (nat()) { try { nat().stop(); } catch { /* */ } window.atlasNativeFix = null; }
     if (said) { said = false; status(""); }
     rough = null; lastPrecise = 0;
     watch = null; follow = false; position = shownPos = null; heading = moveHeading = null; anchor = null; lastFix = 0;
