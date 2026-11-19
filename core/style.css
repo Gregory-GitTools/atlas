@@ -40,6 +40,7 @@
   --tone-my: #7c4dff;
   --tone-track: #3949ab;
   --tone-nav: #1a73e8;
+  --rec: #e53935; /* идёт запись трека */
 
   --radius: 10px;
   --button: 40px;
@@ -932,6 +933,57 @@ html, body {
 
 .geo-btn.follow .geo-center {
   fill: var(--accent);
+}
+
+/* запись трека (приложение Android, content/tracks.js): пишет — значок красный и мигает, справа время */
+.rec-btn {
+  position: relative;
+}
+
+.rec-btn.on {
+  color: var(--rec);
+}
+
+.rec-btn.on:not(.paused) svg {
+  animation: rec-blink 1.6s ease-in-out infinite;
+}
+
+@keyframes rec-blink {
+  50% { opacity: 0.35; }
+}
+
+.rec-time {
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 3px 9px;
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font: 600 13px var(--font);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.rec-time:empty {
+  display: none;
+}
+
+.tk-rec {
+  box-sizing: border-box; /* строка с кнопками — не кнопка: без этого шире окна */
+}
+
+.tk-rec-icon {
+  background: var(--rec);
+}
+
+.tk-rec-btns {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
 }
 
 .geo-dot {

@@ -7,6 +7,7 @@
 // Шаг 2 (Грегори, 2026-10-30: «забыл остановить и уехал на машине»): края на графике выбирают кусок —
 // оставить только его или вырезать, «Назад»; наибольшая скорость и высота, вид занятия, отрезки по км.
 // Шаг 3: убрать выбросы GPS, разрезать в точке графика, склеить с другим треком, дорисовать по карте.
+// Запись трека — в приложении Android (раздел «запись трека» ниже), и при погасшем экране.
 // Дальше (ROADMAP): оформить — название, цвет, заметка, альбом, снимки на треке по времени
 // Треки из альбомов (Грегори 2026-11-08: «сканировать папку с фото на наличие .GPX и хранить их с
 // фотографиями»): GPX в папке со снимками остаётся там — «Мои альбомы» находят его при обходе и сообщают
@@ -20,6 +21,7 @@ import { setSearchMode, searchMode } from "../core/search.js";
 import { cacheGet, cacheSet, cacheDelete } from "../core/storage.js";
 import { claimLayers, captureClicks } from "../core/popups.js";
 import * as settings from "../core/settings.js";
+import { addMapButton } from "../core/controls.js";
 
 const svg = (d, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor"><path d="${d}"/></svg>`;
 // линия трека между двумя точками
@@ -414,6 +416,123 @@ const h = (tag, cls, text) => Object.assign(document.createElement(tag), { class
 const btn = (icon, title, fn) => { const b = h("button", "pb-btn"); b.innerHTML = icon; b.title = title; b.addEventListener("click", fn); return b; };
 let searchText = "";
 
+// ---------- запись трека (только приложение Android) ----------
+// Грегори 2026-11-19: «если приложение не работает в фоновом режиме с выключенным экраном, в этой функции
+// нет смысла… научить программу писать полноценный трек». Пишет служба приложения (TrackService) — и при
+// погасшем экране, в шторке «Пауза» и «Стоп»; здесь через window.AtlasTrack: кнопка над «Навигацией»
+// (Грегори: «продублируй над кнопкой Навигация на главном экране и сообщением на подтверждение») и первая
+// строка «Моих треков». Остановили (здесь или в шторке) — трек сам переходит в «Мои треки»
+const rec = () => window.AtlasTrack;
+const REC_D = "M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16z";
+const PAUSE_D = "M6 19h4V5H6v14zm8-14v14h4V5h-4z";
+const PLAY_D = "M8 5v14l11-7z";
+const STOP_D = "M6 6h12v12H6z";
+let recState = null, recPts = [], recTimer = 0, recTick = 0, recBtn = null, recFinishing = false;
+const recWhen = (s) => { const ms = Math.max(0, (s.pausedAt || Date.now()) - s.start - s.pausedTotal), sec = Math.floor(ms / 1000);
+  return `${Math.floor(sec / 3600)}:${String(Math.floor(sec / 60) % 60).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`; };
+const recSegs = (pts) => { // null в записи — пауза: новый кусок
+  const segs = [[]];
+  for (const p of pts) if (p) segs.at(-1).push(p); else if (segs.at(-1).length) segs.push([]);
+  return segs.filter((s) => s.length > 1);
+};
+function recStart() {
+  if (!confirm("Начать запись трека?\nЗапись идёт и при погасшем экране; пауза и стоп — здесь и в шторке уведомлений.")) return;
+  if (rec().start() === "ask") { ctx?.status("Разрешите программе точное местоположение и нажмите «Записать» ещё раз"); return; }
+  recPts = [];
+  setTimeout(recPoll, 300);
+}
+function recStop() {
+  if (!confirm("Остановить запись и сохранить трек?")) return;
+  rec().stop();
+  setTimeout(recPoll, 300);
+}
+// состояние раз в секунду (часы), новые точки — раз в 3 с; пока окно не видно — не спрашиваем
+function recPoll() {
+  clearTimeout(recTimer);
+  if (!rec() || document.hidden) return;
+  try { recState = JSON.parse(rec().state()); } catch { return; }
+  if (recState.on) {
+    if (recTick++ % 3 === 0) { try { recPts.push(...JSON.parse(rec().read(recPts.length))); } catch { /* */ } recDraw(); }
+    recTimer = setTimeout(recPoll, 1000);
+  } else if (recState.saved) recFinish();
+  else if (recPts.length) { recPts = []; recDraw(); }
+  recShow();
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) recPoll(); });
+// остановлено — трек в «Мои треки» (файл приложения стирается, только когда трек уже сохранён здесь)
+async function recFinish() {
+  if (recFinishing) return;
+  recFinishing = true;
+  try {
+    const segs = recSegs(JSON.parse(rec().read(0)));
+    recPts = [];
+    recDraw();
+    if (!segs.length) { rec().clear(); ctx?.status("Трек не записан: не было ни одного замера GPS"); setTimeout(() => ctx?.status(""), 5000); return; }
+    await load();
+    const date = segs[0][0][3];
+    const t = { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: `Запись ${day(date)}, ${clock(date)}`, file: "", date, kind: null, segs };
+    tracks.set(t.id, t);
+    await cacheSet(`tracks/${t.id}`, t);
+    index.push({ id: t.id, name: t.name, date: t.date, dist: stats(t).dist, kind: null, note: "" });
+    await cacheSet("tracks/index", index);
+    rec().clear();
+    if (!ctx) return;
+    wire();
+    if (!isOpen("tracks")) { panel.open(); setSearchMode(MODE); emit("module", { id: "content/tracks", on: true }); }
+    await showOnMap(true);
+    openTrack(t.id);
+  } catch (err) { ctx?.status(`Трек не сохранён: ${err.message}`); } finally { recFinishing = false; }
+}
+// идущая запись на карте — линией цвета треков, видна и при закрытых «Моих треках»
+function recDraw() {
+  const map = ctx?.map;
+  if (!map) return;
+  const data = fc(recPts.length ? [{ type: "Feature", geometry: { type: "MultiLineString", coordinates: recSegs(recPts).map((s) => s.map((p) => [p[0], p[1]])) }, properties: {} }] : []);
+  if (map.getSource("tracks-rec")) { map.getSource("tracks-rec").setData(data); return; }
+  if (!recPts.length || !map.isStyleLoaded()) return;
+  map.addSource("tracks-rec", { type: "geojson", data });
+  map.addLayer({ id: "tracks-rec-casing", type: "line", source: "tracks-rec", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#fff", "line-width": 7 } });
+  map.addLayer({ id: "tracks-rec-line", type: "line", source: "tracks-rec", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": COLOR, "line-width": 4 } });
+}
+// кнопка над «Навигацией»: не пишет — запись по подтверждению; пишет — светится, красная точка и время
+function recShow() {
+  if (recBtn) {
+    const on = !!recState?.on, paused = on && recState.pausedAt > 0;
+    recBtn.classList.toggle("on", on);
+    recBtn.classList.toggle("paused", paused);
+    recBtn.title = !on ? "Записать трек" : paused ? "Запись трека — пауза. Щелчок — остановить и сохранить" : "Идёт запись трека. Щелчок — остановить и сохранить";
+    recBtn.querySelector(".rec-time").textContent = on ? recWhen(recState) : "";
+  }
+  if (isOpen("tracks") && !openId && panel.body.querySelector(".tk-rec")) panel.body.querySelector(".tk-rec").replaceWith(...recRows());
+}
+function recInit(c) {
+  if (recBtn || !rec() || !c?.map) return;
+  ctx ||= c;
+  recBtn = addMapButton(c.map, { title: "Записать трек", className: "rec-btn", html: `${mdi(REC_D, 32)}<span class="rec-time"></span>` });
+  recBtn.addEventListener("click", () => (recState?.on ? recStop() : recStart()));
+  c.map.on("style.load", () => { if (c.map.getSource("tracks-rec")) return; const pts = recPts; recPts = []; recDraw(); recPts = pts; recDraw(); });
+  if (isOpen("tracks") && !openId) renderList(); // список уже открыт — первой строкой запись
+  recPoll();
+}
+// первая строка «Моих треков»: «Записать трек» или идущая запись с паузой и стопом
+function recRows() {
+  if (!rec()) return [];
+  const on = !!recState?.on, paused = on && recState.pausedAt > 0;
+  const r = h(on ? "div" : "button", "tr-row tk-rec");
+  const icon = h("span", "tr-icon tk-rec-icon");
+  icon.innerHTML = mdi(REC_D);
+  const text = h("span", "tr-row-text");
+  text.append(h("span", "tr-row-title", !on ? "Записать трек" : paused ? "Запись — пауза" : "Идёт запись"),
+    h("span", "tr-row-sub", on ? `${recWhen(recState)} · ${km(recState.dist)}` : "Пишется и при погасшем экране"));
+  r.append(icon, text);
+  if (!on) { r.addEventListener("click", recStart); return [r]; }
+  const right = h("span", "tk-rec-btns");
+  right.append(btn(mdi(paused ? PLAY_D : PAUSE_D, 20), paused ? "Продолжить запись" : "Пауза", () => { if (paused) rec().resume(); else rec().pause(); setTimeout(recPoll, 300); }),
+    btn(mdi(STOP_D, 20), "Остановить и сохранить трек", recStop));
+  r.append(right);
+  return [r];
+}
+
 // первой строкой — «+ Открыть трек…», такой же строкой, как «+ Добавить папку» у альбомов
 const openButton = () => homeList([{ id: "open", title: "Открыть трек…", icon: OPEN_ICON,
   hint: "GPX или KML — выгрузка из Sports Tracker, Strava, часов. Можно просто перетащить файл на карту" }], () => input.click());
@@ -434,7 +553,7 @@ function renderList(query = searchText) {
   cameFrom = null;
   // «Открыть трек…» убрана (Грегори 2026-11-09: «убираем… с меню треков указания на папку», «закомментируй»):
   // треки — из папок со снимками; файл можно и перетащить на карту
-  const nodes = [/* openButton() */];
+  const nodes = [/* openButton() */ ...recRows()];
   const inAlbums = albumIndex.filter((e) => !q || [e.name, e.albumTitle, tracks.get(e.key)?.note].join(" ").toLowerCase().includes(q))
     .sort((a, b) => (tracks.get(b.key)?.date || 0) - (tracks.get(a.key)?.date || 0));
   if (!index.length && !albumIndex.length) nodes.push(h("p", "pb-hint", "Треков пока нет. Выгрузите трек из программы на телефоне (Sports Tracker: тренировка → ⋯ → «Экспорт GPX») и перетащите файл на карту или положите его в папку со снимками. Треки хранятся только на этом устройстве."));
@@ -1329,4 +1448,11 @@ register({
   },
   drawAt: (lng, lat) => drawClick({ lngLat: { lng, lat } }),
   statsOf: (text) => { const s = stats(parseFile("x.gpx", text)); delete s.profile; return s; },
+  // запись трека: проверка подставляет свой AtlasTrack и зовёт это
+  recInit: () => recInit(window.atlas?.ctx),
+  recPoll: () => recPoll(),
+  recState: () => ({ btn: !!recBtn, on: recBtn?.classList.contains("on"), time: recBtn?.querySelector(".rec-time").textContent, pts: recPts.length,
+    line: !!ctx?.map.getLayer("tracks-rec-line"), finishing: recFinishing }),
 });
+// кнопка записи — сразу при запуске (приложение Android), над «Навигацией»
+recInit(window.atlas?.ctx);

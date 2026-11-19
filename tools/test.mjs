@@ -2078,6 +2078,32 @@ try {
     await run(`window.confirm = () => true; document.querySelector('[data-panel="tracks"] .pb-bar .tr-bar-left:last-child .pb-btn:last-child').click(); true`);
     await sleep(500);
     check("треки: удаление", (await run(`${ts}.stats().tracks`)) === 0);
+    // запись трека (приложение Android): своя подмена AtlasTrack — кнопка над «Навигацией», запись с паузой
+    // (два куска), стоп кнопкой — трек в «Моих треках», файл приложения стёрт, линия записи с карты убрана
+    await run(`(() => { const lines = [], st = { on: false, start: 0, pausedAt: 0, pausedTotal: 0, dist: 0 };
+      window.__rec = lines;
+      window.AtlasTrack = { start: () => { Object.assign(st, { on: true, start: Date.now() - 65000, dist: 850 }); return "ok"; },
+        pause: () => { st.pausedAt = Date.now(); lines.push(null); }, resume: () => { st.pausedTotal += Date.now() - st.pausedAt; st.pausedAt = 0; },
+        stop: () => { st.on = false; st.pausedAt = 0; }, state: () => JSON.stringify({ ...st, saved: lines.length > 0 }),
+        read: (from) => JSON.stringify(lines.slice(from)), clear: () => { if (!st.on) lines.length = 0; } };
+      ${ts}.recInit(); return true; })()`);
+    await run(`document.querySelector(".rec-btn").click(); for (let i = 0; i < 20; i++) __rec.push([24.83 + i * 0.0005, 59.47, 5, Date.now() - (40 - i) * 1000]); true`);
+    await sleep(1500);
+    const rc1 = await run(`({ ...${ts}.recState(), row: document.querySelector('[data-panel="tracks"] .tk-rec')?.textContent })`);
+    await run(`document.querySelector('[data-panel="tracks"] .tk-rec .pb-btn').click(); true`);
+    await sleep(500);
+    const rc2 = await run(`({ paused: document.querySelector(".rec-btn").classList.contains("paused"), row: document.querySelector('[data-panel="tracks"] .tk-rec')?.textContent })`);
+    await run(`document.querySelector('[data-panel="tracks"] .tk-rec .pb-btn').click(); for (let i = 0; i < 10; i++) __rec.push([24.85 + i * 0.0005, 59.471, 5, Date.now() - (10 - i) * 1000]); true`);
+    await sleep(500);
+    await run(`document.querySelector(".rec-btn").click(); true`);
+    for (let i = 0; i < 10 && !(await run(`${ts}.stats().tracks === 1 && !${ts}.recState().finishing`)); i++) await sleep(300);
+    const rc3 = await run(`({ ...${ts}.recState(), ...${ts}.stats(), left: __rec.length, segs: atlas.map.getSource("tracks-rec").serialize().data.features.length, hint: document.querySelector('[data-panel="tracks"] .pb-hint')?.textContent })`);
+    check("запись трека: кнопка над «Навигацией», время, пауза, стоп — трек в «Моих треках» из двух кусков",
+      rc1.btn && rc1.on && /^0:01:0\d$/.test(rc1.time) && rc1.pts === 20 && rc1.line && /^Идёт запись0:01:0\d · 850 м$/.test(rc1.row)
+      && rc2.paused && /^Запись — пауза/.test(rc2.row) && !rc3.on && rc3.time === "" && rc3.tracks === 1 && /^Запись /.test(rc3.open) && rc3.left === 0 && rc3.segs === 0
+      && /кусков записи: 2/.test(rc3.hint), JSON.stringify({ rc1, rc2, rc3 }));
+    await run(`document.querySelector('[data-panel="tracks"] .pb-bar .tr-bar-left:last-child .pb-btn:last-child').click(); true`);
+    await sleep(500);
     await run(exitMode);
     await sleep(300);
     check("треки: закрыть — линии с карты убраны", await run(`document.querySelector('[data-panel="tracks"]').hidden && !atlas.map.getLayer("tracks-line")`));

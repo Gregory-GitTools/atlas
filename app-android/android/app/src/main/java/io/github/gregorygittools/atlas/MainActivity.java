@@ -1,6 +1,7 @@
 package io.github.gregorygittools.atlas;
 
 import android.Manifest;
+import android.os.Build;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Color;
@@ -14,6 +15,7 @@ import android.os.Looper;
 import android.view.View;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
+import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -35,6 +37,7 @@ public class MainActivity extends BridgeActivity {
         // слушается его только с широкой раскладкой; без неё на сайте просто обычный размер
         getBridge().getWebView().getSettings().setUseWideViewPort(true);
         getBridge().getWebView().addJavascriptInterface(new Gps(), "AtlasGps");
+        getBridge().getWebView().addJavascriptInterface(new Track(), "AtlasTrack");
         keepBarsClear();
         fitBars();
     }
@@ -82,6 +85,36 @@ public class MainActivity extends BridgeActivity {
             return "{\"allowed\":" + allowed + ",\"hasGps\":" + has + ",\"gps\":" + gps + ",\"net\":" + net
                 + ",\"sats\":" + sats + ",\"used\":" + used + ",\"running\":" + (lm != null) + "}";
         }
+    }
+
+    // ── запись трека (TrackService): сайт зовёт AtlasTrack.start/pause/resume/stop, state() — что сейчас,
+    // read(from) — точки с этого номера, clear() — трек забран в «Мои треки», файл больше не нужен
+    private class Track {
+        // нет разрешения на точное место — спросить; "ask" — сайт скажет, что нажать ещё раз
+        @JavascriptInterface public String start() {
+            boolean fine = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+            boolean notes = Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+            // строка в шторке — по желанию: без неё запись идёт так же, только кнопок «Пауза» и «Стоп» там не видно
+            if (!fine || !notes) {
+                String[] ask = Build.VERSION.SDK_INT >= 33
+                    ? new String[] { Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.POST_NOTIFICATIONS }
+                    : new String[] { Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION };
+                runOnUiThread(() -> ActivityCompat.requestPermissions(MainActivity.this, ask, 7));
+                if (!fine) return "ask";
+            }
+            TrackService.send(MainActivity.this, TrackService.START);
+            return "ok";
+        }
+        @JavascriptInterface public void pause() { TrackService.send(MainActivity.this, TrackService.PAUSE); }
+        @JavascriptInterface public void resume() { TrackService.send(MainActivity.this, TrackService.RESUME); }
+        @JavascriptInterface public void stop() { TrackService.send(MainActivity.this, TrackService.STOP); }
+        @JavascriptInterface public String state() {
+            android.content.SharedPreferences p = TrackService.prefs(MainActivity.this);
+            return "{\"on\":" + p.getBoolean("on", false) + ",\"start\":" + p.getLong("start", 0) + ",\"pausedAt\":" + p.getLong("pausedAt", 0)
+                + ",\"pausedTotal\":" + p.getLong("pausedTotal", 0) + ",\"dist\":" + p.getFloat("dist", 0) + ",\"saved\":" + (TrackService.file(MainActivity.this).length() > 0) + "}";
+        }
+        @JavascriptInterface public String read(int from) { return TrackService.read(MainActivity.this, from); }
+        @JavascriptInterface public void clear() { if (!TrackService.prefs(MainActivity.this).getBoolean("on", false)) TrackService.file(MainActivity.this).delete(); }
     }
 
     private LocationListener listener(final boolean precise) {
