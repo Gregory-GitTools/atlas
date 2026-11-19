@@ -1241,7 +1241,8 @@ try {
         window.showDirectoryPicker = async () => folder("Фото", [
           folder(trip, [file("0.jpg"), folder("20230626 Варшава", [file("3.jpg"), folder("[Originals]", [file("3.jpg")])]),
             folder("20230625 Таллин", [file("1.jpg"), file("2.jpg")]), folder(trip + "-Albom", [file("1.jpg")])]),
-          folder("20240101 Рига", [file("r.jpg"), file("r.mov"), file("v.mp4")]), folder("Music", [file("a.m4a")])]);
+          folder("20240101 Рига", [file("r.jpg"), file("r.mov"), file("v.mp4"),
+            file("Рига.txt", new Blob([["# Прогулка по Риге", "", "Домский собор и старый город.", "", "r.jpg", "Вид на старый город"].join(String.fromCharCode(10))]))]), folder("Music", [file("a.m4a")])]);
         window.testFs = { file, folder };
         return true; })()`);
       await run(gear);
@@ -1314,6 +1315,9 @@ try {
         && riga.cells.every((c) => c[2]) && /^1 фото · 1 видео/.test(riga.facts), JSON.stringify(riga));
       check("альбомы: дата ролика — из самого файла; снимки по дням", /^01\.01\.2024 · v\.mp4$/.test(riga.cells[0]?.[0])
         && riga.days.length === 2 && /1 января 2024/.test(riga.days[0]) && /^Без даты1$/.test(riga.days[1]), JSON.stringify(riga));
+      // рассказ альбома (текстовый файл в папке): кнопка «Рассказ» активна, подпись — в клетке снимка
+      const rs = await run(`({ on: !document.querySelector(".al-story")?.disabled, cap: [...document.querySelectorAll(".al-cell")].map((c) => c.title).find((t) => /r\.jpg$/.test(t)) })`);
+      check("альбомы: рассказ из текстового файла — кнопка «Рассказ», подпись у снимка", rs.on && /^Вид на старый город · /.test(rs.cap || ""), JSON.stringify(rs));
       await run(`document.querySelector(".al-day").click(); true`);
       const shut = await run(`({ hidden: document.querySelector(".al-grid").hidden, cells: [...document.querySelectorAll(".al-grid:not([hidden]) .al-cell")].length })`);
       await run(`document.querySelector(".al-day").click(); true`);
@@ -1336,10 +1340,16 @@ try {
           badges: [...document.querySelectorAll(".thumb-badge")].map((b) => b.textContent) }; })()`;
         await sleep(2000);
         const gv = await grun(gst);
+        const gs = await grun(`({ btn: !document.querySelector(".story-btn").disabled, h2: document.querySelector(".story h2")?.textContent, p: document.querySelector(".story p")?.textContent,
+          stops: document.querySelectorAll(".story-stop").length, sub: document.querySelector(".subtitle").textContent })`);
+        check("галерея: рассказ альбома — кнопка активна, название, абзац, снимок с подписью; у ролика подписи нет",
+          gs.btn && gs.h2 === "Прогулка по Риге" && /Домский собор/.test(gs.p || "") && gs.stops === 1 && gs.sub === "", JSON.stringify(gs));
         check("галерея: ролик играет с кнопками плеера", gv.clip && gv.controls && !gv.photo && gv.w > 0 && gv.t > 0 && !gv.live && JSON.stringify(gv.badges) === '["LIVE","▶"]', JSON.stringify(gv));
         await grun(`document.querySelector(".thumb").click(); true`);
         await sleep(400);
         const gl = await grun(gst);
+        const gc = await grun(`({ sub: document.querySelector(".subtitle").textContent, cur: !!document.querySelector(".story-stop.current") })`);
+        check("галерея: у снимка — подпись из рассказа внизу, в рассказе он отмечен", gc.sub === "Вид на старый город" && gc.cur, JSON.stringify(gc));
         await sleep(2500);
         const gl2 = await grun(gst);
         check("галерея: живое фото — снимок, ролик поверх без кнопок, в конце снова снимок",
@@ -1673,7 +1683,7 @@ try {
               photos: ${as}.photos }; })()`);
           const g = await srun(`({ thumbs: document.querySelectorAll(".thumb").length, open: galleryEditor.state().open })`);
           check("сведения: «Удалить» — снимок и ролик живого фото в «[Удалённые]», из галереи и альбома убран",
-            JSON.stringify(del.riga) === '["v.mp4"]' && JSON.stringify(del.bin?.slice().sort()) === '["r.jpg","r.mov"]' && del.photos === n0.photos - 1 && g.thumbs === n0.thumbs - 1 && !g.open, JSON.stringify({ n0, del, g }));
+            JSON.stringify(del.riga) === '["v.mp4","Рига.txt"]' && JSON.stringify(del.bin?.slice().sort()) === '["r.jpg","r.mov"]' && del.photos === n0.photos - 1 && g.thumbs === n0.thumbs - 1 && !g.open, JSON.stringify({ n0, del, g }));
           // вернуть как было — для проверок дальше (папки обойдутся заново, когда галерею закроют)
           await run(`(() => { const root = atlasGalleryRoots()[0], riga = root.items.find((i) => i.name === "20240101 Рига"), bin = root.items.findIndex((i) => i.name === "[Удалённые]");
             riga.items.unshift(...root.items[bin].items[0].items); root.items.splice(bin, 1); atlasGalleryRescan(); return true; })()`);

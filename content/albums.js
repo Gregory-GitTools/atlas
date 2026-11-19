@@ -43,6 +43,10 @@ const MEDIA_RE = /\.(jpe?g|webp|png|heic|heif|mov|mp4|m4v)$/i; // HEIC — сн�
 // хранить их с фотографиями»; папка может быть и только с треком) — на карте линией, в шапке альбома —
 // «Просмотр трека» (открывает «Мои треки», стрелка оттуда — назад в альбом)
 const TRACK_RE = /\.gpx$/i;
+// рассказ альбома — текстовый файл в его папке (.txt, .md; «_…» — служебные, не читаются)
+const TEXT_RE = /^[^_].*\.(txt|md)$/i;
+// «Рассказ» альбома — раскрытая книга (тот же значок — в галерее)
+const STORY_ICON = '<svg viewBox="0 0 24 24" width="20" height="20"><path d="M12 6.5C10.2 5.2 7.6 4.6 3 4.8v13.6c4.6-.2 7.2.4 9 1.7 1.8-1.3 4.4-1.9 9-1.7V4.8c-4.6-.2-7.2.4-9 1.7zm0 0v13.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M6 9h3M6 12h3M15 9h3M15 12h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
 const TRACK_D = "M6 3a3 3 0 0 0-1 5.83V12a4 4 0 0 0 4 4h6a2 2 0 0 1 2 2v.17A3 3 0 1 0 19 18a4 4 0 0 0-4-4H9a2 2 0 0 1-2-2V8.83A3 3 0 0 0 6 3zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm12 12a1 1 0 1 1 0 2 1 1 0 0 1 0-2z";
 const TRACK_COLOR = "#3949ab"; // --tone-track
 const PROBE = 25; // сколько снимков альбома пробовать в поисках координат на первом проходе
@@ -81,8 +85,8 @@ let scan = 0, ctx = null, loading = null;
 let dirs = [], needsAccess = false, busy = false, checked = 0;
 const canFolders = () => "showDirectoryPicker" in window && !isMobile();
 
-function addAlbum(path, name, local, files, tracks = []) {
-  const a = { id: path, name, title: displayName(name), local, parent: null, photos: [], point: null, country: undefined, cover: null, from: 0, to: 0, done: false,
+function addAlbum(path, name, local, files, tracks = [], texts = []) {
+  const a = { id: path, name, title: displayName(name), local, parent: null, photos: [], point: null, country: undefined, cover: null, from: 0, to: 0, done: false, texts, story: null,
     tracks: tracks.map((t) => ({ ...t, key: `album:${dirs.indexOf(t.root)}:${t.path}` })) };
   // ролик с тем же именем, что у снимка, — его живое фото, отдельной клеткой не показывается
   const stem = (f) => f.name.replace(/\.[^.]+$/, "").toLowerCase();
@@ -95,27 +99,30 @@ function addAlbum(path, name, local, files, tracks = []) {
     a.photos.push(p.id);
   }
   albums.set(path, a);
+  if (texts.length) loadStory(a);
 }
 
 async function listRepo() {
-  const by = new Map();
-  for (const f of (await repoFiles("Альбомы")).filter((f) => MEDIA_RE.test(f.name) && !f.path.includes("/["))) {
+  const by = new Map(), texts = new Map();
+  for (const f of (await repoFiles("Альбомы")).filter((f) => (MEDIA_RE.test(f.name) || TEXT_RE.test(f.name)) && !f.path.includes("/["))) {
     const d = f.path.slice(0, f.path.lastIndexOf("/"));
+    if (TEXT_RE.test(f.name)) { if (!texts.has(d)) texts.set(d, []); texts.get(d).push({ name: f.name, url: repoUrl(f) }); continue; }
     if (!by.has(d)) by.set(d, []);
     by.get(d).push({ name: f.name, path: f.path, url: repoUrl(f), key: `exif/${f.sha}` });
   }
-  for (const [d, files] of by) addAlbum(d, d.split("/").pop(), false, files);
+  for (const [d, files] of by) addAlbum(d, d.split("/").pop(), false, files, [], texts.get(d) || []);
 }
 
 // своя папка: альбом — каждая папка, где есть снимки (подпапки — свои альбомы); «[Originals]» —
 // исходники поправленных снимков, повторы — пропускаются
 async function walk(handle, path, token, root) {
-  const files = [], dirs = [], proxies = new Map(), tracks = [];
+  const files = [], dirs = [], proxies = new Map(), tracks = [], texts = [];
   try {
     for await (const [name, h] of handle.entries()) {
       if (h.kind === "directory") { if (!/^[._[]/.test(name)) dirs.push([name, h]); }
       else if (MEDIA_RE.test(name)) files.push({ name, path: `${path}/${name}`, handle: h, root });
       else if (TRACK_RE.test(name)) tracks.push({ name, path: `${path}/${name}`, handle: h, root, dir: handle });
+      else if (TEXT_RE.test(name)) texts.push({ name, handle: h });
       else if (/^GL\d{6}\.LRV$/i.test(name)) proxies.set(name.slice(2, 8), h);
     }
   } catch { return; }
@@ -123,8 +130,69 @@ async function walk(handle, path, token, root) {
   // GoPro: рядом с роликом GX011479.MP4 (4K, сотни МБ) — его уменьшенная копия GL011479.LRV (640×480);
   // кадр для клетки берётся из неё — быстро; играет в галерее сам ролик
   for (const f of files) { const m = /^G[HX](\d{6})\.MP4$/i.exec(f.name); if (m && proxies.has(m[1])) f.proxy = proxies.get(m[1]); }
-  if (files.length || tracks.length) addAlbum(path, handle.name, true, files, tracks);
+  if (files.length || tracks.length) addAlbum(path, handle.name, true, files, tracks, texts);
   for (const [name, h] of dirs.sort((x, y) => x[0].localeCompare(y[0], undefined, { numeric: true }))) await walk(h, `${path}/${name}`, token, root);
+}
+
+// ---------- рассказ альбома (подписи-экскурсии, как в travel-earth, Грегори 2026-09-30: «положить текстовые
+// файлы в альбомы как экскурсии») ----------
+// Формат для Блокнота: «# Название» — название рассказа (иначе имя файла); «## Раздел» — заголовок;
+// строка, где только имя снимка из этой папки, — абзац сразу под ней становится подписью к снимку;
+// остальное — абзацы рассказа (пустая строка — новый абзац). Несколько файлов — по порядку имён.
+// Кодировка — UTF-8, не читается — Windows-1251 (старый Блокнот)
+export function parseStory(texts, names) {
+  const byName = new Map(names.map((n) => [n.toLowerCase(), n]));
+  // имя без расширения тоже годится: «IMG_1234» — и для IMG_1234.HEIC, и для живого фото
+  for (const n of names) { const k = n.replace(/\.[^.]+$/, "").toLowerCase(); if (!byName.has(k)) byName.set(k, n); }
+  const blocks = [], captions = new Map();
+  let title = "", para = [], photo = null;
+  const endPara = () => {
+    if (!para.length) return;
+    const text = para.join(" ");
+    if (photo) { captions.set(photo.toLowerCase(), text); blocks.push({ type: "photo", file: photo, text }); photo = null; } else blocks.push({ type: "p", text });
+    para = [];
+  };
+  const endPhoto = () => { if (photo) { blocks.push({ type: "photo", file: photo, text: "" }); photo = null; } };
+  for (const [name, text] of [...texts].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))) {
+    for (const raw of text.replace(/^\uFEFF/, "").split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) { endPara(); continue; }
+      const head = /^(#{1,3})\s+(.+)/.exec(line);
+      if (head) {
+        endPara(); endPhoto();
+        if (head[1] === "#" && !title) title = head[2]; else blocks.push({ type: "h", text: head[2] });
+        continue;
+      }
+      const file = byName.get(line.toLowerCase());
+      if (file) { endPara(); endPhoto(); photo = file; continue; }
+      para.push(line);
+    }
+    endPara(); endPhoto();
+    if (!title) title = name.replace(/\.(txt|md)$/i, "");
+  }
+  return blocks.length ? { title, blocks, captions } : null;
+}
+const decode = (bytes) => { try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { return new TextDecoder("windows-1251").decode(bytes); } };
+function loadStory(a) {
+  return (a.storyLoad ??= Promise.all(a.texts.map(async (t) => {
+    const bytes = t.handle ? await (await t.handle.getFile()).arrayBuffer() : await fetch(t.url).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.status))));
+    return [t.name, decode(bytes)];
+  })).then((texts) => {
+    a.story = parseStory(texts, a.photos.map((id) => photos.get(id).name));
+    // открыт альбом или его поездка — кнопка «Рассказ» становится активной
+    if (a.story && isOpen("albums") && !dupView) { if (openAlbum === a) renderAlbum(); else if (openGroup && a.id.startsWith(`${openGroup.id}/`)) renderGroup(true); }
+    return a.story;
+  }).catch(() => null));
+}
+// подпись снимка из рассказа его альбома
+const captionOf = (p) => p.album.story?.captions.get(p.name.toLowerCase()) || "";
+// рассказы для галереи: у поездки — рассказы её альбомов по порядку; снимок рассказа — номер снимка
+function storiesOf(x) {
+  const list = (x.group ? tally(x).list.filter((a) => a.title !== "Избранное") : [x]).filter((a) => a.story);
+  return list.map((a) => {
+    const id = new Map(a.photos.map((pid) => [photos.get(pid).name.toLowerCase(), pid]));
+    return { title: a.story.title || a.title, blocks: a.story.blocks.map((b) => (b.type === "photo" ? { ...b, id: id.get(b.file.toLowerCase()) } : b)).filter((b) => b.type !== "photo" || b.id) };
+  });
 }
 
 // поездки — структура папок как на диске (Грегори 2026-11-02: «подпапки воспринимать как отдельные
@@ -624,11 +692,12 @@ window.atlasGalleryAskWrite = (i) => {
 };
 
 // «Смотреть» — сразу слайд-шоу (play); щелчок по снимку — просто галерея с него
-function gallery(a, startId, play = false) {
+// story — сразу с открытым рассказом (кнопка «Рассказ» альбома)
+function gallery(a, startId, play = false, story = false) {
   const ids = photosOf(a);
-  openGalleryWith(ids.map((id) => galleryItem(photos.get(id))), startId || ids[0], media, { play });
+  openGalleryWith(ids.map((id) => galleryItem(photos.get(id))), startId || ids[0], media, { play, story: storiesOf(a), storyOpen: story });
 }
-const galleryItem = (p) => ({ id: p.id, thumb: p.thumb, full: p.url, title: p.album.title, credit: [photoDate(p), p.name].filter(Boolean).join(" · "),
+const galleryItem = (p) => ({ id: p.id, thumb: p.thumb, full: p.url, title: p.album.title, caption: captionOf(p), credit: [photoDate(p), p.name].filter(Boolean).join(" · "),
   coordinates: p.rec?.lat ? pt(p) : null, video: p.video, live: !!p.live, heic: HEIC_RE.test(p.name), edit: editInfo(p) });
 
 function fitAlbum(a) {
@@ -799,7 +868,7 @@ function renderGroup(keepScroll) {
   panel.setTitle(g.title);
   const bar = h("div", "pb-bar");
   const left = h("div", "tr-bar-left");
-  left.append(backBtn(g), btn(PLAYER.play, "Слайд-шоу всей поездки", () => gallery(g, null, true)));
+  left.append(backBtn(g), btn(PLAYER.play, "Слайд-шоу всей поездки", () => gallery(g, null, true)), storyBtn(g));
   bar.append(left);
   const lands = [...new Set(t.list.map((a) => a.country?.name).filter(Boolean))];
   const facts = h("div", "tr-facts al-facts", [`${t.photos} фото`, dates(t), lands.join(", "), g.local ? "на этом компьютере" : ""].filter(Boolean).join(" · "));
@@ -820,6 +889,16 @@ function openGroupById(id) {
   fitAlbum(g);
 }
 
+// «Рассказ» — галерея с рассказом альбома справа; рассказа нет — кнопка видна, неактивна и говорит, как его сделать
+function storyBtn(x) {
+  const has = storiesOf(x).length > 0;
+  const b = btn(STORY_ICON, has ? "Рассказ: снимки с подписями" : "Рассказа нет. Положите в папку альбома текстовый файл (.txt): имя снимка строкой, под ним — подпись",
+    () => gallery(x, null, false, true));
+  b.disabled = !has;
+  b.classList.add("al-story");
+  return b;
+}
+
 function renderAlbum() {
   const a = openAlbum;
   panel.setTitle(a.title);
@@ -828,7 +907,7 @@ function renderAlbum() {
   const left = h("div", "tr-bar-left");
   const play = btn(PLAYER.play, "Слайд-шоу альбома", () => gallery(a, null, true));
   play.disabled = !a.photos.length;
-  left.append(backBtn(a), play);
+  left.append(backBtn(a), play, storyBtn(a));
   // трек из папки альбома — в «Моих треках», стрелка оттуда — назад сюда
   for (const t of a.tracks) {
     const b = btn(trackIcon(20), `Просмотр трека «${t.name.replace(/\.\w+$/, "")}»`, () => emit("track-open", { key: t.key, ctx }));
@@ -872,7 +951,7 @@ function renderAlbum() {
     for (const id of ids) {
     const p = photos.get(id);
     const cell = h("button", "al-cell");
-    cell.title = [photoDate(p), p.name].filter(Boolean).join(" · ");
+    cell.title = [captionOf(p), photoDate(p), p.name].filter(Boolean).join(" · ");
     const img = lazyImg(p, "");
     cell.append(img);
     if (p.video || p.live) cell.append(h("span", "al-badge", p.video ? "▶" : "LIVE"));
@@ -1117,7 +1196,7 @@ function dupRow(g) {
     pic.append(lazyImg(p, ""));
     if (p.video || p.live) pic.append(h("span", "al-badge", p.video ? "▶" : "LIVE"));
     pic.addEventListener("click", () => { dups.keep.set(g, p); renderDups(); });
-    pic.addEventListener("dblclick", () => openGalleryWith(g.map(galleryItem), p.id, media));
+    pic.addEventListener("dblclick", () => openGalleryWith(g.map(galleryItem), p.id, media, { story: storiesOf(p.album) }));
     cell.append(pic, h("span", "al-dup-info", [p.album.title, p.size ? mb(p.size) : ""].filter(Boolean).join(" · ")));
     if (p === kept) cell.append(h("span", "al-dup-keep", "оставить"));
     else {

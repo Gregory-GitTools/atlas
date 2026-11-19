@@ -89,7 +89,8 @@ window.atlasGallery = () => gallery;
 window.atlasGalleryMedia = (kind, id) => media?.(kind, id) ?? Promise.resolve("");
 
 // video — ролик, live — живое фото (его ролик галерея просит отдельно: atlasGalleryMedia("live", id))
-const pick = ({ id, thumb, full, title, credit, link, coordinates, video, live, edit }) => ({ id, thumb, full, title, credit, link, coordinates, video, live, edit });
+// caption — подпись снимка из рассказа альбома (content/albums.js)
+const pick = ({ id, thumb, full, title, caption, credit, link, coordinates, video, live, heic, edit }) => ({ id, thumb, full, title, caption, credit, link, coordinates, video, live, heic, edit });
 
 export function openGallery(id) {
   const from = list.some((p) => p.id === id) ? list : [byId(id), ...list].filter(Boolean);
@@ -97,9 +98,10 @@ export function openGallery(id) {
 }
 
 // галерея со своим списком (альбом целиком, и снимки без координат); resolve(kind, id) → адрес картинки
-// (и музыка слайд-шоу: "music-count", "music"); play — сразу слайд-шоу
-export function openGalleryWith(photos, startId, resolve = null, { play = false } = {}) {
-  gallery = { photos: photos.map(pick), start: Math.max(0, photos.findIndex((p) => p.id === startId)) };
+// (и музыка слайд-шоу: "music-count", "music"); play — сразу слайд-шоу; story — рассказы альбомов
+// ([{ title, blocks: [{ type: "h"|"p"|"photo", text, id }] }]), storyOpen — сразу с открытым рассказом
+export function openGalleryWith(photos, startId, resolve = null, { play = false, story = [], storyOpen = false } = {}) {
+  gallery = { photos: photos.map(pick), start: Math.max(0, photos.findIndex((p) => p.id === startId)), story, storyOpen };
   media = resolve;
   const mobile = matchMedia("(pointer: coarse)").matches;
   const w = Math.round(screen.availWidth * (mobile ? 0.98 : 0.8)), h = Math.round(screen.availHeight * (mobile ? 0.98 : 0.85));
