@@ -1802,8 +1802,12 @@ try {
       if (mods.some((m) => m.id === "content/tracks")) {
         const walk = (name, lat) => `<?xml version="1.0"?><gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="test"><metadata><name>${name}</name></metadata><trk><trkseg>${
           Array.from({ length: 21 }, (_, i) => `<trkpt lat="${lat}" lon="${(24.83 + i * 0.000585).toFixed(6)}"><ele>5</ele><time>${new Date(Date.UTC(2024, 4, 5, 9, 0, i * 10)).toISOString()}</time></trkpt>`).join("")}</trkseg></trk></gpx>`;
-        await run(`(() => { const { file, folder } = testFs, gpx = (n, x) => file(n, new Blob([x]));
-          window.showDirectoryPicker = async () => folder("Треки", [folder("20240505 Поход", [file("p.jpg"), gpx("walk.gpx", ${JSON.stringify(walk("Поход у моря", 59.47))})]),
+        await run(`(async () => { const { file, folder } = testFs, gpx = (n, x) => file(n, new Blob([x]));
+          const d = new Date(Date.UTC(2024, 4, 5, 9, 1, 40)), two = (n) => String(n).padStart(2, "0");
+          const wall = d.getFullYear() + ":" + two(d.getMonth() + 1) + ":" + two(d.getDate()) + " " + two(d.getHours()) + ":" + two(d.getMinutes()) + ":" + two(d.getSeconds());
+          const base = await new Promise((r) => { const c = Object.assign(document.createElement("canvas"), { width: 8, height: 8 }); c.toBlob(r, "image/jpeg"); });
+          const shot = await (await import("./tools/jpeg.js")).setMeta(base, { date: wall });
+          window.showDirectoryPicker = async () => folder("Треки", [folder("20240505 Поход", [file("p.jpg", shot), gpx("walk.gpx", ${JSON.stringify(walk("Поход у моря", 59.47))})]),
             folder("20240506 Только трек", [gpx("solo.gpx", ${JSON.stringify(walk("Один трек", 59.48))})])]);
           return true; })()`);
         await run(gear);
@@ -1825,6 +1829,19 @@ try {
         check("треки: «Просмотр трека» — трек альбома в «Моих треках», стрелка — назад в альбом, без «Удалить»",
           g2.panel && !g2.albums && g2.open === "Поход у моря" && g2.bar[0] === "Назад в альбом «Поход»" && !g2.bar.some((t) => /^Удалить/.test(t)) && g2.tracks === 0 && g2.albumTracks === 2,
           JSON.stringify(g2));
+        // фото на треке по времени: снимок 09:01:40 — посередине трека (точка 10 из 20): кружок на карте,
+        // чёрточка на графике, лента «Фото на треке» под графиком; щелчок — снимок выбран, белая точка на треке
+        for (let i = 0; i < 20 && !(await run(`!!document.querySelector(".tk-photo")`)); i++) await sleep(500);
+        const ph = await run(`(() => { const f = atlas.map.getSource("tracks-photos")?.serialize().data.features || [];
+          const cell = document.querySelector(".tk-photo"); cell?.click();
+          return { cells: document.querySelectorAll(".tk-photo").length, head: [...document.querySelectorAll('[data-panel="tracks"] .tk-section')].map((e) => e.textContent).find((t) => /^Фото/.test(t)),
+            time: cell?.querySelector(".tk-photo-time")?.textContent, marks: document.querySelectorAll(".tk-photo-mark").length, n: f.length, lon: f[0]?.geometry.coordinates[0],
+            on: cell?.classList.contains("on"), here: atlas.map.getSource("tracks-ends").serialize().data.features.some((x) => x.properties.kind === "here") }; })()`);
+        check("треки: фото на треке по времени — кружок посередине трека, чёрточка на графике, лента «Фото на треке», щелчок выбирает",
+          ph.cells === 1 && ph.head === "Фото на треке · 1" && ph.n === 1 && Math.abs(ph.lon - (24.83 + 10 * 0.000585)) < 0.0002 && ph.marks >= 1 && ph.on && ph.here
+          && ph.time === new Date(Date.UTC(2024, 4, 5, 9, 1, 40)).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }), JSON.stringify(ph));
+        await run(`document.querySelector(".tk-photos").scrollIntoView({ block: "center" }); true`);
+        await shot("99c-track-photos");
         await run(`(() => { const n = document.querySelector(".tk-name"); n.value = "Поход к маяку"; n.dispatchEvent(new Event("change")); return true; })()`);
         await sleep(1200);
         const walkDir = `atlasGalleryRoots().find((d) => d.name === "Треки").items.find((i) => i.name === "20240505 Поход")`;
@@ -2456,6 +2473,23 @@ try {
     check("GPS приложения: навигацию выключили — GPS приложения выключен", g3.calls.includes("stop") && !g3.fix, JSON.stringify(g3));
     await run(`delete window.AtlasGps; true`);
     await send("Emulation.setGeolocationOverride", { latitude: 59.437, longitude: 24.745, accuracy: 5 });
+  }
+
+  // фото на треке: пояс камеры подбирается по снимкам с местом (камера на часах другого пояса — +5 ч от UTC);
+  // снимок без места встаёт на трек тем же сдвигом; пояс из EXIF — точно; снимок вне времени трека — не на треке
+  if (want("content/tracks")) {
+    const z = await run(`(async () => { const { placePhotos } = await import("./content/tracks.js");
+      const T0 = Date.UTC(2024, 4, 5, 9, 0, 0), seg = Array.from({ length: 21 }, (_, i) => [24.83 + i * 0.001, 59.47, 5, T0 + i * 60000]);
+      const W = (min) => T0 + min * 60000 + 5 * 3600000; // часы камеры: UTC+5
+      const out = placePhotos({ segs: [seg] }, [
+        { id: "gps", wall: W(4), at: null, lat: 59.47, lon: 24.834 },
+        { id: "gps2", wall: W(16), at: null, lat: 59.47, lon: 24.846 },
+        { id: "nogps", wall: W(10), at: null },
+        { id: "tz", wall: 0, at: T0 + 12 * 60000 },
+        { id: "late", wall: W(90), at: null } ]);
+      return out.map((x) => [x.id, Math.round((x.pt[0] - 24.83) * 1000)]); })()`);
+    check("треки: фото на треке — пояс камеры подобран по снимкам с местом, без места — тем же сдвигом, вне трека — нет",
+      JSON.stringify(z) === JSON.stringify([["gps", 4], ["nogps", 10], ["tz", 12], ["gps2", 16]]), JSON.stringify(z));
   }
 
   // HEIC с iPhone (core/heic.js): Chrome сам не показывает — декодер libheif по первому снимку; картинка, копия

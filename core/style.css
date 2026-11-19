@@ -3267,6 +3267,13 @@ body.has-photo-strip .al-write-ask {
 .tk-mark-speed { color: var(--tone-photo); }
 
 /* подъёмники на графике (горные лыжи) */
+/* фото на треке: чёрточки на графике и лента снимков под ним */
+.tk-photo-mark { fill: var(--tone-my); }
+.tk-photos { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 8px; }
+.tk-photo { position: relative; flex: 0 0 auto; width: 72px; height: 72px; padding: 0; border: 2px solid transparent; border-radius: 8px; overflow: hidden; background: #eee; cursor: pointer; }
+.tk-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tk-photo.on { border-color: var(--tone-my); }
+.tk-photo-time { position: absolute; left: 0; right: 0; bottom: 0; font-size: 11px; color: #fff; background: rgba(0, 0, 0, .45); text-align: center; line-height: 16px; }
 .tk-lift {
   fill: rgba(60, 64, 67, 0.12);
 }

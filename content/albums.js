@@ -190,6 +190,9 @@ async function exifOf(p) {
       // у уменьшенных копий в «Альбомах» остаётся только дата сохранения (DateTime) — тоже годится
       const d = [e?.DateTimeOriginal, e?.CreateDate, e?.ModifyDate].find((x) => x instanceof Date);
       if (d) rec.date = d.getTime();
+      // часовой пояс съёмки («+03:00») — снимок встаёт на трек точно по времени (фото на треке)
+      const tz = /^([+-])(\d\d):?(\d\d)$/.exec(String(e?.OffsetTimeOriginal || e?.OffsetTime || "").trim());
+      if (d && tz) rec.tz = (tz[1] === "-" ? -1 : 1) * (Number(tz[2]) * 60 + Number(tz[3]));
     } catch { /* без EXIF */ }
     cacheSet(key, rec).catch(() => {});
     checked++;
@@ -1287,6 +1290,33 @@ function openCountry(country) {
 
 // «Мои треки» открыли панель — им нужны треки альбомов (папки обходятся, если ещё нет)
 on("album-tracks-wanted", ({ ctx: c }) => { ctx = c; wire(); load(c).catch(() => {}); }, { replay: false });
+// фото на треке (Грегори, план «Треки: фото на треке по времени»): «Мои треки» спрашивают снимки за время
+// трека — снимки его альбома (у дня поездки и «Снимков поездки» — всей поездки) и уже прочитанные снимки
+// всех альбомов. Время снимка — «как на часах камеры» (wall: часы как будто в UTC); где известен пояс
+// (tz из EXIF) или это ролик (в нём время точное) — сразу точное (at). Ответ — reply(список)
+on("track-photos-wanted", async ({ albumId, from, to, ctx: c, reply }) => {
+  ctx = c;
+  wire();
+  await load(c).catch(() => {});
+  const a = albumId && albums.get(albumId);
+  const top = a?.parent ? groups.get(a.parent) : null;
+  const own = a ? photosOf(top || a).map((id) => photos.get(id)).filter(Boolean) : [];
+  for (let i = 0; i < own.length; i += 4) await Promise.all(own.slice(i, i + 4).map(exifOf));
+  const DAY = 864e5, pick = new Map();
+  for (const p of [...own, ...photos.values()]) {
+    const d = p.rec?.date;
+    if (!d || pick.has(p.id) || p.album.title === "Избранное") continue;
+    const wall = p.video ? null : d - new Date(d).getTimezoneOffset() * 60000;
+    const at = p.video ? d : p.rec.tz != null ? wall - p.rec.tz * 60000 : null;
+    if ((at ?? wall) < from - DAY || (at ?? wall) > to + DAY) continue;
+    pick.set(p.id, { id: p.id, name: p.name, video: p.video, wall, at, lat: p.rec.lat, lon: p.rec.lon, mine: own.includes(p) });
+  }
+  const list = [...pick.values()];
+  reply(list.map((x) => ({ ...x,
+    thumb: () => thumbOf(photos.get(x.id)),
+    open: (ids) => openGalleryWith(ids.map((id) => galleryItem(photos.get(id))), x.id, media) })));
+}, { replay: false });
+
 // из трека — назад в его альбом
 on("album-open", async ({ id, ctx: c }) => {
   ctx = c;

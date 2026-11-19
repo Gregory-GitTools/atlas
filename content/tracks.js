@@ -334,6 +334,8 @@ let shown = false, openId = null, hoverPt = null;
 let selPiece = null; // выбранный на графике кусок открытого трека — на карте ярче
 let spikePts = []; // выбросы GPS открытого трека — красные точки
 let liftPieces = null; // подъёмники открытого трека (горные лыжи) — серым пунктиром
+let trackPhotos = []; // фото на открытом треке: { id, pt: [lon, lat], d (м от начала), t, open, thumb }
+let photoPick = null; // выбранный в ленте снимок (второе нажатие — галерея)
 const fc = (features) => ({ type: "FeatureCollection", features });
 const line = (t, open) => ({ type: "Feature", geometry: { type: "MultiLineString", coordinates: t.segs.map((s) => s.map((p) => [p[0], p[1]])) },
   properties: { id: t.id, open: open ? 1 : 0, color: t.color || COLOR } });
@@ -349,13 +351,15 @@ function endsData() {
 }
 const selData = () => fc(selPiece ? [{ type: "Feature", geometry: { type: "MultiLineString", coordinates: selPiece.map((s) => s.map((p) => [p[0], p[1]])) }, properties: {} }] : []);
 const liftData = () => fc(liftPieces ? [{ type: "Feature", geometry: { type: "MultiLineString", coordinates: liftPieces.map((s) => s.map((p) => [p[0], p[1]])) }, properties: {} }] : []);
-const LAYERS = ["tracks-casing", "tracks-line", "tracks-lift", "tracks-sel", "tracks-ends"];
+const photoData = () => fc(trackPhotos.map((x) => ({ type: "Feature", geometry: { type: "Point", coordinates: x.pt }, properties: { id: x.id, on: x.id === photoPick ? 1 : 0 } })));
+const LAYERS = ["tracks-casing", "tracks-line", "tracks-lift", "tracks-sel", "tracks-photos", "tracks-ends"];
 function addLayers() {
   const map = ctx.map;
   if (!map.getSource("tracks")) map.addSource("tracks", { type: "geojson", data: lineData() });
   if (!map.getSource("tracks-ends")) map.addSource("tracks-ends", { type: "geojson", data: endsData() });
   if (!map.getSource("tracks-sel")) map.addSource("tracks-sel", { type: "geojson", data: selData() });
   if (!map.getSource("tracks-lift")) map.addSource("tracks-lift", { type: "geojson", data: liftData() });
+  if (!map.getSource("tracks-photos")) map.addSource("tracks-photos", { type: "geojson", data: photoData() });
   if (!map.getLayer("tracks-casing")) map.addLayer({ id: "tracks-casing", type: "line", source: "tracks", filter: ["==", ["get", "open"], 1],
     layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#fff", "line-width": 7 } });
   if (!map.getLayer("tracks-line")) map.addLayer({ id: "tracks-line", type: "line", source: "tracks",
@@ -365,12 +369,15 @@ function addLayers() {
     paint: { "line-color": "#fff", "line-width": 2.5, "line-dasharray": [2, 2] } });
   if (!map.getLayer("tracks-sel")) map.addLayer({ id: "tracks-sel", type: "line", source: "tracks-sel",
     layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": SEL_COLOR, "line-width": 5 } });
+  // фото на треке — белые кружки в фиолетовой кайме (цвет «Моих альбомов»), выбранный крупнее
+  if (!map.getLayer("tracks-photos")) map.addLayer({ id: "tracks-photos", type: "circle", source: "tracks-photos",
+    paint: { "circle-radius": ["case", ["==", ["get", "on"], 1], 8, 5.5], "circle-color": "#fff", "circle-stroke-color": "#7c4dff", "circle-stroke-width": ["case", ["==", ["get", "on"], 1], 4, 3] } });
   // начало — зелёная точка, конец — красная, точка с графика — белая в цвет трека
   if (!map.getLayer("tracks-ends")) map.addLayer({ id: "tracks-ends", type: "circle", source: "tracks-ends",
     paint: { "circle-radius": ["match", ["get", "kind"], "here", 7, "spike", 5, 6],
       "circle-color": ["match", ["get", "kind"], "start", "#43a047", "end", "#e53935", "spike", "#e53935", "#fff"],
       "circle-stroke-color": ["match", ["get", "kind"], "here", COLOR, "#fff"], "circle-stroke-width": ["match", ["get", "kind"], "here", 3, 2] } });
-  claimLayers("tracks-line");
+  claimLayers("tracks-line", "tracks-photos");
 }
 function draw() {
   if (!shown || !ctx) return;
@@ -378,6 +385,7 @@ function draw() {
   ctx.map.getSource("tracks-ends")?.setData(endsData());
   ctx.map.getSource("tracks-sel")?.setData(selData());
   ctx.map.getSource("tracks-lift")?.setData(liftData());
+  ctx.map.getSource("tracks-photos")?.setData(photoData());
 }
 async function showOnMap(on) {
   if (!ctx) return;
@@ -391,7 +399,7 @@ async function showOnMap(on) {
   }
   shown = false;
   for (const id of [...LAYERS].reverse()) if (ctx.map.getLayer(id)) ctx.map.removeLayer(id);
-  for (const id of ["tracks", "tracks-ends", "tracks-sel", "tracks-lift"]) if (ctx.map.getSource(id)) ctx.map.removeSource(id);
+  for (const id of ["tracks", "tracks-ends", "tracks-sel", "tracks-lift", "tracks-photos"]) if (ctx.map.getSource(id)) ctx.map.removeSource(id);
 }
 function fit(t) {
   const all = t.segs.flat(), lng = all.map((p) => p[0]), lat = all.map((p) => p[1]);
@@ -412,6 +420,7 @@ const openButton = () => homeList([{ id: "open", title: "Открыть трек
 
 function renderList(query = searchText) {
   stopDrawing();
+  trackPhotos = []; photoPick = null;
   spikePts = [];
   liftPieces = null;
   openId = null;
@@ -693,6 +702,8 @@ function chart(s, st, changed) {
     const step = Math.max(1, Math.floor(view.length / 400));
     const pts = view.filter((_, i) => i % step === 0 || i === view.length - 1);
     let html = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
+    // фото на треке — фиолетовые чёрточки сверху графика
+    for (const d of s.photoMarks || []) if (d >= D0 && d <= D1) html += `<rect class="tk-photo-mark" x="${(x(d) - 0.75).toFixed(1)}" y="0" width="1.5" height="9"/>`;
     // подъёмники (горные лыжи) — серой полосой под графиком
     for (const [a, b] of s.lifts || []) if (b >= v0 && a <= v1) {
       const xa = x(prof[Math.max(a, v0)][0]), xb = x(prof[Math.min(b, v1)][0]);
@@ -944,6 +955,55 @@ function kindPicker(t, done) {
 let sel = null; // { a, b, v0, v1 } — выбранный кусок и видимая часть графика открытого трека
 let splitSize = settings.get("tracks.split", 1000);
 
+// ---------- фото на треке по времени (план «Треки: фото на треке по времени») ----------
+// снимки — от «Моих альбомов» (событие track-photos-wanted): у снимка время «как на часах камеры»; часовой
+// пояс берётся из снимка (EXIF), иначе подбирается по снимкам с местом — сдвиг (шаг 15 мин), при котором
+// они ближе всего к треку; снимков с местом нет — пояс этого компьютера. На треке — снимки за время записи
+// (±2 мин), место — между точками трека по времени
+const photoAsk = new Map(), photoRaw = new Map(); // id трека → обещание списка снимков / готовый список
+const askPhotos = (t) => {
+  if (!photoAsk.has(t.id)) {
+    const all = t.segs.flat().filter((p) => p[3]);
+    photoAsk.set(t.id, (!all.length ? Promise.resolve([]) : new Promise((reply) => {
+      emit("track-photos-wanted", { albumId: t.album?.albumId || null, from: all[0][3], to: all[all.length - 1][3], ctx, reply });
+      setTimeout(() => reply([]), 60000); // альбомов нет — никто не ответит
+    })).then((r) => { photoRaw.set(t.id, r); return r; }));
+  }
+  return photoAsk.get(t.id);
+};
+export function placePhotos(t, raw) {
+  const pts = t.segs.flat().filter((p) => p[3]);
+  if (pts.length < 2 || !raw.length) return [];
+  const T0 = pts[0][3], T1 = pts[pts.length - 1][3], GAP = 120000;
+  const at = (T) => {
+    if (!(T >= T0 - GAP && T <= T1 + GAP)) return null;
+    if (T <= T0) return [pts[0][0], pts[0][1], 0];
+    if (T >= T1) return [pts[pts.length - 1][0], pts[pts.length - 1][1], pts.length - 1];
+    let lo = 0, hi = pts.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (pts[m][3] <= T) lo = m; else hi = m; }
+    const a = pts[lo], b = pts[hi], k = (T - a[3]) / (b[3] - a[3] || 1);
+    return [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, k < 0.5 ? lo : hi];
+  };
+  // пояс для снимков без своего: по снимкам с местом, иначе пояс компьютера
+  const here = -new Date(T0).getTimezoneOffset();
+  const guess = raw.filter((x) => x.at == null && Number.isFinite(x.lat));
+  let zone = here;
+  if (guess.length) {
+    let best = Infinity;
+    for (let z = -720; z <= 840; z += 15) {
+      let score = 0;
+      for (const x of guess) { const p = at(x.wall - z * 60000); score += p ? Math.min(5000, meters(p, [x.lon, x.lat])) : 5000; }
+      if (score < best - 1 || (Math.abs(score - best) <= 1 && Math.abs(z - here) < Math.abs(zone - here))) { best = Math.min(best, score); zone = z; }
+    }
+  }
+  const list = [];
+  for (const x of raw) {
+    const T = x.at ?? x.wall - zone * 60000, p = at(T);
+    if (p) list.push({ ...x, t: T, pt: [p[0], p[1]], i: p[2] });
+  }
+  return list.sort((a, b) => a.t - b.t);
+}
+
 async function openTrack(id, keep = false) {
   const t = await getTrack(id);
   if (!t) return;
@@ -954,6 +1014,12 @@ async function openTrack(id, keep = false) {
   selPiece = null;
   if (!shown) await showOnMap(true);
   const s = stats(t), last = s.profile.length - 1;
+  // фото на треке: список уже есть — сразу; нет — спросить у альбомов и перерисовать, когда придёт
+  const raw = photoRaw.get(id);
+  if (!raw) askPhotos(t).then((r) => { if (openId === id && placePhotos(t, r).length) openTrack(id, true); });
+  if (!again) photoPick = null;
+  trackPhotos = raw ? placePhotos(t, raw) : [];
+  { const flat = t.segs.flat().filter((p) => p[3]); s.photoMarks = trackPhotos.map((x) => s.profile.find((r) => r[3] === flat[x.i])?.[0]).filter((d) => d != null); }
   if (!again || !sel || sel.b > last) sel = { a: 0, b: last, v0: 0, v1: last, pin: null };
   if (sel.pin > last) sel.pin = null;
   const bad = spikes(t);
@@ -1034,6 +1100,7 @@ async function openTrack(id, keep = false) {
   };
   const c = chart(s, sel, showSel);
   if (c) nodes.push(c, selInfo, tools);
+  if (trackPhotos.length) nodes.push(...photoStrip(t));
 
   // ещё правка: выбросы, разрезать в отмеченной точке, склеить, дорисовать
   const more = h("div", "tk-edit");
@@ -1144,6 +1211,36 @@ async function openTrack(id, keep = false) {
   if (!again) panel.body.scrollTop = 0;
 }
 
+// лента «Фото на треке»: щелчок — снимок на карте (кружок крупнее, белая точка на графике), второй щелчок
+// или двойной — галерея всех снимков трека с этого
+function photoStrip(t) {
+  const head = h("div", "pb-sub tk-section", `Фото на треке · ${trackPhotos.length}`);
+  const row = h("div", "tk-photos");
+  const ids = trackPhotos.map((x) => x.id);
+  for (const x of trackPhotos) {
+    const cell = h("button", "tk-photo");
+    cell.type = "button";
+    cell.title = `${clock(x.t)} · ${x.name}${x.video ? " (ролик)" : ""} — щелчок: где снято, ещё раз — смотреть`;
+    cell.dataset.id = x.id;
+    cell.classList.toggle("on", x.id === photoPick);
+    const img = h("img", "");
+    img.alt = "";
+    x.thumb().then((u) => { if (u) img.src = u; }).catch(() => {});
+    cell.append(img, h("span", "tk-photo-time", clock(x.t)));
+    cell.addEventListener("click", () => {
+      if (photoPick === x.id) { x.open(ids); return; }
+      photoPick = x.id;
+      hoverPt = [...x.pt];
+      row.querySelectorAll(".tk-photo").forEach((b) => b.classList.toggle("on", b.dataset.id === x.id));
+      draw();
+      if (!ctx.map.getBounds().contains(x.pt)) ctx.map.easeTo({ center: x.pt, duration: 600 });
+    });
+    cell.addEventListener("dblclick", () => x.open(ids));
+    row.append(cell);
+  }
+  return [head, row];
+}
+
 // ---------- режим в строке поиска ----------
 const MODE = { icon: trackIcon(20), title: "Мои треки", placeholder: "Найти трек", tone: "track",
   filter: (text) => renderList(text), exit: () => panel.close() };
@@ -1180,6 +1277,13 @@ function wire() {
   ctx.map.on("style.load", () => { if (shown) { addLayers(); draw(); } });
   // щелчок по линии — открыть этот трек
   ctx.map.on("click", "tracks-line", (e) => { const id = e.features[0]?.properties.id; if (!drawing && id && id !== openId) openTrack(id); });
+  // кружок снимка на треке — галерея снимков трека с него
+  ctx.map.on("click", "tracks-photos", (e) => {
+    const x = trackPhotos.find((p) => p.id === e.features[0]?.properties.id);
+    if (x && !drawing) x.open(trackPhotos.map((p) => p.id));
+  });
+  ctx.map.on("mouseenter", "tracks-photos", () => { ctx.map.getCanvas().style.cursor = "pointer"; });
+  ctx.map.on("mouseleave", "tracks-photos", () => { ctx.map.getCanvas().style.cursor = ""; });
   ctx.map.on("click", drawClick);
   ctx.map.on("mouseenter", "tracks-line", () => { ctx.map.getCanvas().style.cursor = "pointer"; });
   ctx.map.on("mouseleave", "tracks-line", () => { ctx.map.getCanvas().style.cursor = ""; });
