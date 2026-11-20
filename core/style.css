@@ -119,6 +119,8 @@ html, body {
 .btn {
   width: var(--button);
   height: var(--button);
+  /* без отступа браузера (6 px по бокам): иначе значок во весь кружок уезжал вправо (Грегори 2026-11-20) */
+  padding: 0;
   border: none;
   border-radius: 50%;
   background: var(--panel);
@@ -286,8 +288,11 @@ html, body {
   filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
 }
 
-.btn.glass:hover {
-  background: rgba(0, 0, 0, 0.25);
+/* темнеет под мышью; на телефоне «наведение» залипает после нажатия — фон у кнопок становился разным */
+@media (hover: hover) {
+  .btn.glass:hover {
+    background: rgba(0, 0, 0, 0.25);
+  }
 }
 
 /* значки — почти во весь кружок, размер кнопки прежний (Грегори, 2026-11-03) */
@@ -970,6 +975,23 @@ html, body {
 
 .rec-time:empty {
   display: none;
+}
+
+/* время, км, скорость — три строки, время крупнее */
+.rec-time > b,
+.rec-time > span {
+  display: block;
+  text-align: center;
+}
+
+.rec-time > b {
+  font-size: 15px;
+}
+
+/* уехал с трасс — время на оранжевом, цвета «вне трассы» на «Спусках» */
+.rec-btn.off-piste .rec-time {
+  background: #ef6c00;
+  color: #fff;
 }
 
 .tk-rec {
@@ -1801,8 +1823,9 @@ body.has-photo-strip .status {
   }
 }
 
-/* треугольник в правом нижнем углу, поверх ленты фото (Грегори, 2026-10-29): размером с другие
-   кнопки, полупрозрачный (glass); ◀ — показать кнопки, ▶ — спрятать */
+/* «Слои» в правом нижнем углу, поверх ленты фото (Грегори, 2026-10-29): размером с другие кнопки,
+   полупрозрачная (glass); был треугольник ◀ ▶, с 2026-11-20 — значок слоёв (Грегори: «можно поменять на
+   значок слои»); слои открыты — кнопка белая, как лупа при открытом поиске */
 .wheel-toggle {
   position: fixed;
   right: var(--side-r);
@@ -1811,8 +1834,15 @@ body.has-photo-strip .status {
 }
 
 
-.wheel-toggle.open svg {
-  transform: rotate(180deg);
+.wheel-toggle.open {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  filter: none;
+}
+
+.wheel-toggle.open:hover {
+  background: var(--panel-hover);
 }
 
 /* лупа справа вверху (Грегори, 2026-11-02) — полупрозрачная (glass), как треугольник; открыт поиск —

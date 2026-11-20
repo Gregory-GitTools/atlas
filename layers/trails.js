@@ -463,6 +463,27 @@ function skiUpdate() {
   if (skiOn && slopesMap && slopesMap.getZoom() >= SKI_ZOOM) skiLoader.request(cellsInView(slopesMap, SKI_CELL, 0.3));
 }
 
+// трассы и подъёмники вокруг точки — для предупреждения «вне трассы» при записи трека (content/tracks.js →
+// приложение Android): квадраты 3×3 (около 45 × 65 км в Альпах), с устройства или из QLever. Своя трасса —
+// любая, кроме «вне трассы» (freeride, extreme), ски-тура и зимней тропы; подъёмник — тоже своё место.
+// Линии и контуры площадных трасс — плоскими рядами «lon, lat, lon, lat…»
+const NOT_PISTE = ["skitour", "hike"];
+export async function slopesNear(lon, lat) {
+  const x0 = Math.floor(lon / SKI_CELL), y0 = Math.floor(lat / SKI_CELL), seen = new Set(), lines = [], areas = [];
+  let failed = 0;
+  for (let x = x0 - 1; x <= x0 + 1; x++) for (let y = y0 - 1; y <= y0 + 1; y++) {
+    const box = [x * SKI_CELL, y * SKI_CELL, (x + 1) * SKI_CELL, (y + 1) * SKI_CELL].map((v) => +v.toFixed(3));
+    const recs = await skiCell(box).catch(() => null);
+    if (!recs) { failed++; continue; }
+    for (const r of recs) {
+      if (seen.has(r.osm) || r.labelOnly || NOT_PISTE.includes(r.kind) || OFF_PISTE.includes(r.diff)) continue;
+      seen.add(r.osm);
+      for (const line of r.lift ? [r.line] : r.lines) (r.area ? areas : lines).push(line.flat());
+    }
+  }
+  return { lines, areas, failed };
+}
+
 // «Скачать район» при включённых спусках — и спуски с подъёмниками района
 on("trip-prepare", (job) => {
   if (!skiOn) return;

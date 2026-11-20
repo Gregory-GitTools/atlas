@@ -2082,7 +2082,7 @@ try {
     // (два куска), стоп кнопкой — трек в «Моих треках», файл приложения стёрт, линия записи с карты убрана
     await run(`(() => { const lines = [], st = { on: false, start: 0, pausedAt: 0, pausedTotal: 0, dist: 0 };
       window.__rec = lines;
-      window.AtlasTrack = { start: () => { Object.assign(st, { on: true, start: Date.now() - 65000, dist: 850 }); return "ok"; },
+      window.AtlasTrack = { start: () => { Object.assign(st, { on: true, start: Date.now() - 65000, dist: 850, max: 12.5 }); return "ok"; },
         pause: () => { st.pausedAt = Date.now(); lines.push(null); }, resume: () => { st.pausedTotal += Date.now() - st.pausedAt; st.pausedAt = 0; },
         stop: () => { st.on = false; st.pausedAt = 0; }, state: () => JSON.stringify({ ...st, saved: lines.length > 0 }),
         read: (from) => JSON.stringify(lines.slice(from)), clear: () => { if (!st.on) lines.length = 0; } };
@@ -2098,15 +2098,45 @@ try {
     await run(`document.querySelector(".rec-btn").click(); true`);
     for (let i = 0; i < 10 && !(await run(`${ts}.stats().tracks === 1 && !${ts}.recState().finishing`)); i++) await sleep(300);
     const rc3 = await run(`({ ...${ts}.recState(), ...${ts}.stats(), left: __rec.length, segs: atlas.map.getSource("tracks-rec").serialize().data.features.length, hint: document.querySelector('[data-panel="tracks"] .pb-hint')?.textContent })`);
-    check("запись трека: кнопка над «Навигацией», время, пауза, стоп — трек в «Моих треках» из двух кусков",
-      rc1.btn && rc1.on && /^0:01:0\d$/.test(rc1.time) && rc1.pts === 20 && rc1.line && /^Идёт запись0:01:0\d · 850 м$/.test(rc1.row)
+    check("запись трека: кнопка над «Навигацией», время, км и скорость, пауза, стоп — трек в «Моих треках» из двух кусков",
+      rc1.btn && rc1.on && /^0:01:0\d$/.test(rc1.time) && rc1.pts === 20 && rc1.line && /^Идёт запись0:01:0\d · 850 м · макс 45 км\/ч$/.test(rc1.row)
+      && /^0:01:0\d\n850 м\nмакс 45 км\/ч$/.test(rc1.pill)
       && rc2.paused && /^Запись — пауза/.test(rc2.row) && !rc3.on && rc3.time === "" && rc3.tracks === 1 && /^Запись /.test(rc3.open) && rc3.left === 0 && rc3.segs === 0
       && /кусков записи: 2/.test(rc3.hint), JSON.stringify({ rc1, rc2, rc3 }));
     await run(`document.querySelector('[data-panel="tracks"] .pb-bar .tr-bar-left:last-child .pb-btn:last-child').click(); true`);
     await sleep(500);
     await run(exitMode);
     await sleep(300);
-    check("треки: закрыть — линии с карты убраны", await run(`document.querySelector('[data-panel="tracks"]').hidden && !atlas.map.getLayer("tracks-line")`));
+    // «вне трассы»: приложению уходят трассы и подъёмники вокруг первой точки (квадраты «Спусков» — с устройства,
+    // здесь подложены свои), кроме «вне трассы» и ски-тура; уехал с трасс — время на кнопке оранжевое
+    await run(`(async () => { const { cacheSet } = await import(new URL("core/storage.js", location.href).href), t = Date.now();
+      for (let x = 50; x <= 52; x++) for (let y = 233; y <= 235; y++) {
+        const box = [x * 0.2, y * 0.2].map((v) => +v.toFixed(3)), here = x === 51 && y === 234;
+        await cacheSet(\`slopes:\${box[0]}:\${box[1]}\`, { t, recs: here ? [
+          { osm: "way/1", kind: "downhill", diff: "easy", lines: [[[10.27, 46.99], [10.28, 46.995]]] },
+          { osm: "way/2", kind: "downhill", diff: "freeride", lines: [[[10.26, 46.98], [10.265, 46.985]]] },
+          { osm: "way/3", kind: "skitour", lines: [[[10.25, 46.98], [10.255, 46.985]]] },
+          { osm: "relation/4", kind: "downhill", ref: "4", labelOnly: true, lines: [[[10.27, 46.99], [10.28, 46.995]]] },
+          { osm: "way/5", kind: "downhill", diff: "easy", area: true, lines: [[[10.27, 46.99], [10.271, 46.99], [10.271, 46.991], [10.27, 46.99]]] },
+          { lift: true, osm: "way/6", kind: "chair_lift", line: [[10.28, 46.995], [10.27, 46.99]] }] : [] });
+      }
+      const lines = [], st = { on: false, start: 0, pausedAt: 0, pausedTotal: 0, dist: 0, off: 0 };
+      window.__rec = lines; window.__slopes = [];
+      window.AtlasTrack = { start: () => { Object.assign(st, { on: true, start: Date.now() }); return "ok"; }, pause() {}, resume() {},
+        stop: () => { st.on = false; }, state: () => JSON.stringify({ ...st, saved: lines.length > 0 }), read: (from) => JSON.stringify(lines.slice(from)),
+        clear: () => { if (!st.on) lines.length = 0; }, setSlopes: (json) => __slopes.push(JSON.parse(json)), __st: st };
+      return true; })()`);
+    await run(`document.querySelector(".rec-btn").click(); for (let i = 0; i < 5; i++) __rec.push([10.27 + i * 0.0002, 46.99, 2000, Date.now() - (5 - i) * 1000]); true`);
+    for (let i = 0; i < 20 && !(await run(`__slopes.length > 0`)); i++) await sleep(300);
+    await run(`AtlasTrack.__st.off = 140; true`);
+    await sleep(1500);
+    const sl = await run(`({ calls: __slopes.length, lines: __slopes[0]?.lines.length, areas: __slopes[0]?.areas.length, flat: __slopes[0]?.lines[0]?.length,
+      at: ${ts}.recState().slopesAt?.slice(0, 2), off: ${ts}.recState().offPiste })`);
+    await run(`AtlasTrack.__st.on = false; __rec.length = 0; true`);
+    await sleep(1500);
+    check("вне трассы: приложению — трассы и подъёмник вокруг места записи (без «вне трассы», ски-тура), уехал — кнопка оранжевая",
+      sl.calls === 1 && sl.lines === 2 && sl.areas === 1 && sl.flat === 4 && sl.at?.[1] === 46.99 && sl.off && !(await run(`${ts}.recState().on`)), JSON.stringify(sl));
+    check("треки: закрыть — линии с карты убраны",await run(`document.querySelector('[data-panel="tracks"]').hidden && !atlas.map.getLayer("tracks-line")`));
     await run(closeLayers);
   }
 

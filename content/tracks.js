@@ -430,6 +430,7 @@ const STOP_D = "M6 6h12v12H6z";
 let recState = null, recPts = [], recTimer = 0, recTick = 0, recBtn = null, recFinishing = false;
 const recWhen = (s) => { const ms = Math.max(0, (s.pausedAt || Date.now()) - s.start - s.pausedTotal), sec = Math.floor(ms / 1000);
   return `${Math.floor(sec / 3600)}:${String(Math.floor(sec / 60) % 60).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`; };
+const recSpeed = (s) => `макс ${Math.round(s.max * 3.6)} км/ч`;
 const recSegs = (pts) => { // null в записи — пауза: новый кусок
   const segs = [[]];
   for (const p of pts) if (p) segs.at(-1).push(p); else if (segs.at(-1).length) segs.push([]);
@@ -452,13 +453,29 @@ function recPoll() {
   if (!rec() || document.hidden) return;
   try { recState = JSON.parse(rec().state()); } catch { return; }
   if (recState.on) {
-    if (recTick++ % 3 === 0) { try { recPts.push(...JSON.parse(rec().read(recPts.length))); } catch { /* */ } recDraw(); }
+    if (recTick++ % 3 === 0) { try { recPts.push(...JSON.parse(rec().read(recPts.length))); } catch { /* */ } recDraw(); recSlopes(); }
     recTimer = setTimeout(recPoll, 1000);
   } else if (recState.saved) recFinish();
   else if (recPts.length) { recPts = []; recDraw(); }
   recShow();
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) recPoll(); });
+// «вне трассы» (Грегори 2026-11-20, горные лыжи): приложение само (и при погасшем экране, без сети) следит,
+// не уехал ли лыжник с трасс, — звук, вибрация и «до трассы N м, на север». Трассы и подъёмники ему даём
+// отсюда: вокруг места записи (первые точки) и снова, когда отъехали от прошлого места дальше 5 км (с устройства,
+// если «Спуски» тут уже смотрели, иначе из сети). Старое приложение (без setSlopes) — без предупреждения
+let slopesAt = null, slopesBusy = false;
+async function recSlopes() {
+  const last = recPts.findLast((p) => p);
+  if (!rec()?.setSlopes || !last || slopesBusy || (slopesAt && Math.hypot((last[0] - slopesAt[0]) * Math.cos((last[1] * Math.PI) / 180), last[1] - slopesAt[1]) * 111320 < 5000)) return;
+  slopesBusy = true;
+  try {
+    const { slopesNear } = await import("../layers/trails.js");
+    const d = await slopesNear(last[0], last[1]);
+    rec().setSlopes(JSON.stringify({ lines: d.lines, areas: d.areas }));
+    if (!d.failed) slopesAt = last; // часть квадратов не скачалась — попробуем ещё раз со следующими точками
+  } catch { /* без сети и без сохранённых трасс — спросим со следующими точками */ } finally { slopesBusy = false; }
+}
 // остановлено — трек в «Мои треки» (файл приложения стирается, только когда трек уже сохранён здесь)
 async function recFinish() {
   if (recFinishing) return;
@@ -466,6 +483,7 @@ async function recFinish() {
   try {
     const segs = recSegs(JSON.parse(rec().read(0)));
     recPts = [];
+    slopesAt = null;
     recDraw();
     if (!segs.length) { rec().clear(); ctx?.status("Трек не записан: не было ни одного замера GPS"); setTimeout(() => ctx?.status(""), 5000); return; }
     await load();
@@ -501,7 +519,10 @@ function recShow() {
     recBtn.classList.toggle("on", on);
     recBtn.classList.toggle("paused", paused);
     recBtn.title = !on ? "Записать трек" : paused ? "Запись трека — пауза. Щелчок — остановить и сохранить" : "Идёт запись трека. Щелчок — остановить и сохранить";
-    recBtn.querySelector(".rec-time").textContent = on ? recWhen(recState) : "";
+    recBtn.classList.toggle("off-piste", on && !paused && recState.off > 0);
+    // справа от кнопки — время, км и наибольшая скорость (Грегори 2026-11-20: «в три строки»)
+    const pill = recBtn.querySelector(".rec-time");
+    pill.replaceChildren(...(on ? [h("b", "", recWhen(recState)), h("span", "", km(recState.dist)), ...(recState.max != null ? [h("span", "", recSpeed(recState))] : [])] : []));
   }
   if (isOpen("tracks") && !openId && panel.body.querySelector(".tk-rec")) panel.body.querySelector(".tk-rec").replaceWith(...recRows());
 }
@@ -523,7 +544,7 @@ function recRows() {
   icon.innerHTML = mdi(REC_D);
   const text = h("span", "tr-row-text");
   text.append(h("span", "tr-row-title", !on ? "Записать трек" : paused ? "Запись — пауза" : "Идёт запись"),
-    h("span", "tr-row-sub", on ? `${recWhen(recState)} · ${km(recState.dist)}` : "Пишется и при погасшем экране"));
+    h("span", "tr-row-sub", on ? `${recWhen(recState)} · ${km(recState.dist)}${recState.max != null ? ` · ${recSpeed(recState)}` : ""}${!paused && recState.off > 0 ? ` · вне трассы, до трассы ${Math.round(recState.off)} м` : ""}` : "Пишется и при погасшем экране"));
   r.append(icon, text);
   if (!on) { r.addEventListener("click", recStart); return [r]; }
   const right = h("span", "tk-rec-btns");
@@ -1451,8 +1472,9 @@ register({
   // запись трека: проверка подставляет свой AtlasTrack и зовёт это
   recInit: () => recInit(window.atlas?.ctx),
   recPoll: () => recPoll(),
-  recState: () => ({ btn: !!recBtn, on: recBtn?.classList.contains("on"), time: recBtn?.querySelector(".rec-time").textContent, pts: recPts.length,
-    line: !!ctx?.map.getLayer("tracks-rec-line"), finishing: recFinishing }),
+  recState: () => ({ btn: !!recBtn, on: recBtn?.classList.contains("on"), time: recBtn?.querySelector(".rec-time b")?.textContent || "", pill: recBtn?.querySelector(".rec-time").innerText, pts: recPts.length,
+    line: !!ctx?.map.getLayer("tracks-rec-line"), finishing: recFinishing, slopesAt, offPiste: recBtn?.classList.contains("off-piste"),
+    sub: panel.body.querySelector(".tk-rec .tr-row-sub")?.textContent }),
 });
 // кнопка записи — сразу при запуске (приложение Android), над «Навигацией»
 recInit(window.atlas?.ctx);

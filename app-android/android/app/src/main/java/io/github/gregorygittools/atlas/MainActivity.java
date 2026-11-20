@@ -111,8 +111,10 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface public String state() {
             android.content.SharedPreferences p = TrackService.prefs(MainActivity.this);
             return "{\"on\":" + p.getBoolean("on", false) + ",\"start\":" + p.getLong("start", 0) + ",\"pausedAt\":" + p.getLong("pausedAt", 0)
-                + ",\"pausedTotal\":" + p.getLong("pausedTotal", 0) + ",\"dist\":" + p.getFloat("dist", 0) + ",\"saved\":" + (TrackService.file(MainActivity.this).length() > 0) + "}";
+                + ",\"pausedTotal\":" + p.getLong("pausedTotal", 0) + ",\"dist\":" + p.getFloat("dist", 0) + ",\"saved\":" + (TrackService.file(MainActivity.this).length() > 0) + ",\"off\":" + p.getFloat("off", 0) + ",\"max\":" + p.getFloat("max", 0) + "}";
         }
+        // трассы вокруг — для «вне трассы» (TrackService.saveSlopes)
+        @JavascriptInterface public void setSlopes(String json) { TrackService.saveSlopes(MainActivity.this, json); }
         @JavascriptInterface public String read(int from) { return TrackService.read(MainActivity.this, from); }
         @JavascriptInterface public void clear() { if (!TrackService.prefs(MainActivity.this).getBoolean("on", false)) TrackService.file(MainActivity.this).delete(); }
     }
