@@ -2087,7 +2087,7 @@ try {
         stop: () => { st.on = false; st.pausedAt = 0; }, state: () => JSON.stringify({ ...st, saved: lines.length > 0 }),
         read: (from) => JSON.stringify(lines.slice(from)), clear: () => { if (!st.on) lines.length = 0; } };
       ${ts}.recInit(); return true; })()`);
-    await run(`document.querySelector(".rec-btn").click(); for (let i = 0; i < 20; i++) __rec.push([24.83 + i * 0.0005, 59.47, 5, Date.now() - (40 - i) * 1000]); true`);
+    await run(`document.querySelector(".rec-btn").click(); window.__recT = Date.now(); for (let i = 0; i < 20; i++) __rec.push([24.83 + i * 0.0005, 59.47, 5, Date.now() - (40 - i) * 1000]); true`);
     await sleep(1500);
     const rc1 = await run(`({ ...${ts}.recState(), row: document.querySelector('[data-panel="tracks"] .tk-rec')?.textContent })`);
     await run(`document.querySelector('[data-panel="tracks"] .tk-rec .pb-btn').click(); true`);
@@ -2103,6 +2103,31 @@ try {
       && /^0:01:0\d\n850 м\nмакс 45 км\/ч$/.test(rc1.pill)
       && rc2.paused && /^Запись — пауза/.test(rc2.row) && !rc3.on && rc3.time === "" && rc3.tracks === 1 && /^Запись /.test(rc3.open) && rc3.left === 0 && rc3.segs === 0
       && /кусков записи: 2/.test(rc3.hint), JSON.stringify({ rc1, rc2, rc3 }));
+    // приложение: снимки галереи телефона на треке (AtlasPhotos). Нет разрешения — кнопка «Фото из галереи
+    // телефона»; дали — в ленте снимок и ролик, снятые за время записи (третий — позже, не на треке); второй
+    // щелчок — галерея с адресами https://phone.invalid/…
+    await run(`(() => { const T = window.__recT, opened = [];
+      window.__phone = [{ id: "img:7", name: "PXL_1.jpg", video: false, at: T - 30000 }, { id: "vid:8", name: "PXL_2.mp4", video: true, at: T - 25000 },
+        { id: "img:9", name: "PXL_3.jpg", video: false, at: T + 3600000 }];
+      window.__opened = opened; window.__open = window.open; window.open = (u) => { opened.push(u); return null; };
+      window.AtlasPhotos = { a: "none", access() { return this.a; }, ask() { this.a = "all"; setTimeout(() => atlasPhotosChanged()); },
+        list: (from, to) => JSON.stringify(__phone.filter((x) => x.at >= from && x.at <= to)) };
+      atlasPhotosChanged(); return true; })()`);
+    await sleep(600);
+    const ph1 = await run(`({ btn: [...document.querySelectorAll('[data-panel="tracks"] .tk-edit .text-btn')].map((b) => b.textContent).find((t) => /галере/.test(t)),
+      cells: document.querySelectorAll(".tk-photo").length })`);
+    await run(`[...document.querySelectorAll('[data-panel="tracks"] .tk-edit .text-btn')].find((b) => /галере/.test(b.textContent)).click(); true`);
+    for (let i = 0; i < 10 && (await run(`document.querySelectorAll(".tk-photo").length`)) < 2; i++) await sleep(300);
+    const ph2 = await run(`(() => { const cells = [...document.querySelectorAll(".tk-photo")];
+      cells[0]?.click(); cells[0]?.click(); const g = atlasGallery();
+      return { cells: cells.length, head: [...document.querySelectorAll('[data-panel="tracks"] .tk-section')].map((e) => e.textContent).find((t) => /^Фото/.test(t)),
+        src: cells[0]?.querySelector("img").getAttribute("src"), btn: [...document.querySelectorAll('[data-panel="tracks"] .tk-edit .text-btn')].some((b) => /галере/.test(b.textContent)),
+        opened: __opened.length, full: g.photos.map((x) => x.full), video: g.photos.map((x) => !!x.video), start: g.start }; })()`);
+    await run(`window.open = window.__open; delete window.AtlasPhotos; atlasPhotosChanged(); true`);
+    check("приложение: фото из галереи телефона на треке — сперва кнопка разрешения, потом снимок и ролик за время записи, галерея",
+      ph1.btn === "Фото из галереи телефона" && ph1.cells === 0 && ph2.cells === 2 && ph2.head === "Фото на треке · 2" && ph2.src === "https://phone.invalid/thumb/img/7"
+      && !ph2.btn && ph2.opened === 1 && ph2.full.join() === "https://phone.invalid/full/img/7,https://phone.invalid/full/vid/8" && ph2.video.join() === "false,true" && ph2.start === 0,
+      JSON.stringify({ ph1, ph2 }));
     await run(`document.querySelector('[data-panel="tracks"] .pb-bar .tr-bar-left:last-child .pb-btn:last-child').click(); true`);
     await sleep(500);
     await run(exitMode);

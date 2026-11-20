@@ -3,8 +3,11 @@ package io.github.gregorygittools.atlas;
 import android.Manifest;
 import android.os.Build;
 import android.content.pm.PackageManager;
+import android.content.Intent;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.net.Uri;
 import android.location.GnssStatus;
 import android.location.Location;
 import android.location.LocationListener;
@@ -12,9 +15,20 @@ import android.location.LocationManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Message;
 import android.view.View;
+import android.view.ViewGroup;
 import android.webkit.JavascriptInterface;
+import android.webkit.ServiceWorkerClient;
+import android.webkit.ServiceWorkerController;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
+import androidx.activity.OnBackPressedCallback;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
@@ -23,6 +37,8 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebChromeClient;
+import com.getcapacitor.BridgeWebViewClient;
 
 // окно — сайт Atlas (capacitor.config.json: server.url), обновляется вместе с сайтом.
 // Панель навигации Android (кнопки «Назад», «Домой», «Недавние» или полоска жестов) видна всегда, и карта
@@ -38,6 +54,9 @@ public class MainActivity extends BridgeActivity {
         getBridge().getWebView().getSettings().setUseWideViewPort(true);
         getBridge().getWebView().addJavascriptInterface(new Gps(), "AtlasGps");
         getBridge().getWebView().addJavascriptInterface(new Track(), "AtlasTrack");
+        getBridge().getWebView().addJavascriptInterface(new PhotosJs(), "AtlasPhotos");
+        phoneMedia();
+        popups();
         keepBarsClear();
         fitBars();
     }
@@ -117,6 +136,116 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface public void setSlopes(String json) { TrackService.saveSlopes(MainActivity.this, json); }
         @JavascriptInterface public String read(int from) { return TrackService.read(MainActivity.this, from); }
         @JavascriptInterface public void clear() { if (!TrackService.prefs(MainActivity.this).getBoolean("on", false)) TrackService.file(MainActivity.this).delete(); }
+    }
+
+    // ── снимки галереи телефона на треке (Photos): access() — "all" | "some" | "none", ask() — спросить
+    // разрешение (ответ — window.atlasPhotosChanged()), list(from, to) — что снято за это время
+    private class PhotosJs {
+        @JavascriptInterface public String access() { return Photos.access(MainActivity.this); }
+        @JavascriptInterface public void ask() { runOnUiThread(() -> ActivityCompat.requestPermissions(MainActivity.this, Photos.wanted(), 8)); }
+        @JavascriptInterface public String list(double from, double to) { return Photos.list(MainActivity.this, (long) from, (long) to); }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(code, perms, results);
+        if (code == 8) getBridge().getWebView().evaluateJavascript("window.atlasPhotosChanged&&atlasPhotosChanged()", null);
+    }
+
+    // адреса https://phone.invalid/… — и у окна сайта, и у его служебного работника, и у окна галереи
+    private void phoneMedia() {
+        getBridge().setWebViewClient(new BridgeWebViewClient(getBridge()) {
+            @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
+                WebResourceResponse x = Photos.serve(MainActivity.this, r);
+                return x != null ? x : super.shouldInterceptRequest(v, r);
+            }
+        });
+        final boolean bridgeSw = getBridge().getConfig().isResolveServiceWorkerRequests();
+        ServiceWorkerController.getInstance().setServiceWorkerClient(new ServiceWorkerClient() {
+            @Override public WebResourceResponse shouldInterceptRequest(WebResourceRequest r) {
+                WebResourceResponse x = Photos.serve(MainActivity.this, r);
+                return x != null || !bridgeSw ? x : getBridge().getLocalServer().shouldInterceptRequest(r);
+            }
+        });
+    }
+
+    // ── окна сайта (галерея, просмотр улиц): window.open в приложении заменял карту галереей, а та без
+    // window.opener пустая. Теперь — второе окно поверх карты; закрывается крестиком/Esc галереи (window.close)
+    // и кнопкой «Назад». Чужие сайты (ссылки «в новом окне») — в браузере телефона
+    private WebView popup;
+    private final OnBackPressedCallback popupBack = new OnBackPressedCallback(false) {
+        @Override public void handleOnBackPressed() {
+            if (popup == null) return;
+            WebView w = popup;
+            w.evaluateJavascript("window.close()", null); // окно карты узнаёт, что галерея закрыта
+            new Handler(Looper.getMainLooper()).postDelayed(() -> { if (popup == w) popupClose(); }, 400);
+        }
+    };
+
+    private void popups() {
+        WebView main = getBridge().getWebView();
+        main.getSettings().setSupportMultipleWindows(true);
+        main.getSettings().setJavaScriptCanOpenWindowsAutomatically(true);
+        main.setWebChromeClient(new BridgeWebChromeClient(getBridge()) {
+            @Override public boolean onCreateWindow(WebView view, boolean dialog, boolean user, Message msg) {
+                ((WebView.WebViewTransport) msg.obj).setWebView(popupOpen());
+                msg.sendToTarget();
+                return true;
+            }
+        });
+        getOnBackPressedDispatcher().addCallback(this, popupBack);
+    }
+
+    private boolean ours(Uri u) {
+        String s = u.getScheme();
+        return s == null || s.equals("about") || s.equals("blob") || s.equals("data") || Uri.parse(getBridge().getServerUrl()).getHost().equals(u.getHost());
+    }
+
+    private WebView popupOpen() {
+        popupClose();
+        WebView w = new WebView(this);
+        WebSettings s = w.getSettings(), m = getBridge().getWebView().getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setMediaPlaybackRequiresUserGesture(false);
+        s.setUseWideViewPort(true);
+        s.setUserAgentString(m.getUserAgentString());
+        w.setBackgroundColor(Color.BLACK);
+        w.setWebViewClient(new WebViewClient() {
+            @Override public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) { return Photos.serve(MainActivity.this, r); }
+            @Override public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {
+                if (ours(r.getUrl())) return false;
+                outside(r.getUrl());
+                return true;
+            }
+            @Override public void onPageStarted(WebView v, String url, Bitmap icon) {
+                if (ours(Uri.parse(url))) return;
+                v.stopLoading();
+                outside(Uri.parse(url));
+                v.post(MainActivity.this::popupClose);
+            }
+        });
+        w.setWebChromeClient(new WebChromeClient() {
+            @Override public void onCloseWindow(WebView v) { if (v == popup) popupClose(); }
+        });
+        ((ViewGroup) findViewById(android.R.id.content)).addView(w, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        popup = w;
+        popupBack.setEnabled(true);
+        return w;
+    }
+
+    private void popupClose() {
+        if (popup == null) return;
+        WebView w = popup;
+        popup = null;
+        popupBack.setEnabled(false);
+        ((ViewGroup) w.getParent()).removeView(w);
+        w.destroy();
+    }
+
+    private void outside(Uri u) {
+        try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception ignored) { }
     }
 
     private LocationListener listener(final boolean precise) {

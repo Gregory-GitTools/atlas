@@ -1393,7 +1393,7 @@ on("track-photos-wanted", async ({ albumId, from, to, ctx: c, reply }) => {
   const list = [...pick.values()];
   reply(list.map((x) => ({ ...x,
     thumb: () => thumbOf(photos.get(x.id)),
-    open: (ids) => openGalleryWith(ids.map((id) => galleryItem(photos.get(id))), x.id, media) })));
+    open: (ids) => openGalleryWith(ids.filter((id) => photos.has(id)).map((id) => galleryItem(photos.get(id))), x.id, media) })));
 }, { replay: false });
 
 // из трека — назад в его альбом

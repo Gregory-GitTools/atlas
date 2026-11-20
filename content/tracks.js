@@ -22,6 +22,7 @@ import { cacheGet, cacheSet, cacheDelete } from "../core/storage.js";
 import { claimLayers, captureClicks } from "../core/popups.js";
 import * as settings from "../core/settings.js";
 import { addMapButton } from "../core/controls.js";
+import { openGalleryWith } from "../core/photo-strip.js";
 
 const svg = (d, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor"><path d="${d}"/></svg>`;
 // линия трека между двумя точками
@@ -1100,16 +1101,49 @@ let splitSize = settings.get("tracks.split", 1000);
 // пояс берётся из снимка (EXIF), иначе подбирается по снимкам с местом — сдвиг (шаг 15 мин), при котором
 // они ближе всего к треку; снимков с местом нет — пояс этого компьютера. На треке — снимки за время записи
 // (±2 мин), место — между точками трека по времени
+// В приложении — ещё и снимки галереи телефона (Грегори 2026-11-20: «делаем фото из галереи»): их даёт
+// AtlasPhotos (app-android, Photos.java) сразу, не дожидаясь альбомов; время у них настоящее (UTC)
 const photoAsk = new Map(), photoRaw = new Map(); // id трека → обещание списка снимков / готовый список
 const askPhotos = (t) => {
   if (!photoAsk.has(t.id)) {
     const all = t.segs.flat().filter((p) => p[3]);
+    const phone = all.length ? phonePhotos(all[0][3], all[all.length - 1][3]) : [];
+    if (phone.length) photoRaw.set(t.id, phone);
     photoAsk.set(t.id, (!all.length ? Promise.resolve([]) : new Promise((reply) => {
       emit("track-photos-wanted", { albumId: t.album?.albumId || null, from: all[0][3], to: all[all.length - 1][3], ctx, reply });
       setTimeout(() => reply([]), 60000); // альбомов нет — никто не ответит
-    })).then((r) => { photoRaw.set(t.id, r); return r; }));
+    })).then((r) => {
+      // тот же снимок и в альбоме, и в галерее телефона — один раз
+      const names = new Set(phone.map((x) => x.name));
+      r = [...phone, ...r.filter((x) => !names.has(x.name))];
+      photoRaw.set(t.id, r);
+      return r;
+    }));
   }
   return photoAsk.get(t.id);
+};
+
+const PHONE = "https://phone.invalid/";
+const phoneAccess = () => { try { return window.AtlasPhotos?.access() || ""; } catch { return ""; } };
+function phonePhotos(from, to) {
+  if (!["all", "some"].includes(phoneAccess())) return [];
+  let list = [];
+  try { list = JSON.parse(AtlasPhotos.list(from - 120000, to + 120000)); } catch { return []; }
+  const item = (x) => {
+    const p = x.id.split(":");
+    return { id: `phone:${x.id}`, thumb: `${PHONE}thumb/${p[0]}/${p[1]}`, full: `${PHONE}full/${p[0]}/${p[1]}`, title: "Галерея телефона",
+      credit: [new Date(x.at).toLocaleString("ru", { dateStyle: "long", timeStyle: "short" }), x.name].join(" · "), video: x.video };
+  };
+  const items = new Map(list.map((x) => [`phone:${x.id}`, item(x)]));
+  return list.map((x) => ({ id: `phone:${x.id}`, name: x.name, video: x.video, at: x.at, wall: x.at - new Date(x.at).getTimezoneOffset() * 60000,
+    lat: null, lon: null, mine: true, thumb: () => Promise.resolve(items.get(`phone:${x.id}`).thumb),
+    open: (ids) => openGalleryWith(ids.filter((id) => items.has(id)).map((id) => items.get(id)), `phone:${x.id}`) }));
+}
+// разрешение дали (или выбрали другие снимки) — снимки трека заново
+window.atlasPhotosChanged = () => {
+  photoAsk.clear();
+  photoRaw.clear();
+  if (openId) openTrack(openId, true);
 };
 export function placePhotos(t, raw) {
   const pts = t.segs.flat().filter((p) => p[3]);
@@ -1155,8 +1189,8 @@ async function openTrack(id, keep = false) {
   if (!shown) await showOnMap(true);
   const s = stats(t), last = s.profile.length - 1;
   // фото на треке: список уже есть — сразу; нет — спросить у альбомов и перерисовать, когда придёт
+  if (!photoAsk.has(id)) askPhotos(t).then((r) => { if (openId === id && placePhotos(t, r).length) openTrack(id, true); });
   const raw = photoRaw.get(id);
-  if (!raw) askPhotos(t).then((r) => { if (openId === id && placePhotos(t, r).length) openTrack(id, true); });
   if (!again) photoPick = null;
   trackPhotos = raw ? placePhotos(t, raw) : [];
   { const flat = t.segs.flat().filter((p) => p[3]); s.photoMarks = trackPhotos.map((x) => s.profile.find((r) => r[3] === flat[x.i])?.[0]).filter((d) => d != null); }
@@ -1241,6 +1275,7 @@ async function openTrack(id, keep = false) {
   const c = chart(s, sel, showSel);
   if (c) nodes.push(c, selInfo, tools);
   if (trackPhotos.length) nodes.push(...photoStrip(t));
+  else if (t.segs.flat().some((p) => p[3])) { const r = phoneAskRow(); if (r) nodes.push(r); }
 
   // ещё правка: выбросы, разрезать в отмеченной точке, склеить, дорисовать
   const more = h("div", "tk-edit");
@@ -1379,6 +1414,22 @@ function photoStrip(t) {
     row.append(cell);
   }
   return [head, row];
+}
+
+// в приложении снимков галереи на треке нет, потому что не дали разрешения (или дали только на выбранные) —
+// кнопка: Android спросит, ответ придёт в window.atlasPhotosChanged
+function phoneAskRow() {
+  const access = phoneAccess();
+  if (access !== "none" && access !== "some") return null;
+  const row = h("div", "tk-edit");
+  const b = h("button", "text-btn");
+  b.type = "button";
+  b.innerHTML = svg(ALBUM_D, 20);
+  b.append(access === "none" ? "Фото из галереи телефона" : "Выбрать ещё фото из галереи");
+  b.title = "Показать на треке снимки и ролики, снятые телефоном за время записи";
+  b.addEventListener("click", () => AtlasPhotos.ask());
+  row.append(b);
+  return row;
 }
 
 // ---------- режим в строке поиска ----------

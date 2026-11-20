@@ -323,6 +323,8 @@ public class TrackService extends Service {
         try (FileWriter w = new FileWriter(file(this), true)) { w.write(line + "\n"); } catch (Exception ignored) { }
     }
 
+    private static final java.util.regex.Pattern POINT = java.util.regex.Pattern.compile("-?[\\d.]+ -?[\\d.]+ (-?[\\d.]+|-) \\d+");
+
     // точки с номера from (строки файла): для сайта
     static String read(Context c, int from) {
         StringBuilder s = new StringBuilder("[");
@@ -332,8 +334,11 @@ public class TrackService extends Service {
             while ((line = r.readLine()) != null) {
                 if (i++ < from || line.isEmpty()) continue;
                 if (s.length() > 1) s.append(',');
-                if (line.equals("-")) { s.append("null"); continue; }
+                // телефон выключился посреди записи — в файле остаются нулевые байты (видели на эмуляторе:
+                // «Трек не сохранён: … is not valid JSON»); их долой, а совсем испорченная строка — разрыв трека
+                line = line.replace("\0", "").trim();
                 String[] x = line.split(" ");
+                if (line.equals("-") || !POINT.matcher(line).matches()) { s.append("null"); continue; }
                 s.append('[').append(x[0]).append(',').append(x[1]).append(',').append(x[2].equals("-") ? "null" : x[2]).append(',').append(x[3]).append(']');
             }
         } catch (Exception ignored) { }
