@@ -109,10 +109,12 @@ function targetCard() {
   const t = state.target;
   const card = h("div", "nav-card");
   const top = h("div", "nav-card-top");
-  const arrow = h("div", "go-arrow");
-  arrow.innerHTML = ARROW;
-  arrow.hidden = !state.me;
-  arrow.style.transform = `rotate(${state.arrow || 0}deg)`;
+  // стрелка — справа в ряду способов, кнопкой: как стрелка пути в барабане и «Позиция» — 3D, 200 м, по ходу
+  // (Грегори 2026-11-21)
+  const arrow = h("button", "go-way go-pos");
+  Object.assign(arrow, { type: "button", title: "Ко мне: 3D по ходу движения, шкала 200 м", innerHTML: ARROW });
+  arrow.firstElementChild?.style.setProperty("transform", `rotate(${state.me ? state.arrow || 0 : 0}deg)`);
+  arrow.addEventListener("click", (e) => { e.stopPropagation(); emit("nav-position", { mode: "arrow" }); });
   const text = h("div", "go-text");
   text.append(h("div", "go-main", state.me ? state.main : t.title), h("div", "go-sub", state.me ? t.title : (state.points?.length || 0) > 1 ? `Маршрут: ${state.points.length} точк${state.points.length < 5 ? "и" : "ек"}` : "Включите навигацию — покажу, куда идти"));
   // «стрелка вверх» — к построению маршрута: список его точек (Грегори 2026-11-10); свернуть карточку —
@@ -123,7 +125,7 @@ function targetCard() {
   const close = h("button", "go-close");
   Object.assign(close, { type: "button", title: "Убрать точку", innerHTML: CLOSE });
   close.addEventListener("click", (e) => { e.stopPropagation(); emit("route-target", null); });
-  top.append(arrow, text, fold, close);
+  top.append(text, fold, close);
   const ways = h("div", "go-ways");
   for (const w of WAYS) {
     const b = h("button", "go-way");
@@ -132,6 +134,7 @@ function targetCard() {
     b.addEventListener("click", () => emit("route-way", { way: w.id }));
     ways.append(b);
   }
+  ways.append(arrow);
   const way = h("div", "nav-way", state.busy ? `${WAYS.find((w) => w.id === state.busy).title}: ищу путь…` : state.route?.text || (state.canRoute ? (state.me && state.points?.length ? "Путь от меня по дорогам и тропам — выберите, как добираться" : "Путь по дорогам и тропам — выберите, как добираться") : ""));
   // точки маршрута по порядку: остановки с номером и финиш с флажком, крестик убирает любую — путь
   // перестраивается (Грегори 2026-11-10: «финиш тоже должен быть в списке и его можно удалить»)

@@ -39,6 +39,10 @@ const KIND = {
   cafe: "Кафе", bar: "Бар", pub: "Паб", fast_food: "Фастфуд", hotel: "Гостиница", hostel: "Хостел",
   guest_house: "Гостевой дом", camp_site: "Кемпинг", toilets: "Туалет", zoo: "Зоопарк", theatre: "Театр",
   cinema: "Кино", aerodrome: "Аэропорт", railway: "Вокзал", station: "Железнодорожная станция", halt: "Остановка поезда",
+  // спорт (layers/sport.js)
+  winter_sports: "Горнолыжный курорт", ski_rental: "Прокат лыж", boat_rental: "Прокат лодок", rental: "Прокат",
+  bicycle_rental: "Прокат велосипедов", sports: "Спортивный магазин", outdoor: "Туризм и снаряжение", ski: "Лыжный магазин",
+  bicycle: "Веломагазин", surf: "Сёрф-магазин", fishing: "Рыболовный магазин", tennis: "Теннис", padel: "Падел",
   funicular: "Станция фуникулёра", subway: "Станция метро", bus_station: "Автовокзал", bus_stop: "Остановка автобуса", tram_stop: "Остановка трамвая", bus: "Автобус", ferry_terminal: "Паром",
 };
 const OSM_TYPES = { 1: "node", 2: "way", 3: "relation" };
@@ -87,6 +91,15 @@ async function wiki(tags) {
   return s?.extract ? { text: s.extract, url: s.content_urls?.desktop?.page } : null;
 }
 
+// ссылки из тегов OSM: ключи, подпись, адрес для «голого» имени в соцсети
+const LINKS = [
+  [["website", "contact:website", "url"], "Сайт"],
+  [["reservation:website", "booking", "website:booking"], "Бронирование"],
+  [["contact:facebook", "facebook"], "Facebook", "https://www.facebook.com/"],
+  [["contact:instagram", "instagram"], "Instagram", "https://www.instagram.com/"],
+  [["contact:youtube"], "YouTube"],
+  [["webcam", "contact:webcam"], "Веб-камера"],
+];
 // строка со ссылкой (Википедия, сайт)
 const linkRow = (href, text) => {
   const row = h("popup-row", "");
@@ -118,8 +131,18 @@ export async function featureContent(f) {
     (tags.phone || tags["contact:phone"]) && `Телефон: ${tags.phone || tags["contact:phone"]}`,
   ].filter(Boolean);
   for (const r of rows) box.append(h("popup-row", r));
-  const site = tags.website || tags["contact:website"];
-  if (site && /^https?:\/\//.test(site)) box.append(linkRow(site, "Сайт"));
+  // все ссылки места (Грегори 2026-11-21: «информация о месте и ссылки, может не одна»): сайт, бронирование, соцсети
+  const seen = new Set();
+  for (const [keys, text, base] of LINKS) {
+    for (const k of keys) {
+      let url = (tags[k] || "").split(";")[0].trim();
+      if (url && base && !/^https?:\/\//.test(url)) url = base + url.replace(/^@/, "");
+      if (!/^https?:\/\//.test(url) || seen.has(url)) continue;
+      seen.add(url);
+      box.append(linkRow(url, text));
+      break;
+    }
+  }
   return box;
 }
 

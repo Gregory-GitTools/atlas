@@ -24,6 +24,7 @@ import { emit } from "./events.js";
 
 export const MODULES = [
   "../layers/places.js",
+  "../layers/sport.js",
   "../layers/trails.js",
   "../layers/outdoor.js",
   "../layers/roads.js",

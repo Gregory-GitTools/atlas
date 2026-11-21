@@ -940,6 +940,30 @@ html, body {
   fill: var(--accent);
 }
 
+/* «Позиция»: под значком режим (Путь, 3D, Свой); синяя — карта ведёт меня в этом режиме, серая — сдвинули рукой */
+.pos-btn {
+  grid-template-rows: auto auto;
+  align-content: center;
+  justify-items: center;
+  gap: 0;
+  color: var(--muted);
+}
+
+.pos-btn.on {
+  color: var(--accent);
+}
+
+.pos-btn .pos-icon {
+  display: block;
+}
+
+.pos-btn .pos-mode {
+  margin-top: -2px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 /* запись трека (приложение Android, content/tracks.js): пишет — значок красный и мигает, справа время */
 .rec-btn {
   position: relative;
@@ -3563,6 +3587,16 @@ body.search-hidden .panel-left {
 
 .go-arrow[hidden] {
   display: none;
+}
+
+/* стрелка «ко мне» в ряду способов — справа, красная (как стрелка пути в барабане) */
+.go-pos {
+  margin-left: auto;
+  color: #e53935;
+}
+
+.go-pos > svg {
+  transition: transform 0.3s;
 }
 
 .go-text {

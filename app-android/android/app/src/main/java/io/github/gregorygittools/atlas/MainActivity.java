@@ -55,6 +55,7 @@ public class MainActivity extends BridgeActivity {
         getBridge().getWebView().addJavascriptInterface(new Gps(), "AtlasGps");
         getBridge().getWebView().addJavascriptInterface(new Track(), "AtlasTrack");
         getBridge().getWebView().addJavascriptInterface(new PhotosJs(), "AtlasPhotos");
+        getBridge().getWebView().addJavascriptInterface(new AppJs(), "AtlasApp");
         phoneMedia();
         popups();
         keepBarsClear();
@@ -144,6 +145,13 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface public String access() { return Photos.access(MainActivity.this); }
         @JavascriptInterface public void ask() { runOnUiThread(() -> ActivityCompat.requestPermissions(MainActivity.this, Photos.wanted(), 8)); }
         @JavascriptInterface public String list(double from, double to) { return Photos.list(MainActivity.this, (long) from, (long) to); }
+    }
+
+    // ── номер приложения для ⓘ и «Настроек» сайта (core/version.js)
+    private class AppJs {
+        @JavascriptInterface public String version() {
+            try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception e) { return ""; }
+        }
     }
 
     @Override

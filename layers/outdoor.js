@@ -367,7 +367,7 @@ function eeInfo(s, add, box) {
   };
   let wired = false;
   register({
-    id: "layers/kite-ee", kind: "layer", group: "places", title: "Кайт в Эстонии",
+    id: "layers/kite-ee", kind: "layer", group: "hidden", title: "Кайт в Эстонии",
     hint: "Кайт-споты Эстонии: описание, допустимый ветер; с «Ветром» — зелёное кольцо, где ветер подходит", icon: glyphSvg("kitesurfing"),
     needs: ["network"], sends: "точка спота — погода и волна (Open-Meteo); при включённом ветре — споты в кадре (Open-Meteo)",
     async enable(c) {
@@ -424,7 +424,7 @@ function eeInfo(s, add, box) {
     loading = false;
   };
   register({
-    id: "layers/surf", kind: "layer", group: "places", title: "Сёрфинг", hint: "Сёрфинг, кайт и виндсёрфинг по всему миру", icon: glyphSvg("kitesurfing"),
+    id: "layers/surf", kind: "layer", group: "hidden", title: "Сёрфинг", hint: "Сёрфинг, кайт и виндсёрфинг по всему миру", icon: glyphSvg("kitesurfing"),
     needs: ["network"], sends: "запрос мест для сёрфинга (QLever, OpenStreetMap); точка спота — погода и волна (Open-Meteo); при включённом ветре — споты в кадре (Open-Meteo)",
     enable(c) {
       ctx = c; active = true;

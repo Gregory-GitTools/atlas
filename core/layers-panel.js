@@ -37,7 +37,7 @@ import { GEAR_ICON } from "./settings-panel.js";
 import { ARROW as ROUTE_ARROW } from "./route.js";
 import { backable } from "./back.js";
 import { modules, toggle, available, allowed, onRegister, MODULES } from "./modules.js";
-import { on, emit } from "./events.js";
+import { on, emit, current } from "./events.js";
 import { BASEMAPS, currentBasemap, setBasemap, thumbOf } from "./basemaps.js";
 import * as settings from "./settings.js";
 
@@ -497,7 +497,16 @@ export function initLayersPanel(ctx) {
           const act = () => {
             if (!e.content) return show(openKey === e.key ? null : e.key);
             show(null);
-            if (e.key === "content/navigation" && routeNow?.target) { if (!searchOn) setSearch(true); emit("route-card-toggle"); return; }
+            // стрелка пути — ко мне: 3D, 200 м, по ходу (Грегори 2026-11-21: «это как начать»); уже так — карточка пути
+            if (e.key === "content/navigation" && routeNow?.target) {
+              const g = window.atlas?.geo?.state();
+              // навигация выключена — только карточка (сама навигацию не включает); карточка открыта — ко мне (она
+              // свернётся); список точек маршрута или уже веду стрелкой — карточка
+              if (g?.on && current("route-card")?.open) emit("nav-position", { mode: "arrow" });
+              else if (!g?.on || g.hold || (g.follow && g.pos === "arrow")) { if (!searchOn) setSearch(true); emit("route-card-toggle"); }
+              else emit("nav-position", { mode: "arrow" });
+              return;
+            }
             if (e.key !== "content/navigation" && e.content.column.isOpen()) { emit("panel-fold-request", { fold: !folded }); return; }
             openHome(e.content);
           };

@@ -162,7 +162,7 @@ try {
     glass: [...document.querySelectorAll(".map-btn button, .wheel-toggle, .search-toggle")].every((b) => b.classList.contains("glass")) })`);
   check("звёзды, шкала, навигация", extras.stars && /км|м$/.test(extras.scale || "") && extras.geo, JSON.stringify(extras));
   check("слева внизу: навигация и компас — полупрозрачные, без «+ −»",
-    JSON.stringify(extras.order) === '["geo-btn","compass-btn"]' && !extras.zoom && extras.glass, JSON.stringify(extras));
+    JSON.stringify(extras.order) === '["geo-btn","pos-btn","compass-btn"]' && !extras.zoom && extras.glass, JSON.stringify(extras));
   const tilt = async () => { await run(`document.querySelector(".compass-btn").click(); true`); await sleep(1300);
     return run(`({ pitch: Math.round(atlas.map.getPitch()), bearing: Math.round(atlas.map.getBearing()), label: document.querySelector(".compass-mode").textContent })`); };
   const view0 = await run(`({ center: atlas.map.getCenter().toArray(), zoom: atlas.map.getZoom() })`);
@@ -188,7 +188,7 @@ try {
     me: ${me}, chevron: document.querySelector(".geo-dot").classList.contains("chevron"), title: document.querySelector(".geo-btn").title, pad: atlas.map.getPadding() ${extra} })`);
   await run(`atlas.map.jumpTo({ center: [24.74, 59.43], zoom: 14.3, pitch: 0, bearing: 20 }); true`);
   await goTo(59.437, 24.745);
-  await run(`document.querySelector(".geo-btn").click(); true`);
+  await run(`window.confirm = () => true; document.querySelector(".geo-btn").click(); true`);
   await sleep(2500);
   const n2 = await nav();
   check("навигация: при начале — 3D, я внизу, масштаб не тронут, кнопка «Навигация»",
@@ -208,18 +208,17 @@ try {
   await goTo(59.4376, 24.7455);
   await sleep(3000);
   const stay = await nav();
-  await run(`document.querySelector(".geo-btn").click(); true`);
+  await run(`window.confirm = () => true; document.querySelector(".geo-btn").click(); true`);
   await sleep(1500);
   const backHome = await nav();
   check("навигация: сдвинул карту — сама не возвращается, кнопка «Навигация» — ко мне", away === false && !stay.follow && Math.abs(stay.me.x) > 100 && backHome.follow && Math.abs(backHome.me.x) <= 3, JSON.stringify({ away, stay, backHome }));
-  // выровнял карту рукой — 2D; кнопкой — я в центре
+  // выровнял карту рукой — 2D, карта за мной не перестаёт ходить, «Позиция» — «свой» (запомнен), я в центре
   await run(`atlas.map.fire("pitchstart", { originalEvent: new MouseEvent("mousedown") }); atlas.map.jumpTo({ pitch: 0 }); true`);
   const flat = await run(`({ ...atlas.geo.state() })`);
-  await sleep(500);
-  await run(`document.querySelector(".geo-btn").click(); true`);
   await sleep(1500);
-  const flatBack = await nav();
-  check("навигация: выровнял рукой — 2D, кнопкой «Навигация» — я в центре", flat.mode === "2d" && !flat.follow && flatBack.follow && flatBack.mode === "2d"
+  const flatBack = await nav(`, saved: JSON.parse(localStorage.getItem("atlas.nav.manual") || "null"), label: document.querySelector(".pos-mode").textContent`);
+  check("навигация: выровнял рукой — 2D, карта за мной, «Позиция» — «Свой» с этим масштабом и наклоном, я в центре", flat.mode === "2d" && flat.follow && flat.pos === "manual" && flatBack.follow && flatBack.mode === "2d"
+    && flatBack.label === "Свой" && flatBack.saved?.zoom === 14.3 && flatBack.saved?.pitch === 0 && flatBack.saved?.mode === "2d"
     && Math.abs(flatBack.me.x) <= 3 && Math.abs(flatBack.me.y) <= 3 && flatBack.chevron, JSON.stringify({ flat, flatBack }));
   // компас по кругу до «С» (из 2D — через 3D; если наклон на этом масштабе недоступен — сразу «С»)
   // (на экране магнитолы переход дольше — ждём 3,5 с)
@@ -230,6 +229,34 @@ try {
   await sleep(1000);
   const nN = await nav();
   check("навигация: С — я в центре, север вверху, точка вместо стрелки", nN.mode === "north" && nN.bearing === 0 && nN.pitch === 0 && Math.abs(nN.me.x) <= 3 && Math.abs(nN.me.y) <= 3 && !nN.chevron && nN.zoom === 14.3, JSON.stringify(nN));
+  // «Позиция» (Грегори 2026-11-21): нажатия по кругу — весь путь (2D, север; пути нет — я в центре) → стрелка
+  // (3D, шкала 200 м, я внизу) → свой (как поставили рукой); масштаб рукой — «свой» запомнен; сдвинул — гаснет,
+  // щелчок — снова в тот же режим
+  const posNav = () => nav(`, label: document.querySelector(".pos-mode").textContent, lit: document.querySelector(".pos-btn").classList.contains("on")`);
+  const posClick = async (ms = CAR ? 3500 : 2500) => { await run(`document.querySelector(".pos-btn").click(); true`); await sleep(ms); return posNav(); };
+  await run(`atlas.map.jumpTo({ zoom: 12 }); true`);
+  const pR = await posClick();
+  const pA = await posClick();
+  const arrowZoom = Math.log2((100 * 40075016.686 * Math.cos((59.4376 * Math.PI) / 180)) / (512 * 200));
+  await run(`atlas.map.fire("zoomstart", { originalEvent: new WheelEvent("wheel") }); atlas.map.jumpTo({ zoom: 15.5 }); true`);
+  await sleep(1500);
+  const pM = await posNav();
+  const pR2 = await posClick();
+  const pA2 = await posClick();
+  const pM2 = await posClick();
+  await run(`atlas.map.fire("dragstart", { originalEvent: new MouseEvent("mousedown") }); atlas.map.panBy([200, 0], { duration: 0 }); true`);
+  const pOff = await posNav();
+  const pBack = await posClick();
+  check("«Позиция»: по кругу — весь путь (2D, север, я в центре) → 3D 200 м → свой (масштаб рукой); сдвинул — гаснет, щелчок — снова свой",
+    pR.pos === "route" && pR.label === "Путь" && pR.lit && pR.mode === "north" && pR.pitch === 0 && pR.bearing === 0 && pR.zoom === 12 && Math.abs(pR.me.x) <= 3 && Math.abs(pR.me.y) <= 3
+    && pA.pos === "arrow" && pA.label === "3D" && pA.pitch >= 55 && Math.abs(pA.zoom - arrowZoom) < 0.1 && Math.abs(pA.me.y - VH / 4) <= 8
+    && pM.pos === "manual" && pM.follow && pM.label === "Свой" && pR2.pos === "route" && pR2.pitch === 0 && pA2.pos === "arrow"
+    && pM2.pos === "manual" && pM2.zoom === 15.5 && pM2.pitch >= 55 && !pOff.follow && !pOff.lit && pBack.pos === "manual" && pBack.follow && pBack.lit && Math.abs(pBack.me.x) <= 3,
+    JSON.stringify({ pR, pA, arrowZoom, pM, pR2, pA2, pM2, pOff, pBack }));
+  // как было для дальнейшего: «весь путь» (С, 2D), масштаб 14.3
+  await posClick();
+  await run(`atlas.map.jumpTo({ zoom: 14.3 }); true`);
+  await sleep(1000);
   // «Куда идти» — в самом окне поиска (Грегори 2026-11-04: «не под строкой поиска, а в окне поиска»): «Сюда»
   // в окне на карте — точка, строка поиска «Куда», в её списке стрелка, расстояние и сторона; путь пешком
   const navPanel = `document.querySelector(".search-card")`, navList = `document.querySelector(".search-results")`;
@@ -413,7 +440,7 @@ try {
   // кнопка «Навигация» в барабане поиска светится, пока навигация включена; выключили — путь убран, точка осталась
   const wheelNav = `document.querySelector('.wheel-content .layers-circle[data-key="content/navigation"]')`;
   const lit = await run(`({ on: ${wheelNav}?.classList.contains("on"), nav: ${navStats}.navOn })`);
-  await run(`document.querySelector(".geo-btn").click(); true`);
+  await run(`window.confirm = () => true; document.querySelector(".geo-btn").click(); true`);
   await sleep(500);
   const off = await run(`({ ...atlas.route.state(), on: ${wheelNav}?.classList.contains("on"), nav: ${navStats}.navOn })`);
   check("навигация: кнопка в барабане светится, пока навигация включена; выключили — путь и точка сняты",
@@ -565,7 +592,7 @@ try {
   await sleep(800);
   const relit = await run(`({ geo: atlas.geo.state().on, on: ${wheelNav}?.classList.contains("on"), open: ${navStats}.open })`);
   check("навигация: кнопка в барабане открывает раздел и светится, навигацию сама не включает", !dark.on && !dark.open && !relit.geo && relit.on && relit.open, JSON.stringify({ dark, relit }));
-  await run(`document.querySelector(".geo-btn").click(); true`);
+  await run(`window.confirm = () => true; document.querySelector(".geo-btn").click(); true`);
   for (let i = 0; i < 20 && !(await run(`!!atlas.route.state().me`)); i++) await sleep(250);
   // поиск места в окне навигации (Enter) — точка; история точек: свернуть, удалить
   await run(`(() => { const i = document.querySelector(".search-box input"); i.value = "Kadriorg"; i.dispatchEvent(new Event("input")); i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); return true; })()`);
@@ -671,7 +698,7 @@ try {
   check("барабан: «Поиск места» — обычный поиск (навигация работает), кнопка светится, с крестиком; «Навигация» — снова «Куда», лупа гаснет",
     plain.placeholder === "Поиск места" && plain.nav && plain.lit && plain.x && plain.back === "Куда" && !plain.litAfter, JSON.stringify(plain));
   await run(`document.querySelector(".compass-btn").click(); true`); // снова 2D
-  await run(`document.querySelector(".geo-btn").click(); true`); // слежение → выключить
+  await run(`window.confirm = () => true; document.querySelector(".geo-btn").click(); true`); // слежение → выключить
   await send("Emulation.clearGeolocationOverride");
   check("навигация: выключено", !(await run(`atlas.geo.state().on`)));
   await run(`atlas.map.jumpTo({ center: ${JSON.stringify(view0.center)}, zoom: ${view0.zoom}, pitch: 0, bearing: 0 }); true`);
@@ -762,7 +789,7 @@ try {
     version: (() => { const b = document.querySelector(".maplibregl-ctrl-attrib-button"); b.click(); const a = document.querySelector(".maplibregl-ctrl-attrib");
       const r = { open: a.classList.contains("maplibregl-compact-show"), w: Math.round(a.getBoundingClientRect().width), line: a.querySelector(".attrib-version")?.textContent || "" }; b.click(); return r; })(),
     status: (() => { const s = document.getElementById("status"); return s.textContent ? "text" : getComputedStyle(s).display; })() })`);
-  check("язык подписей и шестерёнка — в столбике под логотипом; ⓘ свёрнута; пустая строка состояния спрятана", misc.lang && !misc.inSearch && !misc.attrib && misc.version.open && misc.version.w >= 260 && /^(Обновлено|Версия).*, \d\d:\d\d$/.test(misc.version.line) && (misc.status === "none" || misc.status === "text"), JSON.stringify(misc));
+  check("язык подписей и шестерёнка — в столбике под логотипом; ⓘ свёрнута; пустая строка состояния спрятана", misc.lang && !misc.inSearch && !misc.attrib && misc.version.open && misc.version.w >= 260 && /^Atlas \d+\.\d+ · .*, \d\d:\d\d$/.test(misc.version.line) && (misc.status === "none" || misc.status === "text"), JSON.stringify(misc));
   // окно настроек: только «закрыть», без «свернуть»; Esc закрывает его, как «Назад» на телефоне
   await run(settingsToggle);
   await sleep(300);
@@ -841,7 +868,7 @@ try {
   await clickAt(...(CAR ? [640, 100] : [40, 400]));
   await sleep(2500);
   const empty = await run(`document.querySelector(".maplibregl-popup .popup-coords")?.textContent || ""`);
-  check("щелчок по карте — координаты", /^\d+\.\d+, \d+\.\d+$/.test(empty), empty);
+  check("щелчок по карте — координаты", /^\d+\.\d+, \d+\.\d+$/.test(empty), empty || await run(`(() => { const e = document.elementFromPoint(${CAR ? 640 : 40}, ${CAR ? 100 : 400}); return e.className + " / " + e.parentElement?.className + " / " + [...document.querySelectorAll(".maplibregl-popup")].map((p) => p.textContent.slice(0, 80)).join(" | "); })()`));
   // окно со «Сюда» у края экрана целиком на экране (Грегори 2026-11-04: на телефоне уходило за край)
   const popFit = await run(`(() => { const r = document.querySelector(".maplibregl-popup")?.getBoundingClientRect(); return r && { l: Math.round(r.left), t: Math.round(r.top), r: Math.round(r.right), b: Math.round(r.bottom), w: innerWidth, h: innerHeight, here: !!document.querySelector(".maplibregl-popup .go-here") }; })()`);
   check("окно места со «Сюда» — целиком на экране", popFit && popFit.here && popFit.l >= 0 && popFit.t >= 0 && popFit.r <= popFit.w && popFit.b <= popFit.h, JSON.stringify(popFit));
@@ -2549,7 +2576,7 @@ try {
     await send("Emulation.setGeolocationOverride", {}); // браузер места не знает
     await run(`(() => { const calls = []; window.AtlasGps = { calls, start: () => calls.push("start"), stop: () => calls.push("stop"),
       info: () => JSON.stringify({ allowed: true, hasGps: true, gps: true, net: false, sats: 7, used: 2, running: true }) }; return true; })()`);
-    await run(`document.querySelector(".geo-btn").click(); true`);
+    await run(`window.confirm = () => true; document.querySelector(".geo-btn").click(); true`);
     await sleep(11500);
     const g1 = await run(`({ text: document.querySelector("#status").textContent, calls: AtlasGps.calls.slice(), dot: !!document.querySelector(".geo-dot") })`);
     check("GPS приложения: включён с навигацией, через 10 с без замера — сколько видно спутников", g1.calls[0] === "start" && /видно 7, для замера годится 2/.test(g1.text) && !g1.dot, JSON.stringify(g1));
@@ -2557,9 +2584,9 @@ try {
     await sleep(1200);
     const g2 = await run(`({ text: document.querySelector("#status").textContent, dot: !!document.querySelector(".geo-dot"), pos: atlas.geo.state().position })`);
     check("GPS приложения: замер — метка на месте, подсказка убрана", g2.dot && !g2.text && Math.abs(g2.pos[0] - 24.745) < 1e-6, JSON.stringify(g2));
-    await run(`document.querySelector(".geo-btn").click(); true`);
+    await run(`window.confirm = () => true; document.querySelector(".geo-btn").click(); true`);
     await sleep(300);
-    if (await run(`atlas.geo.state().on`)) await run(`document.querySelector(".geo-btn").click(); true`);
+    if (await run(`atlas.geo.state().on`)) await run(`window.confirm = () => true; document.querySelector(".geo-btn").click(); true`);
     const g3 = await run(`({ calls: AtlasGps.calls.slice(), fix: window.atlasNativeFix })`);
     check("GPS приложения: навигацию выключили — GPS приложения выключен", g3.calls.includes("stop") && !g3.fix, JSON.stringify(g3));
     await run(`delete window.AtlasGps; true`);
@@ -2711,6 +2738,47 @@ try {
     await run(`document.querySelector('[data-panel="settings"] .panel-btn[title=Закрыть]').click(); true`);
   }
 
+  // «Спорт» в «Местах»: свой кружок, в меню виды и «Сёрфинг и кайт»; теннис у Таллина — булавки (QLever), щелчок — окно
+  if (want("places/sport") && mods.some((m) => m.id === "places/sport")) {
+    await run(`atlas.map.jumpTo({ center: [24.70, 59.43], zoom: 13 }); true`);
+    await run(openLayers("places/sport"));
+    await sleep(500);
+    const menu = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item")].map((c) => c.firstChild.textContent)`);
+    await run(`${itemFor("Теннис")}.click(); true`);
+    let sp = null;
+    for (let i = 0; i < 40; i++) {
+      await sleep(1000);
+      sp = await run(`({ ...atlas.modules().find((m) => m.id === "places/sport").stats(), drawn: atlas.map.getLayer("sport") ? atlas.map.queryRenderedFeatures({ layers: ["sport"] }).length : 0 })`);
+      if (sp.drawn > 0) break;
+    }
+    check("спорт: в меню виды и «Сёрфинг и кайт», теннис — булавки в районе",
+      ["Горнолыжные курорты", "Прокат", "Спортивные магазины", "Теннис", "Падел", "Сёрфинг и кайт", "Кайт в Эстонии"].every((t) => menu.includes(t))
+      && sp.kinds.join() === "tennis" && sp.drawn > 0, JSON.stringify({ menu, sp }));
+    await run(closeLayers);
+    // булавка — в середину экрана (на телефоне края закрыты строкой поиска и кнопками)
+    await run(`(() => { const f = atlas.map.queryRenderedFeatures({ layers: ["sport"] })[0]; atlas.map.jumpTo({ center: f.geometry.coordinates }); return true; })()`);
+    await sleep(800);
+    const pt = await run(`(() => { const f = atlas.map.queryRenderedFeatures({ layers: ["sport"] }).sort((a, b) => { const d = (x) => { const p = atlas.map.project(x.geometry.coordinates); return Math.hypot(p.x - innerWidth / 2, p.y - innerHeight / 2); }; return d(a) - d(b); })[0];
+      const p = atlas.map.project(f.geometry.coordinates); return [p.x, p.y - 15]; })()`);
+    for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: pt[0], y: pt[1], button: "left", clickCount: 1 });
+    let title = null;
+    for (let i = 0; i < 20 && !title; i++) { await sleep(500); title = await run(`document.querySelector(".maplibregl-popup .popup-title")?.textContent || null`); }
+    check("спорт: щелчок по булавке — окно места", !!title, title || JSON.stringify({ pt, el: await run(`document.elementFromPoint(${pt[0]}, ${pt[1]})?.className`), at: await run(`atlas.map.queryRenderedFeatures([${pt[0]}, ${pt[1]}], { layers: ["sport"] }).length`), pop: await run(`[...document.querySelectorAll(".maplibregl-popup")].map((p) => p.textContent.slice(0, 60))`) }));
+    await shot("80c-places-sport");
+    // «Сёрфинг и кайт» из меню включает модуль сёрфинга, выключение «Спорта» — и его
+    await run(openLayers("places/sport"));
+    await sleep(300);
+    await run(`${itemFor("Сёрфинг и кайт")}.click(); true`);
+    await sleep(1500);
+    const surfOn = await run(`atlas.modules().find((m) => m.id === "layers/surf").active`);
+    await run(`atlas.toggle("places/sport", false).then(() => true)`);
+    await sleep(500);
+    const surfOff = await run(`!atlas.modules().find((m) => m.id === "layers/surf").active && atlas.map.getLayoutProperty("sport", "visibility") === "none"`);
+    check("спорт: «Сёрфинг и кайт» — из меню «Спорта», выключается вместе с ним", surfOn && surfOff, JSON.stringify({ surfOn, surfOff }));
+    await run(`document.querySelector(".maplibregl-popup-close-button")?.click(); true`);
+    await run(closeLayers);
+  }
+
   await run(`document.querySelector('[data-panel=settings]') ? true : false`).then((has) => check("панель «settings» есть", has));
   // «Слои»: столбик разделов (Места, Тропы, Дороги, Рельеф, Погода, Пляжи и сёрфинг), подменю у кружка
   await run(`atlas.toggle("layers/railways", true).then(() => true)`);
@@ -2718,7 +2786,7 @@ try {
   const lm = await run(`({ groups: [...document.querySelectorAll(".wheel-layers .layers-circle")].map((c) => c.ariaLabel.split(":")[0]),
     sub: [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((c) => c.firstChild.textContent),
     on: [...document.querySelectorAll(".wheel-layers .layers-circle.on")].map((c) => c.ariaLabel) })`);
-  check("«Слои»: кружки, «Дороги» — виды и железные дороги, «Фото»", ["Карты", "Места", "Транспорт", "Магазины", "Тропы", "Велодорожки", "Дороги", "Погода", "Фото"].every((g) => lm.groups.includes(g))
+  check("«Слои»: кружки, «Дороги» — виды и железные дороги, «Фото»", ["Карты", "Места", "Транспорт", "Магазины", "Спорт", "Тропы", "Велодорожки", "Дороги", "Погода", "Фото"].every((g) => lm.groups.includes(g))
     && !lm.groups.includes("Экскурсии") && !lm.groups.includes("Языки")
     && !lm.groups.includes("Пляжи и сёрфинг") && !lm.groups.includes("Рельеф") && lm.sub.length === 5
     && lm.sub.includes("Железные дороги") && lm.on.includes("Дороги"), JSON.stringify(lm));

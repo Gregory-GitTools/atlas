@@ -47,10 +47,11 @@ const viewPad = (pad = { top: 60, bottom: 60, left: 60, right: 60 }) => {
   return wheel && innerWidth > 600 ? { ...pad, right: Math.max(pad.right, Math.round(innerWidth - wheel.left) + 30) } : pad;
 };
 // показать весь путь: я, точка и линия по дорогам (Грегори 2026-11-05: «при первом „Сюда“ покажи весь путь»)
-export const fitPath = (map, pts) => {
+// поля — под открытую карточку пути; open = false — карточки нет («Позиция: весь путь»)
+export const fitPath = (map, pts, open = true) => {
   pts = pts.filter(Boolean);
   if (!map || !pts.length) return;
-  const pad = viewPad(innerWidth <= 600 ? { top: Math.round(innerHeight * 0.45), bottom: 90, left: 40, right: 40 } : { top: 110, bottom: 110, left: 440, right: 90 });
+  const pad = viewPad(innerWidth <= 600 ? { top: open ? Math.round(innerHeight * 0.45) : 90, bottom: 90, left: 40, right: 40 } : { top: 110, bottom: 110, left: open ? 440 : 90, right: 90 });
   if (pts.length < 2) { map.flyTo({ center: pts[0], zoom: Math.max(map.getZoom(), 14), duration: 1500 }, { navFollow: true }); return; }
   const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
   map.fitBounds([[Math.min(...xs), Math.min(...ys)], [Math.max(...xs), Math.max(...ys)]], { padding: pad, maxZoom: 16, duration: 1500 }, { navFollow: true });
@@ -557,6 +558,12 @@ export function initRoute({ map, maplibregl, status }) {
     const w = route && WAYS.find((x) => x.id === route.way);
     if (w && me && route.fromMe && navigator.onLine && allowed(self())) { ask(w, true); return; }
     fitPath(map, [me, ...ahead().map((x) => x.lngLat), ...(restPath() || [])]);
+  }, { replay: false });
+  // «Позиция: весь путь» (core/controls.js) — я и весь оставшийся путь на экране, без пересчёта
+  on("route-fit-me", (req) => {
+    if (!all().length) return;
+    req.done = true;
+    fitPath(map, [req.me, ...ahead().map((x) => x.lngLat), ...(restPath() || [])], false);
   }, { replay: false });
 
   // при запуске точки нет (Грегори 2026-11-05): навигация не включается, точка — в истории окна навигации
