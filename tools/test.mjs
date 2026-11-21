@@ -2923,8 +2923,34 @@ try {
   await shot("95b-wheel");
   await run(openLayers("maps"));
   const relief = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((c) => c.firstChild.textContent)`);
-  check("«Карты»: виды карт, под чертой тени и 3D и высоты", relief.includes("Высоты") && relief.includes("Тени и 3D") && relief.length === 7
-    && (await run(`!!document.querySelector(".layers-sub .layers-sep")`)), JSON.stringify(relief));
+  check("«Карты»: виды карт, потом тени и 3D и высоты", relief.includes("Высоты") && relief.includes("Тени и 3D") && relief.length === 7, JSON.stringify(relief));
+  // меню кнопки — карусель слева от барабана (Грегори 2026-11-21): значки — круглые кнопки как на барабане, подпись
+  // слева от значка; в центре — вровень с кнопкой барабана; нажатие не по центральной — докручивается в центр
+  const car = await run(`(async () => { const sub = document.querySelector(".sub-layers"), c = document.querySelector('.layers-circle[data-key="maps"]');
+    const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+    await wait(1200); // барабан докручивается к «Картам»
+    const mid = (el) => { const r = el.getBoundingClientRect(); return r.top + r.height / 2; };
+    const shown = () => [...sub.querySelectorAll(".wheel-cell:not([hidden]) .layers-item")];
+    // смена карты перерисовывает барабан — кнопку «Карты» искать заново
+    const btn = () => document.querySelector('.layers-circle[data-key="maps"]');
+    const center = () => shown().sort((a, b) => Math.abs(mid(a) - mid(btn())) - Math.abs(mid(b) - mid(btn())))[0];
+    const icon = sub.querySelector(".layers-icon"), ir = icon.getBoundingClientRect(), cr = c.getBoundingClientRect();
+    const span = sub.querySelector(".layers-item > span").getBoundingClientRect();
+    const r = { carousel: sub.classList.contains("carousel"), cells: shown().length, size: Math.round(ir.width) === Math.round(cr.width) && Math.round(ir.height) === Math.round(cr.height),
+      round: getComputedStyle(icon).borderRadius === "50%", label: span.right <= ir.left + 1, off: Math.round(mid(center()) - mid(c)),
+      beside: Math.round(sub.getBoundingClientRect().right) <= Math.round(c.closest(".wheel").getBoundingClientRect().left) + 1,
+      arc: new Set(shown().map((b) => Math.round(b.getBoundingClientRect().top))).size === shown().length };
+    const first = center().firstChild.textContent, items = shown(), k = items.indexOf(center());
+    const next = items[k + 1] || items[k - 1], t = next.firstChild.textContent;
+    next.click(); await wait(1200);
+    r.spun = center()?.firstChild.textContent === t && !sub.hidden;
+    r.picked = t + " → " + center()?.firstChild.textContent;
+    shown().find((b) => b.firstChild.textContent === first)?.click(); await wait(1200);
+    r.back = center()?.firstChild.textContent === first;
+    return r; })()`);
+  check("меню кнопки — карусель: значки — круглые кнопки как на барабане, подпись слева, центр вровень с кнопкой, нажатая — в центр",
+    car.carousel && car.cells > 2 && car.size && car.round && car.label && car.beside && car.arc && Math.abs(car.off) <= 3 && car.spun && car.back, JSON.stringify(car));
+  await shot("95d-carousel");
   await run(`atlas.toggle("layers/railways", false).then(() => true)`);
   await run(`(async () => { const L = document.querySelector(".search-toggle"); for (let k = 0; k < 2 && document.querySelector(".wheel-content").classList.contains("closed"); k++) { L.click(); await new Promise((r) => setTimeout(r, 400)); } return true; })()`);
   await tap("settings");

@@ -4129,3 +4129,114 @@ body.dock-on .dock {
   height: 100%;
   pointer-events: none;
 }
+
+/* меню кнопки барабана — карусель слева от него (Грегори 2026-11-21): во всю высоту экрана, крутится
+   так же; значок — кнопка как на барабане, подпись слева от неё и едет вместе с ней */
+.layers-sub.carousel {
+  display: block;
+  left: 8px;
+  top: 0;
+  bottom: 0;
+  max-height: none;
+  overflow: visible;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.layers-sub.carousel[hidden] {
+  display: none;
+}
+
+.carousel .wheel-cell {
+  left: auto;
+  right: 0;
+  pointer-events: auto;
+}
+
+.carousel .layers-item,
+.carousel .layers-item:hover,
+.carousel .layers-item.on {
+  height: var(--button);
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.carousel .layers-item > span {
+  padding: 5px 12px;
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.carousel .layers-item.on > span {
+  background: color-mix(in srgb, var(--tone) 20%, #fff);
+}
+
+/* значок — как кнопка барабана: выключено — заливка цвета группы, включено — светлая, кольцо и галочка */
+.carousel .layers-icon {
+  position: relative;
+  width: var(--button);
+  height: var(--button);
+  background: var(--tone);
+  color: #fff;
+  box-shadow: var(--shadow);
+}
+
+.carousel .layers-icon > svg {
+  width: 28px;
+  height: 28px;
+}
+
+.carousel .layers-item:hover .layers-icon {
+  background: color-mix(in srgb, var(--tone) 85%, #000);
+}
+
+.carousel .layers-item.on .layers-icon {
+  background: color-mix(in srgb, var(--tone) 20%, #fff);
+  color: var(--tone);
+  box-shadow: var(--shadow), inset 0 0 0 2.5px var(--tone);
+}
+
+.carousel .layers-item.on:hover .layers-icon {
+  background: color-mix(in srgb, var(--tone) 32%, #fff);
+}
+
+.carousel .layers-item.on .layers-icon::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-sizing: border-box;
+  background: var(--tone) no-repeat center / 11px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='4' stroke-linecap='round' stroke-linejoin='round' d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+}
+
+/* цвет на карте что-то значит — кольцо этого цвета на белом */
+.carousel .layers-icon.ring {
+  border-width: 3px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+/* «Карты» — миниатюра в кольце, выбранная — в кольце цвета группы */
+.carousel .layers-icon.thumb {
+  border-width: 3px;
+  background: var(--panel);
+}
+
+.carousel .layers-item.selected .layers-icon.thumb {
+  border-color: var(--tone);
+}
+
+.carousel .layers-wait {
+  white-space: nowrap;
+}
+
+.carousel .layers-item:hover .layers-icon.ring,
+.carousel .layers-item:hover .layers-icon.thumb {
+  background: var(--panel-hover);
+}

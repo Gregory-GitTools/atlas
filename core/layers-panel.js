@@ -273,8 +273,9 @@ export function initLayersPanel(ctx) {
     const wheel = Object.assign(document.createElement("div"), { className: `wheel wheel-${name} closed` });
     const drum = Object.assign(document.createElement("div"), { className: "wheel-drum" });
     wheel.append(drum);
-    // столбик кнопки — слева от барабана
-    const sub = Object.assign(document.createElement("div"), { className: `layers-sub sub-${name}`, hidden: true });
+    // меню кнопки — карусель слева от барабана (Грегори 2026-11-21: «барабан с выбором меню рядом; значки — кнопками,
+    // подписи рядом вращаются вместе с ними; вид и реакция на нажатие — одинаковые»)
+    const sub = Object.assign(document.createElement("div"), { className: `layers-sub carousel sub-${name}`, hidden: true });
     // подпись — только у центральной кнопки, слева от неё (Грегори, 2026-10-30)
     const tip = Object.assign(document.createElement("div"), { className: "wheel-tip" });
     document.body.append(wheel, sub, tip);
@@ -286,18 +287,38 @@ export function initLayersPanel(ctx) {
       wheel.classList.toggle("closed", !open);
       // подпись центральной кнопки — только при прокрутке и наведении, не сама после нажатия кнопок
       // (Грегори 2026-11-06: «убирай после выбора кнопок»)
-      if (open) layout(); else { hideTip(); show(null); }
+      if (open) R.layout(); else { hideTip(); show(null); }
     };
     document.addEventListener("click", (e) => {
       // кнопку, по которой щёлкнули, могли уже перерисовать — это щелчок внутри, а не мимо
       if (!e.target.isConnected) return;
       if (openKey && !sub.contains(e.target) && !wheel.contains(e.target) && !controls.some((c) => c.contains(e.target))) show(null);
     });
-    // Esc закрывает столбик кнопки; сам барабан — нет: он под рукой, Esc («Назад») сначала закрывает окна
+    // Esc закрывает меню кнопки; сам барабан — нет: он под рукой, Esc («Назад») сначала закрывает окна
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && isOpen && openKey && !e.defaultPrevented) { e.preventDefault(); show(null); } });
 
-    // ---------- столбик кнопки ----------
-    let openKey = null;
+    // барабан прижат к своей кнопке (Грегори 2026-11-09: «уже не понятно, кто есть кто»): разделы — к верху,
+    // под кнопку справа вверху, места и слои — к низу, к своим кнопкам; хватает кнопок на всю высоту — по середине
+    const centerY = () => {
+      const h = drum.clientHeight, r = R.geom().radius + BTN / 2 + 4;
+      return name === "content" ? Math.min(h / 2, r) : Math.max(h / 2, h - r);
+    };
+    const R = rotor(drum, wheel, {
+      centerY, shown: () => isOpen,
+      onStart: () => { hideTip(); if (openKey) show(null); },
+      onSettle: () => showTip(),
+      // на телефоне смахнуть вправо — спрятать барабан (кроме разделов: они с поиском)
+      onSwipe: name === "content" ? null : () => setDrum(name, false),
+    });
+    // карусель — во всю высоту экрана; её центр — всегда вровень с центром барабана (там кнопка, чьё меню
+    // открыто), крайние кнопки могут уйти за край экрана — докручиваются
+    const S = rotor(sub, sub, {
+      shown: () => !sub.hidden,
+      centerY: () => wheel.getBoundingClientRect().top + centerY() - sub.getBoundingClientRect().top,
+    });
+
+    // ---------- меню кнопки ----------
+    let openKey = null, subKey = null;
     let list = []; // кнопки барабана по порядку: { e, cell, c, x }
     function show(key) {
       openKey = key;
@@ -308,99 +329,46 @@ export function initLayersPanel(ctx) {
       const m = e.module;
       const cur = currentBasemap();
       const col = e.content?.column;
-      // раздел с панелью: список подгружается при первом открытии столбика
+      // раздел с панелью: список подгружается при первом открытии меню
       if (col && !col.loaded) {
         col.loaded = true;
         col.load(ctx).catch(() => {}).finally(() => openKey === key && show(key));
       }
       const colItems = col ? col.items() : [];
-      sub.replaceChildren(
-        ...(col && !colItems.length ? [Object.assign(document.createElement("div"), { className: "layers-wait", textContent: "Загрузка…" })] : []),
+      const items = [
         ...colItems.map((it) => item({ title: it.title, thumb: it.thumb, icon: it.icon, selected: it.selected, hint: it.hint,
           click: () => { col.choose(it.id, ctx); show(null); } })),
         ...(e.maps ? BASEMAPS.map((b) => item({ title: b.name, thumb: thumbOf(b), selected: b === cur, hint: b.hint,
           click: () => { setBasemap(b); show(openKey); } })) : []),
-        ...(e.maps && e.plain.length ? [Object.assign(document.createElement("div"), { className: "layers-sep" })] : []),
         ...(m ? m.menu.items().map((it) => item({ title: it.title, icon: it.icon || m.icon, color: it.color, on: m.active && it.active, blocked: !allowed(m),
           click: () => {
             if (!m.active) { m.menu.choose(it.id); switchTo(m, true); } // слой был выключен — только этот вид
             else switchTo(m, m.menu.toggle(it.id)); // отметить ещё один или снять; не осталось ни одного — выключить
           } })) : []),
         ...e.plain.map((p) => item({ title: p.title, icon: p.icon, color: p.color, on: p.active, blocked: !allowed(p), hint: p.hint, click: () => switchTo(p, !p.active) })),
-      );
-      // выделенные кнопки столбика — светлой заливкой цвета группы
+      ];
+      // нажатие по кнопке не в центре — докрутить её в центр, действие — сразу (как у барабана)
+      items.forEach((b, i) => b.addEventListener("click", () => { if (!S.atCenter(i)) S.spinTo(i, () => {}); }));
+      const cells = items.map((b) => { const cell = Object.assign(document.createElement("div"), { className: "wheel-cell" }); cell.append(b); return cell; });
+      if (col && !colItems.length) cells.push(Object.assign(document.createElement("div"), { className: "wheel-cell layers-wait", textContent: "Загрузка…" }));
+      // выделенные кнопки меню — светлой заливкой цвета группы
       sub.style.setProperty("--tone", `var(--tone-${e.tone})`);
+      // вплотную слева от барабана
+      sub.style.right = `${innerWidth - wheel.getBoundingClientRect().left}px`;
       sub.hidden = false;
-      // слева от барабана, по центру относительно кнопки (она в центре барабана); не выходит за экран
-      const r = wheel.getBoundingClientRect();
-      const mid = r.top + centerY();
-      sub.style.right = `${innerWidth - r.left - 4}px`;
-      sub.style.top = `${Math.max(8, Math.min(mid - sub.offsetHeight / 2, innerHeight - sub.offsetHeight - 8))}px`;
+      S.set(cells);
+      // другая кнопка — в центре выбранное (первое отмеченное), иначе первое; та же (и после закрытия: при смене
+      // карты меню на миг закрывается) — карусель стоит, где стояла
+      if (subKey !== key) S.jump(Math.max(0, items.findIndex((b) => b.classList.contains("on") || b.classList.contains("selected"))));
+      subKey = key;
     }
 
-    // raw — положение барабана в кнопках (0 — первая в центре), растёт при прокрутке вниз;
-    // на экране — с притормаживанием у центра: возле целого значения кнопки движутся медленнее
-    let raw = 0, target = 0, frame = 0, onArrive = null;
-    const n = () => list.length;
-    // промежуток в центре — GAP; кнопок хватает — барабан на всю высоту, мало — короче и без повторов по кругу,
-    // видны все (n/2 + ½: иначе крайняя встаёт ровно на край барабана и прячется — у четырёх разделов не было «Треков»)
-    const geom = () => {
-      const full = drum.clientHeight / 2 - BTN / 2 - 4;
-      const half = Math.max(1, Math.min(n() / 2 + 0.5, Math.PI / 2 / Math.asin(Math.min(1, GAP / full))));
-      const step = Math.PI / 2 / half;
-      return { step, radius: Math.min(full, GAP / Math.sin(step)) };
-    };
-    // барабан прижат к своей кнопке (Грегори 2026-11-09: «уже не понятно, кто есть кто»): разделы — к верху,
-    // под кнопку справа вверху, места и слои — к низу, к своим кнопкам; хватает кнопок на всю высоту — по середине
-    const centerY = () => {
-      const h = drum.clientHeight, r = geom().radius + BTN / 2 + 4;
-      return name === "content" ? Math.min(h / 2, r) : Math.max(h / 2, h - r);
-    };
-    const shownAt = (v) => v - (DETENT * Math.sin(2 * Math.PI * v)) / (2 * Math.PI);
-    const wrap = (d) => { const k = n(); return ((d % k) + k + k / 2) % k - k / 2; };
-    const centerIndex = () => ((Math.round(raw) % n()) + n()) % n();
-
-    function layout() {
-      if (!n() || !isOpen) return;
-      const cy = centerY(), { radius, step } = geom();
-      const off = shownAt(raw);
-      list.forEach(({ cell }, i) => {
-        const a = wrap(i - off) * step;
-        if (Math.abs(a) >= Math.PI / 2) { cell.hidden = true; return; }
-        const k = Math.cos(a);
-        cell.hidden = false;
-        cell.style.transform = `translateY(${cy + radius * Math.sin(a) - BTN / 2}px)`;
-        // к краям барабана — темнее и прозрачнее, центральная — сверху
-        cell.style.filter = `brightness(${0.55 + 0.45 * k})`;
-        cell.style.opacity = String(Math.min(1, 0.25 + k));
-        cell.style.zIndex = String(Math.round(k * 100));
-      });
-    }
-
-    const animate = () => {
-      cancelAnimationFrame(frame);
-      const tick = () => {
-        const d = target - raw;
-        if (Math.abs(d) < 0.002) {
-          raw = target;
-          layout();
-          const done = onArrive; onArrive = null;
-          // докрутили щелчком — кнопку выбрали, подпись не нужна; встали после прокрутки — подпись
-          if (done) done(); else showTip();
-          return;
-        }
-        raw += d * 0.18;
-        layout();
-        frame = requestAnimationFrame(tick);
-      };
-      frame = requestAnimationFrame(tick);
-    };
     // подпись центральной кнопки: встал барабан или навели мышь — видна пару секунд
     let tipTimer = 0;
     function showTip() {
       clearTimeout(tipTimer);
-      const l = list[centerIndex()];
-      if (!isOpen || openKey || !l || drag?.moved) return hideTip();
+      const l = list[R.centerIndex()];
+      if (!isOpen || openKey || !l || R.dragged()) return hideTip();
       tip.textContent = l.c.ariaLabel;
       const r = l.c.getBoundingClientRect();
       tip.style.right = `${innerWidth - r.left + 8}px`;
@@ -412,70 +380,11 @@ export function initLayersPanel(ctx) {
       clearTimeout(tipTimer);
       tip.classList.remove("show");
     }
-
-    // докрутить кнопку i в центр — кратчайшим путём по кругу
-    const spinTo = (i, then) => {
-      target = Math.round(raw) + wrap(i - Math.round(raw));
-      onArrive = then;
-      animate();
-    };
-
-    // колёсико: шаг колёсика — кнопка; остановились — барабан встаёт кнопкой в центр
-    let snapTimer = 0;
-    wheel.addEventListener("wheel", (e) => {
-      e.preventDefault();
-      hideTip();
-      if (openKey) show(null);
-      target += e.deltaY / (e.deltaMode === 1 ? 3 : 100);
-      onArrive = null;
-      animate();
-      clearTimeout(snapTimer);
-      snapTimer = setTimeout(() => { target = Math.round(target); animate(); }, 160);
-    }, { passive: false });
-
-    // палец и мышь: тянуть вверх-вниз, с разгоном; на телефоне смахнуть вправо — спрятать панель
-    let drag = null, suppressClick = false;
-    wheel.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
-      drag = { x: e.clientX, y: e.clientY, raw, t: performance.now(), v: 0, moved: false, id: e.pointerId };
-    });
-    wheel.addEventListener("pointermove", (e) => {
-      if (!drag || e.pointerId !== drag.id) return;
-      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-      if (!drag.moved) {
-        if (name !== "content" && dx > 40 && Math.abs(dx) > 2 * Math.abs(dy)) { drag = null; suppressClick = true; setDrum(name, false); return; }
-        if (Math.abs(dy) < 6) return;
-        drag.moved = true;
-        wheel.setPointerCapture(e.pointerId);
-        hideTip();
-        if (openKey) show(null);
-        cancelAnimationFrame(frame);
-      }
-      const { radius, step: a } = geom(), step = radius * a; // промежуток в центре
-      const now = performance.now(), next = drag.raw - dy / step;
-      drag.v = (next - raw) / Math.max(1, now - drag.t);
-      drag.t = now;
-      raw = target = next;
-      layout();
-    });
-    const endDrag = (e) => {
-      if (!drag || e.pointerId !== drag.id) return;
-      if (drag.moved) {
-        suppressClick = true;
-        // разгон — ещё до ~3 кнопок, потом ближайшая встаёт в центр
-        target = Math.round(raw + Math.max(-3, Math.min(3, drag.v * 250)));
-        animate();
-      }
-      drag = null;
-    };
-    wheel.addEventListener("pointerup", endDrag);
-    wheel.addEventListener("pointercancel", endDrag);
-    wheel.addEventListener("click", (e) => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); suppressClick = false; } }, true);
-    addEventListener("resize", () => { hideTip(); layout(); if (openKey) show(openKey); });
+    addEventListener("resize", () => { hideTip(); R.layout(); if (openKey) show(openKey); });
 
     // ---------- кнопки барабана ----------
     const render = () => {
-      const centered = list[centerIndex()]?.e.key;
+      const centered = list[R.centerIndex()]?.e.key;
       list = entries().map((e) => {
         const cell = Object.assign(document.createElement("div"), { className: "layers-cell wheel-cell" });
         const c = Object.assign(document.createElement("button"), { className: `btn layers-circle tone-${e.tone}` });
@@ -492,11 +401,11 @@ export function initLayersPanel(ctx) {
         const label = e.module?.menu.label();
         if (label && label !== e.title) c.ariaLabel = `${e.title}: ${label}`;
         c.dataset.key = e.key;
-        c.addEventListener("mouseenter", () => list[centerIndex()]?.c === c && Math.abs(raw - target) < 0.01 && showTip());
+        c.addEventListener("mouseenter", () => list[R.centerIndex()]?.c === c && R.settled() && showTip());
         const anyOn = !!e.module?.active || e.plain.some((m) => m.active) || !!e.content?.column.isOpen() || (e.key === "content/navigation" && !!routeNow?.target);
         c.classList.toggle("on", anyOn);
         x.hidden = !anyOn;
-        // крестик: выключить всё в кнопке, забыть отмеченные виды и закрыть столбик (Грегори, 2026-10-29:
+        // крестик: выключить всё в кнопке, забыть отмеченные виды и закрыть меню (Грегори, 2026-10-29:
         // «при нажатии на крестик сброса панель сворачивать»)
         x.addEventListener("click", async (ev) => {
           ev.stopPropagation();
@@ -507,11 +416,11 @@ export function initLayersPanel(ctx) {
           e.module?.menu.clear?.();
           render();
         });
-        // центральная — открыть или закрыть столбик; другая — докрутить в центр и сразу открыть
+        // центральная — открыть или закрыть меню; другая — докрутить в центр и сразу открыть
         c.addEventListener("click", (ev) => {
           ev.stopPropagation();
           const i = list.findIndex((l) => l.e.key === e.key);
-          // раздел — сразу его панель; слой — столбик. Окно раздела уже открыто — кнопка его сворачивает и
+          // раздел — сразу его панель; слой — меню. Окно раздела уже открыто — кнопка его сворачивает и
           // разворачивает; у навигации с целью — карточку пути (как раньше значки в столбике под логотипом)
           const act = () => {
             if (!e.content) return show(openKey === e.key ? null : e.key);
@@ -531,19 +440,18 @@ export function initLayersPanel(ctx) {
           };
           // не в центре — докрутить и выполнить сразу, не дожидаясь конца прокрутки (пока карта летит, кадры
           // редкие, и окно открывалось с задержкой)
-          if (!(i === centerIndex() && Math.abs(raw - Math.round(raw)) < 0.01)) spinTo(i, () => {}); // пустое «по приезде» — без подписи
+          if (!R.atCenter(i)) R.spinTo(i, () => {}); // пустое «по приезде» — без подписи
           act();
         });
         return { e, cell, c, x };
       });
-      drum.replaceChildren(...list.map((l) => l.cell));
+      R.set(list.map((l) => l.cell));
       // перерисовка не сдвигает барабан: в центре — та же кнопка
       const keep = list.findIndex((l) => l.e.key === centered);
-      if (keep >= 0 && keep !== centerIndex()) raw = target = keep;
-      layout();
+      if (keep >= 0 && keep !== R.centerIndex()) R.jump(keep);
       if (openKey) show(openKey);
     };
-    return { name, setOpen, render, wheel, relayout: () => { if (isOpen) { layout(); if (openKey) show(openKey); } } };
+    return { name, setOpen, render, wheel, relayout: () => { if (isOpen) { R.layout(); if (openKey) show(openKey); } } };
   }
 
   const drums = [makeDrum("layers", layerEntries), makeDrum("places", placeEntries), makeDrum("content", contentEntries)];
@@ -597,4 +505,130 @@ export function initLayersPanel(ctx) {
   ctx.map.on("style.load", () => {
     for (const m of modules("layer")) if (m.active) m.enable?.(ctx);
   });
+}
+
+// барабан: кнопки по дуге, как в игровом автомате или при выборе даты — размер у всех один, меняются промежутки: в центре
+// самые большие, к верху и низу всё меньше, кнопки уходят за край и темнеют. Крутится колёсиком мыши или пальцем, по
+// кругу; кнопка, проходя через центр, притормаживает, после прокрутки барабан встаёт ближайшей кнопкой в центр.
+// Один и тот же у барабанов и у карусели меню (Грегори 2026-11-21: «вид и реакция на нажатие — одинаковые»).
+// box — где кнопки (его высота — высота барабана), el — что слушает колёсико и палец; centerY() — где центр,
+// shown() — виден ли; onStart — начали крутить, onSettle — встал после прокрутки, onSwipe — смахнули вправо
+function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {}, onSwipe = null }) {
+  let cells = [];
+  // raw — положение в кнопках (0 — первая в центре), растёт при прокрутке вниз; на экране — с притормаживанием
+  // у центра: возле целого значения кнопки движутся медленнее
+  let raw = 0, target = 0, frame = 0, onArrive = null;
+  const n = () => cells.length;
+  // промежуток в центре — GAP; кнопок хватает — барабан на всю высоту, мало — короче и без повторов по кругу,
+  // видны все (n/2 + ½: иначе крайняя встаёт ровно на край барабана и прячется — у четырёх разделов не было «Треков»)
+  const geom = () => {
+    const full = box.clientHeight / 2 - BTN / 2 - 4;
+    const half = Math.max(1, Math.min(n() / 2 + 0.5, Math.PI / 2 / Math.asin(Math.min(1, GAP / full))));
+    const step = Math.PI / 2 / half;
+    return { step, radius: Math.min(full, GAP / Math.sin(step)) };
+  };
+  const shownAt = (v) => v - (DETENT * Math.sin(2 * Math.PI * v)) / (2 * Math.PI);
+  const wrap = (d) => { const k = n(); return ((d % k) + k + k / 2) % k - k / 2; };
+  const centerIndex = () => ((Math.round(raw) % n()) + n()) % n();
+
+  function layout() {
+    if (!n() || !shown()) return;
+    const cy = centerY(), { radius, step } = geom();
+    const off = shownAt(raw);
+    cells.forEach((cell, i) => {
+      const a = wrap(i - off) * step;
+      if (Math.abs(a) >= Math.PI / 2) { cell.hidden = true; return; }
+      const k = Math.cos(a);
+      cell.hidden = false;
+      cell.style.transform = `translateY(${cy + radius * Math.sin(a) - BTN / 2}px)`;
+      // к краям барабана — темнее и прозрачнее, центральная — сверху
+      cell.style.filter = `brightness(${0.55 + 0.45 * k})`;
+      cell.style.opacity = String(Math.min(1, 0.25 + k));
+      cell.style.zIndex = String(Math.round(k * 100));
+    });
+  }
+
+  const animate = () => {
+    cancelAnimationFrame(frame);
+    const tick = () => {
+      const d = target - raw;
+      if (Math.abs(d) < 0.002) {
+        raw = target;
+        layout();
+        const done = onArrive; onArrive = null;
+        // докрутили щелчком — кнопку выбрали; встали после прокрутки — onSettle (подпись)
+        if (done) done(); else onSettle();
+        return;
+      }
+      raw += d * 0.18;
+      layout();
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+  };
+  // докрутить кнопку i в центр — кратчайшим путём по кругу
+  const spinTo = (i, then) => {
+    target = Math.round(raw) + wrap(i - Math.round(raw));
+    onArrive = then;
+    animate();
+  };
+
+  // колёсико: шаг колёсика — кнопка; остановились — барабан встаёт кнопкой в центр
+  let snapTimer = 0;
+  el.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    onStart();
+    target += e.deltaY / (e.deltaMode === 1 ? 3 : 100);
+    onArrive = null;
+    animate();
+    clearTimeout(snapTimer);
+    snapTimer = setTimeout(() => { target = Math.round(target); animate(); }, 160);
+  }, { passive: false });
+
+  // палец и мышь: тянуть вверх-вниз, с разгоном
+  let drag = null, suppressClick = false;
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    drag = { x: e.clientX, y: e.clientY, raw, t: performance.now(), v: 0, moved: false, id: e.pointerId };
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.moved) {
+      if (onSwipe && dx > 40 && Math.abs(dx) > 2 * Math.abs(dy)) { drag = null; suppressClick = true; onSwipe(); return; }
+      if (Math.abs(dy) < 6) return;
+      drag.moved = true;
+      el.setPointerCapture(e.pointerId);
+      onStart();
+      cancelAnimationFrame(frame);
+    }
+    const { radius, step: a } = geom(), step = radius * a; // промежуток в центре
+    const now = performance.now(), next = drag.raw - dy / step;
+    drag.v = (next - raw) / Math.max(1, now - drag.t);
+    drag.t = now;
+    raw = target = next;
+    layout();
+  });
+  const endDrag = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (drag.moved) {
+      suppressClick = true;
+      // разгон — ещё до ~3 кнопок, потом ближайшая встаёт в центр
+      target = Math.round(raw + Math.max(-3, Math.min(3, drag.v * 250)));
+      animate();
+    }
+    drag = null;
+  };
+  el.addEventListener("pointerup", endDrag);
+  el.addEventListener("pointercancel", endDrag);
+  el.addEventListener("click", (e) => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); suppressClick = false; } }, true);
+
+  return {
+    set: (list) => { cells = list; box.replaceChildren(...list); layout(); },
+    jump: (i) => { cancelAnimationFrame(frame); onArrive = null; raw = target = i; layout(); },
+    layout, spinTo, centerIndex, geom,
+    settled: () => Math.abs(raw - target) < 0.01,
+    atCenter: (i) => i === centerIndex() && Math.abs(raw - Math.round(raw)) < 0.01,
+    dragged: () => !!drag?.moved,
+  };
 }
