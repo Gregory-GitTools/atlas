@@ -3215,6 +3215,71 @@ body.has-photo-strip .al-write-ask {
   box-shadow: 0 0 0 2px var(--text);
 }
 
+/* запись трека без пути — сначала вид активности (content/tracks.js): окно посреди экрана, значки сеткой */
+.rec-kinds {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.rec-kinds-card {
+  width: min(420px, 100%);
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  padding: 14px 10px 10px;
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.rec-kinds-title {
+  padding: 0 6px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.rec-kinds-sub {
+  padding: 4px 6px 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rec-kinds-list {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+}
+
+.rec-kind {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 2px 8px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+}
+
+.rec-kind:hover {
+  background: var(--panel-hover);
+}
+
+.rec-kinds-cancel {
+  display: block;
+  margin: 8px 0 0 auto;
+}
+
 /* вид активности: кнопка со значком и список */
 .tk-kind {
   position: relative;

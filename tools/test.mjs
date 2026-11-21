@@ -2222,7 +2222,8 @@ try {
         stop: () => { st.on = false; st.pausedAt = 0; }, state: () => JSON.stringify({ ...st, saved: lines.length > 0 }),
         read: (from) => JSON.stringify(lines.slice(from)), clear: () => { if (!st.on) lines.length = 0; } };
       ${ts}.recInit(); return true; })()`);
-    await run(`document.querySelector(".rec-btn").click(); window.__recT = Date.now(); for (let i = 0; i < 20; i++) __rec.push([24.83 + i * 0.0005, 59.47, 5, Date.now() - (40 - i) * 1000]); true`);
+    await run(`document.querySelector(".rec-btn").click(); window.__recKinds = [...document.querySelectorAll(".rec-kinds .rec-kind")].map((b) => b.textContent);
+      document.querySelector(".rec-kinds [data-kind=run]").click(); window.__recNav = atlas.geo.state().on; window.__recT = Date.now(); for (let i = 0; i < 20; i++) __rec.push([24.83 + i * 0.0005, 59.47, 5, Date.now() - (40 - i) * 1000]); true`);
     await sleep(1500);
     const rc1 = await run(`({ ...${ts}.recState(), row: document.querySelector('[data-panel="tracks"] .tk-rec')?.textContent })`);
     await run(`document.querySelector('[data-panel="tracks"] .tk-rec .pb-btn').click(); true`);
@@ -2232,9 +2233,10 @@ try {
     await sleep(500);
     await run(`document.querySelector(".rec-btn").click(); true`);
     for (let i = 0; i < 10 && !(await run(`${ts}.stats().tracks === 1 && !${ts}.recState().finishing`)); i++) await sleep(300);
-    const rc3 = await run(`({ ...${ts}.recState(), ...${ts}.stats(), left: __rec.length, segs: atlas.map.getSource("tracks-rec").serialize().data.features.length, hint: document.querySelector('[data-panel="tracks"] .pb-hint')?.textContent })`);
-    check("запись трека: кнопка над «Навигацией», время, км и скорость, пауза, стоп — трек в «Моих треках» из двух кусков",
-      rc1.btn && rc1.on && /^0:01:0\d$/.test(rc1.time) && rc1.pts === 20 && rc1.line && /^Идёт запись0:01:0\d · 850 м · макс 45 км\/ч$/.test(rc1.row)
+    const rc3 = await run(`({ ...${ts}.recState(), ...${ts}.stats(), kinds: __recKinds.join(), navOn: __recNav, navOff: !atlas.geo.state().on, kindSaved: ${ts}.recKind(), left: __rec.length, segs: atlas.map.getSource("tracks-rec").serialize().data.features.length, hint: document.querySelector('[data-panel="tracks"] .pb-hint')?.textContent })`);
+    check("запись трека: без пути — окно вида активности (выбрали — пишет, навигация включилась); кнопка над «Навигацией», время, км и скорость, пауза, стоп — трек в «Моих треках» из двух кусков, вид — «Бег», навигация выключилась",
+      /^Прогулка,Поход,Бег,Велосипед,.*Лыжи беговые,Лыжи горные/.test(rc3.kinds) && rc3.navOn && rc3.navOff && rc3.kindSaved === "run"
+      && rc1.btn && rc1.on && /^0:01:0\d$/.test(rc1.time) && rc1.pts === 20 && rc1.line && /^Идёт запись0:01:0\d · 850 м · макс 45 км\/ч$/.test(rc1.row)
       && /^0:01:0\d\n850 м\nмакс 45 км\/ч$/.test(rc1.pill)
       && rc2.paused && /^Запись — пауза/.test(rc2.row) && !rc3.on && rc3.time === "" && rc3.tracks === 1 && /^Запись /.test(rc3.open) && rc3.left === 0 && rc3.segs === 0
       && /кусков записи: 2/.test(rc3.hint), JSON.stringify({ rc1, rc2, rc3 }));
@@ -2286,7 +2288,7 @@ try {
         stop: () => { st.on = false; }, state: () => JSON.stringify({ ...st, saved: lines.length > 0 }), read: (from) => JSON.stringify(lines.slice(from)),
         clear: () => { if (!st.on) lines.length = 0; }, setSlopes: (json) => __slopes.push(JSON.parse(json)), __st: st };
       return true; })()`);
-    await run(`document.querySelector(".rec-btn").click(); for (let i = 0; i < 5; i++) __rec.push([10.27 + i * 0.0002, 46.99, 2000, Date.now() - (5 - i) * 1000]); true`);
+    await run(`document.querySelector(".rec-btn").click(); document.querySelector(".rec-kinds [data-kind=ski]").click(); for (let i = 0; i < 5; i++) __rec.push([10.27 + i * 0.0002, 46.99, 2000, Date.now() - (5 - i) * 1000]); true`);
     for (let i = 0; i < 20 && !(await run(`__slopes.length > 0`)); i++) await sleep(300);
     await run(`AtlasTrack.__st.off = 140; true`);
     await sleep(1500);

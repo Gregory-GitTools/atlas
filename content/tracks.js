@@ -16,7 +16,7 @@
 import { register } from "../core/modules.js";
 import { trackIcon } from "../core/icons.js";
 import { createPanel, isOpen, homeList } from "../core/panel.js";
-import { emit, on } from "../core/events.js";
+import { emit, on, current } from "../core/events.js";
 import { setSearchMode, searchMode } from "../core/search.js";
 import { cacheGet, cacheSet, cacheDelete } from "../core/storage.js";
 import { claimLayers, captureClicks } from "../core/popups.js";
@@ -437,9 +437,46 @@ const recSegs = (pts) => { // null в записи — пауза: новый к
   for (const p of pts) if (p) segs.at(-1).push(p); else if (segs.at(-1).length) segs.push([]);
   return segs.filter((s) => s.length > 1);
 };
+// вид активности записи (Грегори 2026-11-21): путь проложен — его способ (пешком, велосипед, машина), иначе —
+// окно выбора: выбрали — это и есть «начать»; вид — у сохранённого трека
+const WAY_KIND = { foot: "walk", bike: "bike", car: "car" };
 function recStart() {
-  if (!confirm("Начать запись трека?\nЗапись идёт и при погасшем экране; пауза и стоп — здесь и в шторке уведомлений.")) return;
+  const way = current("route")?.route?.way;
+  if (way && WAY_KIND[way]) {
+    if (confirm(`Начать запись трека: ${kindOf(WAY_KIND[way])[1].toLowerCase()}?\nЗапись идёт и при погасшем экране; пауза и стоп — здесь и в шторке уведомлений.`)) recGo(WAY_KIND[way]);
+    return;
+  }
+  recAsk();
+}
+function recAsk() {
+  document.querySelector(".rec-kinds")?.remove();
+  const box = h("div", "rec-kinds");
+  const card = h("div", "rec-kinds-card");
+  const list = h("div", "rec-kinds-list");
+  for (const [id, name, d] of KINDS) {
+    const b = h("button", "rec-kind");
+    Object.assign(b, { type: "button", innerHTML: mdi(d, 28) });
+    b.dataset.kind = id;
+    b.append(h("span", "", name));
+    b.addEventListener("click", () => { box.remove(); recGo(id); });
+    list.append(b);
+  }
+  const cancel = h("button", "text-btn rec-kinds-cancel", "Отмена");
+  cancel.type = "button";
+  cancel.addEventListener("click", () => box.remove());
+  box.addEventListener("click", (e) => { if (e.target === box) box.remove(); });
+  card.append(h("div", "rec-kinds-title", "Что записываем?"), h("div", "rec-kinds-sub", "Запись идёт и при погасшем экране; пауза и стоп — здесь и в шторке уведомлений"), list, cancel);
+  box.append(card);
+  document.body.append(box);
+}
+function recGo(kind) {
   if (rec().start() === "ask") { ctx?.status("Разрешите программе точное местоположение и нажмите «Записать» ещё раз"); return; }
+  settings.set("tracks.rec.kind", kind);
+  // запись включает навигацию (Грегори 2026-11-21: «запись трека без навигации — исправить») и выключает её в
+  // конце, если включила сама
+  const navWas = !!current("nav")?.on;
+  settings.set("tracks.rec.nav", navWas ? null : true);
+  if (!navWas) emit("nav-switch", { on: true });
   recPts = [];
   setTimeout(recPoll, 300);
 }
@@ -483,16 +520,19 @@ async function recFinish() {
   recFinishing = true;
   try {
     const segs = recSegs(JSON.parse(rec().read(0)));
+    const kind = settings.get("tracks.rec.kind") || null;
+    settings.set("tracks.rec.kind", null);
+    if (settings.get("tracks.rec.nav")) { settings.set("tracks.rec.nav", null); emit("nav-switch", { on: false }); }
     recPts = [];
     slopesAt = null;
     recDraw();
     if (!segs.length) { rec().clear(); ctx?.status("Трек не записан: не было ни одного замера GPS"); setTimeout(() => ctx?.status(""), 5000); return; }
     await load();
     const date = segs[0][0][3];
-    const t = { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: `Запись ${day(date)}, ${clock(date)}`, file: "", date, kind: null, segs };
+    const t = { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: `Запись ${day(date)}, ${clock(date)}`, file: "", date, kind, segs };
     tracks.set(t.id, t);
     await cacheSet(`tracks/${t.id}`, t);
-    index.push({ id: t.id, name: t.name, date: t.date, dist: stats(t).dist, kind: null, note: "" });
+    index.push({ id: t.id, name: t.name, date: t.date, dist: stats(t).dist, kind, note: "" });
     await cacheSet("tracks/index", index);
     rec().clear();
     if (!ctx) return;
@@ -1523,6 +1563,7 @@ register({
   // запись трека: проверка подставляет свой AtlasTrack и зовёт это
   recInit: () => recInit(window.atlas?.ctx),
   recPoll: () => recPoll(),
+  recKind: () => index.at(-1)?.kind || null,
   recState: () => ({ btn: !!recBtn, on: recBtn?.classList.contains("on"), time: recBtn?.querySelector(".rec-time b")?.textContent || "", pill: recBtn?.querySelector(".rec-time").innerText, pts: recPts.length,
     line: !!ctx?.map.getLayer("tracks-rec-line"), finishing: recFinishing, slopesAt, offPiste: recBtn?.classList.contains("off-piste"),
     sub: panel.body.querySelector(".tk-rec .tr-row-sub")?.textContent }),
