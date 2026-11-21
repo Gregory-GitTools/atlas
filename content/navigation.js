@@ -9,13 +9,11 @@
 // «Убрать точку». Сама цель, линия и путь — в core/route.js (здесь только окно)
 import { register } from "../core/modules.js";
 import { emit, on } from "../core/events.js";
-import { setSearchMode, searchMode, geocode, refreshSearchList, foldSearchList, setSearchCard, showSearchList } from "../core/search.js";
-import { historyList, remember, loadList, saveList } from "../core/history.js";
+import { setSearchMode, searchMode, geocode, refreshSearchList, foldSearchList, setSearchCard, showSearchList, closeSearchList, hideSearch } from "../core/search.js";
+import { historyList, historyPanel, resetView, remember, loadList, saveList } from "../core/history.js";
 import { WAYS, ARROW, SHARE_ICON, START_ICON, FINISH_ICON as FINISH_BIG } from "../core/route.js";
 import { showPlace } from "../core/place-info.js";
 import { trackIcon } from "../core/icons.js";
-import { countryAt } from "../core/borders.js";
-import { flagUrl } from "../core/flags.js";
 
 const HISTORY = "route.history";
 const ICON = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2 4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>';
@@ -34,8 +32,6 @@ let navOn = false, state = {}, results = null, note = "", ctx = null;
 // открытый маршрут (его saved): вместо списка «Куда» — его точки, как история (Грегори 2026-11-10: «при клике
 // на маршрут — такая же панель со списком, но с другим значком; двигать и менять местами точки»)
 let openRoute = null;
-// открытая страна списка «Куда» (Грегори 2026-11-13: «группирую маршруты по странам — как в альбомах, с флажками»)
-let openCountry = null;
 
 // строка поиска «Куда»: подсказки — история точек (при наборе — подходящие), Enter — найти место;
 // цель — своя карточка над подсказками
@@ -46,7 +42,7 @@ const MODE = { icon: ICON, title: "Навигация", placeholder: "Куда",
   submit: (text) => find(text),
   list: (q) => suggestions(q),
   // щелчок по строке — к началу списка; true — был открыт маршрут
-  reset: () => { const was = !!openRoute || !!openCountry; openRoute = null; openCountry = null; return was; },
+  reset: () => { const was = resetView(HISTORY) || !!openRoute; openRoute = null; return was; },
   // маршрут в работе (карточка пути или список его точек) — строка поиска ищет дополнительные точки, к началу
   // не уводит (Грегори 2026-11-10: «в режиме трека окно поиска — в режиме дополнительных точек»): щелчок —
   // список точек маршрута и набор текста
@@ -185,23 +181,12 @@ function suggestions(q) {
   if (!q) openRoute = null;
   // маршрут в работе — выбранное из истории место тоже окном на карте (Добавить или Сюда)
   const pickIn = (e) => (state.target && !e.saved ? place({ lngLat: e.lngLat, title: e.title, address: e.address || "" }) : choose(e));
-  // по странам, как альбомы: всегда (и при одной стране — Грегори 2026-11-15: «однозначность интерфейса») сначала
-  // список стран с флажками, щелчок — записи страны;
-  // набирают текст — подходящие из всех стран
-  locate();
-  const by = countries();
-  if (openCountry && !by.has(openCountry)) openCountry = null;
-  if (!q && !openCountry && by.size) {
-    // «Очистить историю» — под странами (в стране — нет)
-    const clear = h("button", "search-history-clear", "Очистить историю");
-    clear.type = "button";
-    clear.addEventListener("click", (e) => { e.stopPropagation(); saveList(HISTORY, []); render(); });
-    return [...[...by].map(([name, { n, iso }]) => countryRow(name, n, iso)), clear];
-  }
-  if (!q && openCountry) out.push(countryHead(openCountry, by.get(openCountry).iso));
-  const inCountry = !q && !!openCountry;
-  const hist = historyList({ key: HISTORY, id, clear: !inCountry,
-    match: q ? (e) => `${e.name || ""} ${e.title} ${e.address || ""}`.toLowerCase().includes(q) : inCountry ? (e) => countryOf(e) === openCountry : null,
+  // окно истории — как у поиска (core/history.js): шапка, по странам (по умолчанию — да, как альбомы: Грегори
+  // 2026-11-13, «группирую маршруты по странам — с флажками»), свои группы и значки; набирают текст — подходящие
+  // из всех стран
+  return historyPanel({ key: HISTORY, title: "Куда", id, grouped: true, lngLat: (e) => e.lngLat, fold: closeSearchList, close: hideSearch,
+    match: q ? (e) => `${e.name || ""} ${e.title} ${e.address || ""}`.toLowerCase().includes(q) : null,
+    empty: "Наберите место и нажмите Enter — или «Сюда» в окне любого места на карте",
     // подпись — адрес; координаты — только если название не они же (старые записи)
     label: (e) => {
       const c = `${e.lngLat[1].toFixed(5)}, ${e.lngLat[0].toFixed(5)}`;
@@ -211,56 +196,6 @@ function suggestions(q) {
     },
     rename: (e, title) => (e.saved ? { ...e, name: title } : { ...e, title }),
     pick: pickIn, changed: render });
-  if (hist.childElementCount) out.push(hist);
-  else if (!q) out.push(h("div", "search-note", "Наберите место и нажмите Enter — или «Сюда» в окне любого места на карте"));
-  return out;
-}
-
-// страна записи — по финишу (core/borders.js), узнаётся один раз и хранится в записи
-const NO_COUNTRY = "Без страны";
-const countryOf = (e) => e.country?.name || NO_COUNTRY;
-// «Без страны» — первой, остальные по алфавиту (как в альбомах)
-const countries = () => {
-  const by = new Map();
-  for (const e of loadList(HISTORY)) { const k = countryOf(e); by.set(k, { n: (by.get(k)?.n || 0) + 1, iso: e.country?.iso || "" }); }
-  return new Map([...by].sort((x, y) => (y[0] === NO_COUNTRY) - (x[0] === NO_COUNTRY) || x[0].localeCompare(y[0], "ru")));
-};
-let locating = false;
-async function locate() {
-  if (locating) return;
-  locating = true;
-  let found = false;
-  try {
-    for (const e of loadList(HISTORY).filter((x) => x.country === undefined)) {
-      const c = await countryAt(e.lngLat);
-      if (c === undefined) break; // границы не загрузились — в другой раз
-      const key = id(e);
-      saveList(HISTORY, loadList(HISTORY).map((x) => (id(x) === key && x.country === undefined ? { ...x, country: c } : x)));
-      found = true;
-    }
-  } finally { locating = false; }
-  if (found && searchMode() === MODE && !openRoute) render();
-}
-const flagIcon = (iso) => (iso ? `<img class="history-flag" alt="" src="${flagUrl(iso)}">` : "");
-function countryRow(name, n, iso) {
-  const b = h("button", "search-item nav-country");
-  b.type = "button";
-  b.innerHTML = `<span class="search-item-title"></span>`;
-  b.firstChild.textContent = `${name} (${n})`;
-  b.firstChild.insertAdjacentHTML("afterbegin", `<i class="history-icon">${flagIcon(iso) || ROUTE_ICON}</i>`);
-  b.addEventListener("click", (e) => { e.stopPropagation(); openCountry = name; render(); });
-  return b;
-}
-// шапка страны: назад к странам, флаг, название
-function countryHead(name, iso) {
-  const head = h("div", "route-view-head");
-  const back = h("button", "route-view-back");
-  Object.assign(back, { type: "button", title: "Все страны", innerHTML: BACK });
-  back.addEventListener("click", (e) => { e.stopPropagation(); openCountry = null; render(); });
-  const title = h("div", "route-view-title", name);
-  if (iso) title.insertAdjacentHTML("afterbegin", `<i class="history-icon">${flagIcon(iso)}</i>`);
-  head.append(back, title);
-  return head;
 }
 
 // маршрут: шапка (назад к списку, значок, название, «Поделиться», «Сохранить трек») и его точки по порядку —
@@ -285,7 +220,7 @@ function routeView(entry) {
   const pid = (p) => `${p.lngLat[0].toFixed(5)},${p.lngLat[1].toFixed(5)}`;
   const current = () => loadList(HISTORY).find((e) => e.saved === entry.saved) || entry;
   const points = () => { const e = current(); return [...(e.start ? [e.start] : []), ...(e.stops || []), { lngLat: e.lngLat, title: e.title, address: e.address || "" }]; };
-  const list = historyList({ id: pid, clear: false, load: points,
+  const list = historyList({ id: pid, load: points,
     save: (pts) => {
       const e = current(), was = active();
       if (!pts.length) {

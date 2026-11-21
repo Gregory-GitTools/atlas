@@ -63,7 +63,7 @@ export function initSettingsPanel(ctx) {
     const off = h("label", "set-switch");
     const offBox = Object.assign(document.createElement("input"), { type: "checkbox", checked: offline() });
     offBox.addEventListener("change", async () => { await setOffline(offBox.checked, ctx); render(); });
-    off.append(offBox, document.createTextNode(" Без сети — выключить всё, что обращается в интернет"));
+    off.append(offBox, document.createTextNode("Без сети — выключить всё, что обращается в интернет"));
     body.push(off);
     const net = h("div", "set-list");
     for (const item of CORE_SENDS) net.append(netRow(item.title, item.sends));
@@ -229,18 +229,19 @@ const SIZES = [["auto", "Авто"], [1, "Обычный"], [1.25, "Крупны
 // (Грегори 2026-11-21: «в меню пункты видимости подписей… номера карусельных кнопок… всегда можно выключить»)
 function labelsSection(ctx) {
   const box = h("div", "set-list");
-  const lang = h("label", "set-row set-lang-row", "Язык подписей на карте ");
+  const lang = h("label", "set-switch set-lang-row", "Язык подписей на карте");
   const select = h("select", "set-lang");
   for (const l of LANGUAGES) select.append(Object.assign(document.createElement("option"), { value: l.code, textContent: l.name, selected: l === labelLanguage() }));
   select.addEventListener("change", () => setLabelLanguage(ctx.map, LANGUAGES.find((l) => l.code === select.value)));
   lang.append(select);
   box.append(lang);
-  for (const [key, text] of [["ui.labels", "Подписи кнопок"], ["ui.numbers", "Номера кнопок"]]) {
+  // подписи по умолчанию включены (помнится только «выкл.»), номера — выключены (помнится только «вкл.»)
+  for (const [key, text, dflt] of [["ui.labels", "Подписи кнопок", true], ["ui.numbers", "Номера кнопок (для наладки)", false]]) {
     const row = h("label", "set-switch");
-    const check = Object.assign(document.createElement("input"), { type: "checkbox", checked: settings.get(key) !== false });
+    const check = Object.assign(document.createElement("input"), { type: "checkbox", checked: settings.get(key) ?? dflt });
     check.dataset.key = key;
-    check.addEventListener("change", () => { settings.set(key, check.checked ? null : false); emit("button-labels"); });
-    row.append(check, document.createTextNode(` ${text}`));
+    check.addEventListener("change", () => { settings.set(key, check.checked === dflt ? null : check.checked); emit("button-labels"); });
+    row.append(check, document.createTextNode(text));
     box.append(row);
   }
   return box;

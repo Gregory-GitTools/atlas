@@ -293,6 +293,8 @@ export function initLayersPanel(ctx) {
   on("search-mode", (m) => { mode = m; paint(); });
   // раздел живёт в самой строке поиска (навигация) — строка нужна. Барабан после выбора не закрывается —
   // он под рукой, открывает и закрывает его только кнопка справа вверху (Грегори 2026-11-06)
+  // «Закрыть» в шапке истории поиска — как лупа: поиск и разделы свернуть
+  on("search-hide", () => { setSearch(false); setDrum("content", false); }, { replay: false });
   on("search-show", () => { setDesk(false); setSearch(true); if (!order.length) setDrum("content", true); }, { replay: false });
 
   // ---------- барабан ----------
@@ -562,7 +564,8 @@ export function initLayersPanel(ctx) {
   // подписи и номера кнопок барабанов и каруселей — в Настройках (Грегори 2026-11-21: «пункты видимости подписей»)
   const paintLabels = () => {
     document.body.classList.toggle("labels-off", settings.get("ui.labels") === false);
-    document.body.classList.toggle("numbers-off", settings.get("ui.numbers") === false);
+    // номера — для наладки, по умолчанию выключены (Грегори 2026-11-21)
+    document.body.classList.toggle("numbers-off", settings.get("ui.numbers") !== true);
   };
   paintLabels();
   on("button-labels", paintLabels, { replay: false });

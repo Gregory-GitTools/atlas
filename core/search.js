@@ -26,7 +26,7 @@ import { uiLanguage } from "./labels.js";
 import { track } from "./popups.js";
 import { withWeather } from "./place-info.js";
 import { closeOpen } from "./panel.js";
-import { historyList, remember as rememberIn } from "./history.js";
+import { historyPanel, resetView, remember as rememberIn } from "./history.js";
 import { backable } from "./back.js";
 
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
@@ -57,8 +57,11 @@ export const setSearchCard = (src) => { cardSrc = src; refresh(false); };
 // свернуть карточку раздела в значок в строке поиска
 export const foldSearchCard = () => foldCard();
 // открыть подсказки режима (навигация: список точек маршрута — «стрелка вверх» карточки пути)
-let showList = () => {};
+let showList = () => {}, closeList = () => {};
 export const showSearchList = () => showList();
+// свернуть список (кнопка «Свернуть» в шапке истории) и закрыть поиск совсем («Закрыть» — как лупа)
+export const closeSearchList = () => closeList();
+export const hideSearch = () => emit("search-hide");
 export const searchMode = () => mode;
 
 // места по тексту (Nominatim): рядом с видимой частью карты — выше; null — поиск выключен в настройках
@@ -256,16 +259,22 @@ export function initSearch({ map, maplibregl }) {
       return;
     }
     if (mode) { close(); return; }
-    const h = historyList({ key: HISTORY_KEY, id: (e) => e.display_name, match: q ? (e) => e.display_name.toLowerCase().includes(q) : null,
+    // окно истории — как «Куда» (core/history.js): шапка, страны (по умолчанию — без них), группы, значки
+    const nodes = historyPanel({ key: HISTORY_KEY, title: "История", id: (e) => e.display_name, match: q ? (e) => `${e.name || ""} ${e.display_name}`.toLowerCase().includes(q) : null,
       // переименованное — своё название (name), адрес — подписью
       label: (e) => { const [t, ...rest] = e.display_name.split(", "); return e.name ? { title: e.name, sub: e.display_name } : { title: t, sub: rest.join(", ") }; },
-      rename: (e, name) => ({ ...e, name }),
-      pick: (e) => choose(e, e.name || e.display_name.split(", ")[0]), changed: suggest });
+      rename: (e, name) => ({ ...e, name }), lngLat: (e) => [Number(e.lon), Number(e.lat)],
+      fold: closeList, close: hideSearch,
+      // страны узнаются в фоне — закрытый за это время список сам не открывается
+      pick: (e) => choose(e, e.name || e.display_name.split(", ")[0]), changed: () => !list.hidden && suggest() });
     // строкам истории — как найденным: стрелки ↑↓ ходят по ним
-    for (const b of h.querySelectorAll(".search-item")) b.dataset.key = b.closest(".search-history-row").entry.display_name;
+    for (const n of nodes) for (const b of n.querySelectorAll?.(".search-item") || []) {
+      const row = b.closest(".search-history-row");
+      b.dataset.key = row?.entry ? row.entry.display_name : row?.group ? ` group ${row.group.id}` : ` ${b.textContent}`;
+    }
     const top = raw ? [everywhere(raw)] : [];
-    if (!h.childElementCount && !top.length) { close(); return; }
-    fill(...top, ...(h.childElementCount ? [h] : []));
+    if (!nodes.length && !top.length) { close(); return; }
+    fill(...top, ...nodes);
   };
 
   const run = async () => {
@@ -342,7 +351,7 @@ export function initSearch({ map, maplibregl }) {
   // дополнительную точку (Грегори 2026-11-10)
   input.addEventListener("click", () => {
     if (mode?.keep?.(list.hidden)) { if (list.hidden) { if (leftOpen) emit("panel-fold-request", { fold: true }); suggest(); } return; }
-    if (!list.hidden && mode?.reset?.()) { suggest(); return; }
+    if (!list.hidden && (mode ? mode.reset?.() : resetView(HISTORY_KEY))) { suggest(); return; }
     mode?.reset?.();
     if (!list.hidden) { close(); input.blur(); }
     else if (!mode || mode.list) { if (leftOpen) emit("panel-fold-request", { fold: true }); suggest(); }
@@ -357,6 +366,7 @@ export function initSearch({ map, maplibregl }) {
     if (marker) { marker.remove(); marker = null; markTitle = ""; close(); input.blur(); return; }
     suggest();
   });
+  closeList = () => { close(); input.blur(); };
   showList = () => { if (leftOpen) emit("panel-fold-request", { fold: true }); suggest(); };
   // щелчок мимо поиска закрывает список подсказок (карточка раздела остаётся); список точек маршрута — нет:
   // щелчок по карте — окно места, из него точку добавляют в маршрут (Грегори 2026-11-10)

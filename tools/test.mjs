@@ -793,16 +793,19 @@ try {
     const box = (k) => sp.querySelector('.set-switch input[data-key="' + k + '"]');
     const flip = async (k) => { box(k).click(); await wait(100); };
     const lab = () => { const l = document.querySelector(".wheel-label"); return { size: getComputedStyle(l).fontSize, shown: getComputedStyle(l).display !== "none", num: getComputedStyle(l, "::after").content }; };
-    const r = { en, label: sel.selectedOptions[0].textContent, boxes: !!box("ui.labels")?.checked && !!box("ui.numbers")?.checked, on: lab() };
+    // номера по умолчанию выключены (для наладки, Грегори 2026-11-21); галочки — справа от текста
+    const r = { en, label: sel.selectedOptions[0].textContent, boxes: !!box("ui.labels")?.checked && !box("ui.numbers")?.checked && document.body.classList.contains("numbers-off"),
+      right: box("ui.labels").getBoundingClientRect().left > box("ui.labels").parentElement.getBoundingClientRect().left + 100 };
+    await flip("ui.numbers"); r.on = lab();
     await flip("ui.labels"); r.noLabels = { body: document.body.classList.contains("labels-off"), ...lab() };
     await flip("ui.numbers"); r.none = lab();
     await flip("ui.labels"); r.noNumbers = lab();
-    await flip("ui.numbers"); r.back = !document.body.classList.contains("labels-off") && !document.body.classList.contains("numbers-off");
+    r.back = !document.body.classList.contains("labels-off") && document.body.classList.contains("numbers-off");
     sp.querySelector(".panel-btn[title=Закрыть]").click();
     return r; })()`);
   check("язык подписей переключается — в Настройках", lang.en && lang.label === "Русский", JSON.stringify(lang));
-  check("настройки: «Подписи кнопок» и «Номера кнопок» — выключены подписи остаётся номер, выключено всё — ничего",
-    lang.boxes && lang.on.shown && lang.on.size !== "0px" && /^"\d/.test(lang.on.num) && lang.noLabels.body && lang.noLabels.shown && lang.noLabels.size === "0px" && /^"\d/.test(lang.noLabels.num)
+  check("настройки: «Подписи кнопок» и «Номера кнопок» (по умолчанию выкл., галочки справа) — выключены подписи остаётся номер, выключено всё — ничего",
+    lang.boxes && lang.right && lang.on.shown && lang.on.size !== "0px" && /^"\d/.test(lang.on.num) && lang.noLabels.body && lang.noLabels.shown && lang.noLabels.size === "0px" && /^"\d/.test(lang.noLabels.num)
     && !lang.none.shown && lang.noNumbers.shown && lang.noNumbers.num === "none" && lang.back, JSON.stringify(lang));
   // ревизия 2026-11-05/06: шестерёнка — в барабане разделов; 2026-11-21: кнопки языка под логотипом нет; ⓘ при запуске свёрнута; пустая строка состояния не видна
   const misc = await run(`({ lang: !document.querySelector(".lang-btn, .dock") && !!document.querySelector('.wheel-content .layers-circle[data-key="settings"]'), inSearch: !!document.querySelector(".search-box .lang-btn"),
@@ -871,6 +874,69 @@ try {
     i.click(); localStorage.setItem(key, keep); return r; })()`);
   check("поиск: длинный список прокручивается внутри, ползунок внизу на виду, окно поиска не уезжает", longList.scrolled && longList.grip && longList.inside && longList.page === 0 && longList.bar, JSON.stringify(longList));
   check("поиск: щелчок по строке — история, набор — подходящие из найденного, второй щелчок — закрыть", sug.open && sug.rows === 1 && none && typedS === 1 && shutS, JSON.stringify({ sug, none, typedS, shutS }));
+  // окно истории (Грегори 2026-11-21: поиск и «Куда» — одного вида): шапка с кнопками; ручку подержали — значок и
+  // группа; группа — одной строкой и в стране своей первой записи; экспорт KML; свернуть и закрыть
+  const histKeep = await run(`localStorage.getItem("atlas.search.history")`);
+  await run(`localStorage.setItem("atlas.search.history", JSON.stringify([{ display_name: "Nafplio, Argolis, Greece", lat: "37.567", lon: "22.80" },
+    { display_name: "Athens International Airport, Spata, Greece", lat: "37.936", lon: "23.947" }, { display_name: "Tallinn, Harju, Estonia", lat: "59.437", lon: "24.745" }])); true`);
+  await tapInput();
+  const hHead = await run(`({ title: document.querySelector(".search-results .history-title")?.textContent, btns: [...document.querySelectorAll(".search-results .history-head button")].map((b) => b.title) })`);
+  const holdHandle = async (i) => {
+    const xy = await run(`(() => { const r = document.querySelectorAll(".search-results .search-drag")[${i}].getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+    await send("Input.dispatchMouseEvent", { type: "mousePressed", x: xy[0], y: xy[1], button: "left", clickCount: 1 });
+    await sleep(800);
+    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: xy[0], y: xy[1], button: "left", clickCount: 1 });
+    await sleep(200);
+  };
+  const hTitles = `[...document.querySelectorAll(".search-results .search-history-row .search-item-title")].map((t) => t.textContent)`;
+  const hAct = (re) => run(`([...document.querySelectorAll(".search-results .icon-group-btn")].find((b) => ${re}.test(b.textContent)).click(), true)`);
+  await holdHandle(0);
+  const hPick = await run(`({ icons: document.querySelectorAll(".search-results .icon-pick").length, names: [...document.querySelectorAll(".search-results .icon-pick")].slice(1, 5).map((b) => b.textContent),
+    acts: [...document.querySelectorAll(".search-results .icon-group-btn")].map((b) => b.textContent) })`);
+  await run(`[...document.querySelectorAll(".search-results .icon-pick")].find((b) => b.textContent === "Гостиница").click(); true`);
+  await sleep(200);
+  const hIcon = await run(`({ icon: JSON.parse(localStorage.getItem("atlas.search.history"))[0].icon, shown: !!document.querySelector(".search-results .search-history-row .history-icon svg") })`);
+  await holdHandle(0);
+  await hAct(/^В новую группу/);
+  await sleep(200);
+  await holdHandle(1);
+  await hAct(/^В группу «Группа 1»/);
+  await sleep(200);
+  const hGroup = await run(hTitles);
+  await run(`document.querySelector(".search-results .history-group").click(); true`);
+  for (let i = 0; i < 30 && (await run(`document.querySelectorAll(".search-results .nav-country").length`)) < 2; i++) await sleep(300);
+  const hLands = await run(`[...document.querySelectorAll(".search-results .nav-country")].map((b) => b.textContent)`);
+  await run(`[...document.querySelectorAll(".search-results .nav-country")].find((b) => /Греция/.test(b.textContent)).click(); true`);
+  await sleep(200);
+  const hIn = await run(`({ head: document.querySelector(".search-results .route-view-head")?.textContent, rows: ${hTitles} })`);
+  await run(`document.querySelector(".search-results .history-group-row .search-item").click(); true`);
+  await sleep(200);
+  const hMembers = await run(`({ head: document.querySelector(".search-results .route-view-head")?.textContent, rows: ${hTitles} })`);
+  await run(`document.querySelector(".search-results .route-view-back").click(); true`);
+  await sleep(100);
+  await run(`document.querySelector(".search-results .route-view-back").click(); true`);
+  await sleep(100);
+  await run(`document.querySelector(".search-results .history-group").click(); true`);
+  await sleep(200);
+  await run(`document.querySelector(".search-results .history-export").click(); true`);
+  const hKml = await run(`(async () => { const k = (await import(new URL("core/history.js", location.href))).lastKml(); return { folder: k.includes("<Folder><name>Группа 1</name>"), marks: k.split("<Placemark>").length - 1, hotel: k.includes("Гостиница") }; })()`);
+  await run(`document.querySelector(".search-results .history-fold").click(); true`);
+  await sleep(200);
+  const hFold = await run(`document.querySelector(".search-results").hidden`);
+  await tapInput();
+  await run(`document.querySelector(".search-results .history-close").click(); true`);
+  await sleep(300);
+  const hClose = await run(`document.body.classList.contains("search-hidden")`);
+  await run(`localStorage.setItem("atlas.search.history", ${JSON.stringify(histKeep)}); localStorage.removeItem("atlas.search.history.groups"); localStorage.removeItem("atlas.search.history.grouped");
+    document.querySelector(".search-toggle").click(); true`);
+  await sleep(500);
+  check("окно истории: шапка (по странам, экспорт, корзина, свернуть, закрыть); подержать ручку — значки и группы; группа — одной строкой и в стране первой записи; экспорт KML",
+    hHead.title === "История" && hHead.btns.join() === "Сгруппировать по странам,Экспорт (KML),Очистить историю,Свернуть,Закрыть"
+    && hPick.icons > 15 && hPick.names.join() === "Аэропорт,Аренда авто,Гостиница,Апартаменты" && hPick.acts.join() === "В новую группу"
+    && hIcon.icon === "hotel" && hIcon.shown && hGroup.join() === "Группа 1,Tallinn" && /^Греция \(2\),Эстония \(1\)$/.test(hLands.join())
+    && hIn.head === "Греция" && hIn.rows.join() === "Группа 1" && hMembers.head === "Группа 1" && hMembers.rows.join() === "Nafplio,Athens International Airport"
+    && hKml.folder && hKml.marks === 3 && hKml.hotel && hFold && hClose,
+    JSON.stringify({ hHead, hPick, hIcon, hGroup, hLands, hIn, hMembers, hKml, hFold, hClose }));
   await sleep(2800);
   await idle();
   await shot("60-search");
