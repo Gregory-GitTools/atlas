@@ -3275,6 +3275,26 @@ body.has-photo-strip .al-write-ask {
   background: var(--panel-hover);
 }
 
+.rec-review .rec-kinds-card {
+  width: min(560px, 100%);
+}
+
+.rec-review .rec-kinds-title {
+  margin-bottom: 8px;
+}
+
+.rec-review .tk-chart {
+  margin-top: 8px;
+}
+
+.rec-kinds-btns {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .rec-kinds-cancel {
   display: block;
   margin: 8px 0 0 auto;

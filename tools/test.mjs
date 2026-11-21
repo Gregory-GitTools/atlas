@@ -2231,15 +2231,25 @@ try {
     const rc2 = await run(`({ paused: document.querySelector(".rec-btn").classList.contains("paused"), row: document.querySelector('[data-panel="tracks"] .tk-rec')?.textContent })`);
     await run(`document.querySelector('[data-panel="tracks"] .tk-rec .pb-btn').click(); for (let i = 0; i < 10; i++) __rec.push([24.85 + i * 0.0005, 59.471, 5, Date.now() - (10 - i) * 1000]); true`);
     await sleep(500);
-    await run(`document.querySelector(".rec-btn").click(); true`);
+    // стоп: своё окно «Трек: дата — вид, место» (Отмена, Пауза, Остановить), «Остановить» — итог с цифрами и
+    // графиком, вид можно сменить; «Сохранить» — в «Мои треки»
+    const rs = await run(`(() => { document.querySelector(".rec-btn").click();
+      const title = document.querySelector(".rec-stop .rec-kinds-title")?.textContent, acts = [...document.querySelectorAll(".rec-stop [data-act]")].map((b) => b.textContent).join();
+      document.querySelector(".rec-stop [data-act=stop]").click();
+      return { title, acts, paused: JSON.parse(AtlasTrack.state()).pausedAt > 0, review: document.querySelector(".rec-review .rec-kinds-title")?.textContent,
+        facts: document.querySelectorAll(".rec-review .tk-fact").length, chart: !!document.querySelector(".rec-review .tk-chart svg"),
+        racts: [...document.querySelectorAll(".rec-review [data-act]")].map((b) => b.textContent).join() }; })()`);
+    await run(`document.querySelector(".rec-review [data-act=save]").click(); true`);
     for (let i = 0; i < 10 && !(await run(`${ts}.stats().tracks === 1 && !${ts}.recState().finishing`)); i++) await sleep(300);
     const rc3 = await run(`({ ...${ts}.recState(), ...${ts}.stats(), kinds: __recKinds.join(), navOn: __recNav, navOff: !atlas.geo.state().on, kindSaved: ${ts}.recKind(), left: __rec.length, segs: atlas.map.getSource("tracks-rec").serialize().data.features.length, hint: document.querySelector('[data-panel="tracks"] .pb-hint')?.textContent })`);
     check("запись трека: без пути — окно вида активности (выбрали — пишет, навигация включилась); кнопка над «Навигацией», время, км и скорость, пауза, стоп — трек в «Моих треках» из двух кусков, вид — «Бег», навигация выключилась",
       /^Прогулка,Поход,Бег,Велосипед,.*Лыжи беговые,Лыжи горные/.test(rc3.kinds) && rc3.navOn && rc3.navOff && rc3.kindSaved === "run"
       && rc1.btn && rc1.on && /^0:01:0\d$/.test(rc1.time) && rc1.pts === 20 && rc1.line && /^Идёт запись0:01:0\d · 850 м · макс 45 км\/ч$/.test(rc1.row)
       && /^0:01:0\d\n850 м\nмакс 45 км\/ч$/.test(rc1.pill)
-      && rc2.paused && /^Запись — пауза/.test(rc2.row) && !rc3.on && rc3.time === "" && rc3.tracks === 1 && /^Запись /.test(rc3.open) && rc3.left === 0 && rc3.segs === 0
-      && /кусков записи: 2/.test(rc3.hint), JSON.stringify({ rc1, rc2, rc3 }));
+      && rc2.paused && /^Запись — пауза/.test(rc2.row) && !rc3.on && rc3.time === "" && rc3.tracks === 1 && /^\d{4}\.\d\d\.\d\d \d\d:\d\d:\d\d — бег/.test(rc3.open) && rc3.left === 0 && rc3.segs === 0
+      && /^Трек: \d{4}\.\d\d\.\d\d \d\d:\d\d:\d\d — бег/.test(rs.title) && rs.acts === "Отмена,Пауза,Остановить" && rs.paused && /^Трек: /.test(rs.review)
+      && rs.facts > 2 && rs.racts === "Назад,Выйти не сохраняя,Сохранить"
+      && /кусков записи: 2/.test(rc3.hint), JSON.stringify({ rs, rc1, rc2, rc3 }));
     // приложение: снимки галереи телефона на треке (AtlasPhotos). Нет разрешения — кнопка «Фото из галереи
     // телефона»; дали — в ленте снимок и ролик, снятые за время записи (третий — позже, не на треке); второй
     // щелчок — галерея с адресами https://phone.invalid/…
@@ -2294,10 +2304,18 @@ try {
     await sleep(1500);
     const sl = await run(`({ calls: __slopes.length, lines: __slopes[0]?.lines.length, areas: __slopes[0]?.areas.length, flat: __slopes[0]?.lines[0]?.length,
       at: ${ts}.recState().slopesAt?.slice(0, 2), off: ${ts}.recState().offPiste })`);
+    // остановили в шторке, а точек нет — окно об этом (без «Назад»), «Закрыть» выключает навигацию
     await run(`AtlasTrack.__st.on = false; __rec.length = 0; true`);
     await sleep(1500);
+    const se = await run(`({ nav: atlas.geo.state().on, acts: [...document.querySelectorAll(".rec-review [data-act]")].map((b) => b.textContent).join(),
+      empty: /ни одной точки/.test(document.querySelector(".rec-review")?.textContent) })`);
+    await run(`document.querySelector(".rec-review [data-act=discard]")?.click(); true`);
+    await sleep(1000);
+    Object.assign(se, { navOff: !(await run(`atlas.geo.state().on`)), gone: !(await run(`!!document.querySelector(".rec-kinds")`)) });
     check("вне трассы: приложению — трассы и подъёмник вокруг места записи (без «вне трассы», ски-тура), уехал — кнопка оранжевая",
       sl.calls === 1 && sl.lines === 2 && sl.areas === 1 && sl.flat === 4 && sl.at?.[1] === 46.99 && sl.off && !(await run(`${ts}.recState().on`)), JSON.stringify(sl));
+    check("запись без единой точки: остановили в шторке — окно «ни одной точки», «Закрыть» — навигация выключилась",
+      se.acts === "Закрыть" && se.empty && se.navOff && se.gone, JSON.stringify(se));
     check("треки: закрыть — линии с карты убраны",await run(`document.querySelector('[data-panel="tracks"]').hidden && !atlas.map.getLayer("tracks-line")`));
     await run(closeLayers);
   }

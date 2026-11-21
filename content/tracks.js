@@ -442,16 +442,23 @@ const recSegs = (pts) => { // null в записи — пауза: новый к
 const WAY_KIND = { foot: "walk", bike: "bike", car: "car" };
 function recStart() {
   const way = current("route")?.route?.way;
+  // путь проложен — сразу, без вопроса (Грегори 2026-11-22: «Зачем спрашивать? В первом случае не спрашивает»)
   if (way && WAY_KIND[way]) {
-    if (confirm(`Начать запись трека: ${kindOf(WAY_KIND[way])[1].toLowerCase()}?\nЗапись идёт и при погасшем экране; пауза и стоп — здесь и в шторке уведомлений.`)) recGo(WAY_KIND[way]);
+    recGo(WAY_KIND[way]);
     return;
   }
   recAsk();
 }
-function recAsk() {
+// окно посреди экрана (выбор вида, остановка, итог записи) — одно на всех
+function recCard(extra = "") {
   document.querySelector(".rec-kinds")?.remove();
-  const box = h("div", "rec-kinds");
-  const card = h("div", "rec-kinds-card");
+  const box = h("div", `rec-kinds ${extra}`.trim()), card = h("div", "rec-kinds-card");
+  box.append(card);
+  document.body.append(box);
+  return [box, card];
+}
+function recAsk() {
+  const [box, card] = recCard();
   const list = h("div", "rec-kinds-list");
   for (const [id, name, d] of KINDS) {
     const b = h("button", "rec-kind");
@@ -466,24 +473,70 @@ function recAsk() {
   cancel.addEventListener("click", () => box.remove());
   box.addEventListener("click", (e) => { if (e.target === box) box.remove(); });
   card.append(h("div", "rec-kinds-title", "Что записываем?"), h("div", "rec-kinds-sub", "Запись идёт и при погасшем экране; пауза и стоп — здесь и в шторке уведомлений"), list, cancel);
-  box.append(card);
-  document.body.append(box);
 }
 function recGo(kind) {
   if (rec().start() === "ask") { ctx?.status("Разрешите программе точное местоположение и нажмите «Записать» ещё раз"); return; }
   settings.set("tracks.rec.kind", kind);
+  settings.set("tracks.rec.place", null);
   // запись включает навигацию (Грегори 2026-11-21: «запись трека без навигации — исправить») и выключает её в
-  // конце, если включила сама
-  const navWas = !!current("nav")?.on;
-  settings.set("tracks.rec.nav", navWas ? null : true);
-  if (!navWas) emit("nav-switch", { on: true });
+  // конце в любом случае (Грегори 2026-11-22: «Выключаем навигацию в любом случае. Движение остановлено»)
+  emit("nav-switch", { on: true });
   recPts = [];
   setTimeout(recPoll, 300);
 }
+// остановка (Грегори 2026-11-22: «Трек: гггг.мм.дд чч:мм:сс — бег, Tondraba. Отмена, Пауза, Остановить. Если
+// остановить — окно трека с графиками, возможность поменять активность и дальше Назад, Выйти не сохраняя,
+// Сохранить»): своё окно вместо вопроса браузера; «Остановить» ставит запись на паузу, пока не решили
+const pad2 = (n) => String(n).padStart(2, "0");
+const stamp = (t) => { const d = new Date(t); return `${d.getFullYear()}.${pad2(d.getMonth() + 1)}.${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; };
+const recName = (start, kind) => [stamp(start), [kindOf(kind)?.[1].toLowerCase(), settings.get("tracks.rec.place")].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
+function recButtons(box, list) {
+  const row = h("div", "rec-kinds-btns");
+  for (const [act, text, fn] of list) {
+    const b = h("button", "text-btn", text);
+    Object.assign(b, { type: "button" });
+    b.dataset.act = act;
+    b.addEventListener("click", () => { box.remove(); fn(); });
+    row.append(b);
+  }
+  return row;
+}
 function recStop() {
-  if (!confirm("Остановить запись и сохранить трек?")) return;
-  rec().stop();
-  setTimeout(recPoll, 300);
+  const paused = recState.pausedAt > 0;
+  const [box, card] = recCard("rec-stop");
+  box.addEventListener("click", (e) => { if (e.target === box) box.remove(); });
+  card.append(h("div", "rec-kinds-title", `Трек: ${recName(recState.start, settings.get("tracks.rec.kind"))}`),
+    h("div", "rec-kinds-sub", [recWhen(recState), km(recState.dist), recState.max != null && recSpeed(recState)].filter(Boolean).join(" · ")),
+    recButtons(box, [["cancel", "Отмена", () => {}],
+      ["pause", paused ? "Продолжить" : "Пауза", () => { if (paused) rec().resume(); else rec().pause(); setTimeout(recPoll, 300); }],
+      ["stop", "Остановить", () => { if (!paused) rec().pause(); recReview(!paused); }]]));
+}
+// итог записи: вид, цифры и графики, как у трека; «Назад» — запись дальше (была на паузе — так и остаётся),
+// остановили в шторке — «Назад» нет
+let recReviewing = false;
+function recReview(resume, stopped = false) {
+  recReviewing = true;
+  let segs = [];
+  try { segs = recSegs(JSON.parse(rec().read(0))); } catch { /* */ }
+  const t = { id: "rec", name: "", date: segs[0]?.[0]?.[3] || recState?.start || Date.now(), kind: settings.get("tracks.rec.kind") || null, segs };
+  const start = recState?.start || t.date;
+  const [box, card] = recCard("rec-review");
+  const render = () => {
+    const nodes = [h("div", "rec-kinds-title", `Трек: ${recName(start, t.kind)}`), kindPicker(t, render, () => settings.set("tracks.rec.kind", t.kind))];
+    if (segs.length) {
+      const s = stats(t), ski = t.kind === "ski" ? skiStats(s) : null, last = s.profile.length - 1;
+      s.lifts = ski?.lifts || [];
+      nodes.push(factTiles(s, ski));
+      const c = chart(s, { a: 0, b: last, v0: 0, v1: last, pin: null }, () => {});
+      if (c) nodes.push(c);
+    } else nodes.push(h("div", "rec-kinds-sub", "Не записано ни одной точки: GPS не дал ни одного точного замера (точнее 40 м) — в помещении так бывает. Сохранять нечего"));
+    const acts = [];
+    if (!stopped) acts.push(["back", "Назад", () => { recReviewing = false; if (resume) { rec().resume(); setTimeout(recPoll, 300); } }]);
+    acts.push(["discard", segs.length ? "Выйти не сохраняя" : "Закрыть", () => recEnd(null)]);
+    if (segs.length) acts.push(["save", "Сохранить", () => { t.name = recName(start, t.kind); recEnd(t); }]);
+    card.replaceChildren(...nodes, recButtons(box, acts));
+  };
+  render();
 }
 // состояние раз в секунду (часы), новые точки — раз в 3 с; пока окно не видно — не спрашиваем
 function recPoll() {
@@ -491,9 +544,12 @@ function recPoll() {
   if (!rec() || document.hidden) return;
   try { recState = JSON.parse(rec().state()); } catch { return; }
   if (recState.on) {
-    if (recTick++ % 3 === 0) { try { recPts.push(...JSON.parse(rec().read(recPts.length))); } catch { /* */ } recDraw(); recSlopes(); }
+    if (recTick++ % 3 === 0) { try { recPts.push(...JSON.parse(rec().read(recPts.length))); } catch { /* */ } recDraw(); recSlopes(); recPlace(); }
     recTimer = setTimeout(recPoll, 1000);
-  } else if (recState.saved) recFinish();
+  // остановили (и в шторке) — итог; запись без единой точки — тоже: окно скажет, а навигацию выключит «Закрыть»
+  // (Грегори 2026-11-22: «после выключения трека навигация не выключается… записанные треки не появляются» —
+  // пустая запись раньше пропадала молча)
+  } else if ((recState.saved || settings.get("tracks.rec.kind")) && !recReviewing && !recFinishing) recReview(false, true);
   else if (recPts.length) { recPts = []; recDraw(); }
   recShow();
 }
@@ -514,25 +570,39 @@ async function recSlopes() {
     if (!d.failed) slopesAt = last; // часть квадратов не скачалась — попробуем ещё раз со следующими точками
   } catch { /* без сети и без сохранённых трасс — спросим со следующими точками */ } finally { slopesBusy = false; }
 }
-// остановлено — трек в «Мои треки» (файл приложения стирается, только когда трек уже сохранён здесь)
-async function recFinish() {
+// место записи — в название (район или посёлок у первой точки); без сети — без места
+let placeBusy = false;
+async function recPlace() {
+  const p = recPts.find((x) => x);
+  if (!p || placeBusy || settings.get("tracks.rec.place") != null) return;
+  placeBusy = true;
+  try {
+    const j = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14&accept-language=ru&lat=${p[1].toFixed(4)}&lon=${p[0].toFixed(4)}`).then((r) => r.json());
+    const a = j.address || {};
+    settings.set("tracks.rec.place", a.quarter || a.neighbourhood || a.suburb || a.village || a.hamlet || a.town || a.city || a.municipality || "");
+  } catch { /* */ } finally { placeBusy = false; }
+}
+// конец записи: t — сохранить в «Мои треки», null — выйти не сохраняя. Навигацию выключаем в обоих случаях;
+// файл приложения стирается, только когда трек уже сохранён здесь
+async function recEnd(t) {
   if (recFinishing) return;
   recFinishing = true;
+  document.querySelector(".rec-kinds")?.remove();
   try {
-    const segs = recSegs(JSON.parse(rec().read(0)));
-    const kind = settings.get("tracks.rec.kind") || null;
+    rec().stop();
+    for (let i = 0; i < 50 && JSON.parse(rec().state()).on; i++) await new Promise((r) => setTimeout(r, 100));
     settings.set("tracks.rec.kind", null);
-    if (settings.get("tracks.rec.nav")) { settings.set("tracks.rec.nav", null); emit("nav-switch", { on: false }); }
+    settings.set("tracks.rec.place", null);
+    emit("nav-switch", { on: false });
     recPts = [];
     slopesAt = null;
     recDraw();
-    if (!segs.length) { rec().clear(); ctx?.status("Трек не записан: не было ни одного замера GPS"); setTimeout(() => ctx?.status(""), 5000); return; }
+    if (!t) { rec().clear(); return; }
     await load();
-    const date = segs[0][0][3];
-    const t = { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: `Запись ${day(date)}, ${clock(date)}`, file: "", date, kind, segs };
+    Object.assign(t, { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, file: "" });
     tracks.set(t.id, t);
     await cacheSet(`tracks/${t.id}`, t);
-    index.push({ id: t.id, name: t.name, date: t.date, dist: stats(t).dist, kind, note: "" });
+    index.push({ id: t.id, name: t.name, date: t.date, dist: stats(t).dist, kind: t.kind, note: "" });
     await cacheSet("tracks/index", index);
     rec().clear();
     if (!ctx) return;
@@ -540,7 +610,7 @@ async function recFinish() {
     if (!isOpen("tracks")) { panel.open(); setSearchMode(MODE); emit("module", { id: "content/tracks", on: true }); }
     await showOnMap(true);
     openTrack(t.id);
-  } catch (err) { ctx?.status(`Трек не сохранён: ${err.message}`); } finally { recFinishing = false; }
+  } catch (err) { ctx?.status(`Трек не сохранён: ${err.message}`); } finally { recFinishing = false; recReviewing = false; recPoll(); }
 }
 // идущая запись на карте — линией цвета треков, видна и при закрытых «Моих треках»
 function recDraw() {
@@ -559,7 +629,7 @@ function recShow() {
     const on = !!recState?.on, paused = on && recState.pausedAt > 0;
     recBtn.classList.toggle("on", on);
     recBtn.classList.toggle("paused", paused);
-    recBtn.title = !on ? "Записать трек" : paused ? "Запись трека — пауза. Щелчок — остановить и сохранить" : "Идёт запись трека. Щелчок — остановить и сохранить";
+    recBtn.title = !on ? "Записать трек" : paused ? "Запись трека — пауза. Щелчок — продолжить или остановить" : "Идёт запись трека. Щелчок — пауза или остановить";
     recBtn.classList.toggle("off-piste", on && !paused && recState.off > 0);
     // справа от кнопки — время, км и наибольшая скорость (Грегори 2026-11-20: «в три строки»)
     const pill = recBtn.querySelector(".rec-time");
@@ -590,7 +660,7 @@ function recRows() {
   if (!on) { r.addEventListener("click", recStart); return [r]; }
   const right = h("span", "tk-rec-btns");
   right.append(btn(mdi(paused ? PLAY_D : PAUSE_D, 20), paused ? "Продолжить запись" : "Пауза", () => { if (paused) rec().resume(); else rec().pause(); setTimeout(recPoll, 300); }),
-    btn(mdi(STOP_D, 20), "Остановить и сохранить трек", recStop));
+    btn(mdi(STOP_D, 20), "Остановить запись", recStop));
   r.append(right);
   return [r];
 }
@@ -1108,7 +1178,7 @@ function looks(t) {
 }
 
 // выбор вида активности: список со значками (в обычном списке браузера значки не нарисовать)
-function kindPicker(t, done) {
+function kindPicker(t, done, save = persist) {
   const wrap = h("div", "tk-kind");
   const b = h("button", "text-btn tk-kind-btn");
   const k = kindOf(t.kind);
@@ -1121,7 +1191,7 @@ function kindPicker(t, done) {
     const o = h("button", "tk-kind-item" + (t.kind === id ? " on" : ""));
     o.innerHTML = mdi(d);
     o.append(name);
-    o.addEventListener("click", () => { t.kind = id; persist(t); done(); });
+    o.addEventListener("click", () => { t.kind = id; save(t); done(); });
     list.append(o);
   }
   b.addEventListener("click", (e) => {
@@ -1565,7 +1635,7 @@ register({
   recPoll: () => recPoll(),
   recKind: () => index.at(-1)?.kind || null,
   recState: () => ({ btn: !!recBtn, on: recBtn?.classList.contains("on"), time: recBtn?.querySelector(".rec-time b")?.textContent || "", pill: recBtn?.querySelector(".rec-time").innerText, pts: recPts.length,
-    line: !!ctx?.map.getLayer("tracks-rec-line"), finishing: recFinishing, slopesAt, offPiste: recBtn?.classList.contains("off-piste"),
+    line: !!ctx?.map.getLayer("tracks-rec-line"), finishing: recFinishing, review: document.querySelector(".rec-review .rec-kinds-title")?.textContent || "", slopesAt, offPiste: recBtn?.classList.contains("off-piste"),
     sub: panel.body.querySelector(".tk-rec .tr-row-sub")?.textContent }),
 });
 // кнопка записи — сразу при запуске (приложение Android), над «Навигацией»
