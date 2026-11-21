@@ -1398,7 +1398,8 @@ body.has-photo-strip .wx-bar {
     z-index: 13;
   }
 
-  body.has-wx-bar .maplibregl-ctrl-scale {
+  body.has-wx-bar .maplibregl-ctrl-scale,
+  body.has-wx-bar .place-caption {
     visibility: hidden;
   }
 }
@@ -2123,6 +2124,23 @@ body.labels-off.numbers-off .carousel .layers-item > span {
 .maplibregl-ctrl-bottom-left > .maplibregl-ctrl-scale {
   left: calc(var(--button) + var(--side-l) + var(--gap) + 34px);
   margin: 0 0 0 var(--gap);
+}
+
+/* «Город · Страна» — над шкалой, без подложки, с белой каймой, как подписи кнопок (core/controls.js) */
+.maplibregl-ctrl-bottom-left > .place-caption {
+  position: absolute;
+  left: calc(var(--button) + var(--side-l) + var(--gap) + 34px);
+  bottom: calc(var(--gap) + var(--button) / 2 + 14px);
+  margin: 0 0 0 var(--gap);
+  max-width: calc(100vw - 2 * var(--button) - var(--side-l) - var(--side-r) - 6 * var(--gap) - 34px);
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* ⓘ — совсем тонкий ободок (Грегори, 2026-10-29) */
@@ -4170,6 +4188,29 @@ body.go-nav-off .go-menu {
 
 .layers-sub.carousel[hidden] {
   display: none;
+}
+
+/* цепочка: открыта следующая (ниже) — эта уходит вглубь и наклоняется назад, бледнее и размыта; глубже — дальше
+   (Грегори 2026-11-21: «отдалением нижнего слоя в глубину… наклон»); нажимается — докрутить другую кнопку */
+.layers-sub.carousel {
+  transition: transform 0.25s, opacity 0.25s, filter 0.25s;
+}
+
+/* закрывается — уезжает вверх, под предыдущую, и гаснет */
+.layers-sub.carousel.closing {
+  transform: translateY(-52px) scale(0.9);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.layers-sub.carousel.closing .wheel-cell {
+  pointer-events: none;
+}
+
+.layers-sub.carousel.covered {
+  transform: perspective(600px) translateZ(calc(-110px * var(--depth, 1))) rotateX(28deg);
+  opacity: 0.5;
+  filter: blur(1px);
 }
 
 .carousel .wheel-cell {

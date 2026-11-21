@@ -2981,8 +2981,8 @@ try {
     car.carousel && car.cells > 2 && car.size && car.round && car.label && car.beside && car.arc && Math.abs(car.off) <= 3 && car.spun && car.back, JSON.stringify(car));
   await shot("95d-carousel");
   await run(`atlas.toggle("layers/railways", false).then(() => true)`);
-  // цепочка (Грегори 2026-11-21): включённые «Горнолыжные спуски» открывают левее третью карусель с профильными
-  // местами, подписи второй прячутся; кнопки — те же модули, что в «Спорте»; кнопка барабана закрывает всю цепочку
+  // цепочка (Грегори 2026-11-21): включённые «Горнолыжные спуски» открывают ниже третью карусель с профильными
+  // местами, вторая уходит вглубь с наклоном, её подписи прячутся; кнопки — те же модули, что в «Спорте»; кнопка барабана закрывает всю цепочку
   const chain = await run(`(async () => { const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const tr = () => document.querySelector('.wheel-layers .layers-circle[data-key="trails/hiking"]');
     if (!tr().classList.contains("open")) tr().click(); await wait(1200);
@@ -2996,7 +2996,8 @@ try {
     await wait(600);
     r.open2 = true; r.covered = s1.classList.contains("covered") && getComputedStyle(s1.querySelector(".layers-item > span")).visibility === "hidden";
     r.titles = [...s2.querySelectorAll(".layers-item > span")].map((s) => s.dataset.num + " " + s.textContent);
-    r.left = s2.querySelector(".layers-icon").getBoundingClientRect().right <= s1.querySelector(".layers-icon").getBoundingClientRect().left + 1;
+    const c1 = s1.querySelector(".layers-item.on .layers-icon").getBoundingClientRect(), c2 = s2.querySelectorAll(".layers-icon")[0].getBoundingClientRect();
+    r.left = getComputedStyle(s1).transform !== "none" && getComputedStyle(s2).transform === "none" && s1.style.right === s2.style.right && c2.top > c1.top + 20;
     find(s2, "Горнолыжные курорты").click(); await wait(1500);
     r.ski = !!find(document.querySelector(".sub-layers-2"), "Горнолыжные курорты")?.classList.contains("on") && document.querySelector('.wheel-places .layers-circle[data-key="places/sport"]').classList.contains("on");
     tr().click(); await wait(500);
@@ -3021,6 +3022,48 @@ try {
   await run(`(() => { const tr = document.querySelector('.wheel-layers .layers-circle[data-key="trails/hiking"]'); if (tr.classList.contains("open")) tr.click(); return true; })()`);
   check("полоса каруселей: колёсико между подписями крутит карусель, карта не приближается; подписи без подложки",
     zone.map && Math.abs(zone2.zoom - zone.zoom) < 0.01 && zone2.first !== zone.first && zone.bg === "rgba(0, 0, 0, 0)", JSON.stringify({ zone, zone2 }));
+  // фокус в цепочке (Грегори 2026-11-21: «фокус не переходит на соседнюю карусель, её невозможно крутить»):
+  // колёсико над передней каруселью крутит её, над видной кнопкой задней — заднюю (передняя закрывается)
+  const focus = await run(`(async () => { const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const tr = () => document.querySelector('.wheel-layers .layers-circle[data-key="trails/hiking"]');
+    if (!tr().classList.contains("open")) tr().click(); await wait(1200);
+    const s1 = document.querySelector(".sub-layers");
+    [...s1.querySelectorAll(".layers-item")].find((b) => b.firstChild.textContent === "Горнолыжные спуски").click();
+    let s2 = null;
+    for (let i = 0; i < 150 && !(s2 && !s2.hidden && s2.querySelector(".layers-item")); i++) { await wait(200); s2 = document.querySelector(".sub-layers-2"); }
+    if (!s2 || s2.hidden) return { open2: false };
+    await wait(800);
+    const at = (el) => [...el.querySelectorAll(".wheel-cell:not([hidden]) .layers-icon")].map((i) => { const b = i.getBoundingClientRect(); return [Math.round(b.left + b.width / 2), Math.round(b.top + b.height / 2)]; })
+      .find(([x, y]) => el.contains(document.elementFromPoint(x, y)));
+    const top = (el) => [...el.querySelectorAll(".wheel-cell:not([hidden])")].sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0].textContent;
+    window.__tops = () => ({ t1: top(s1), t2: s2.hidden ? null : top(s2) });
+    return { open2: true, front: at(s2), back: at(s1), ...window.__tops() }; })()`);
+  let focus2 = {}, focus3 = {};
+  if (focus.front && focus.back) {
+    await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: focus.front[0], y: focus.front[1], deltaX: 0, deltaY: 100 });
+    await sleep(1500);
+    focus2 = await run(`window.__tops()`);
+    await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: focus.back[0], y: focus.back[1], deltaX: 0, deltaY: 300 });
+    await sleep(1500);
+    focus3 = await run(`window.__tops()`);
+  }
+  await run(`(async () => { const tr = document.querySelector('.wheel-layers .layers-circle[data-key="trails/hiking"]'); if (tr.classList.contains("open")) tr.click(); await atlas.toggle("trails/slopes", false); return true; })()`);
+  check("цепочка каруселей: колёсико крутит ту карусель, над которой мышь, — переднюю и заднюю",
+    focus.open2 && !!focus.front && !!focus.back && focus2.t2 && focus2.t2 !== focus.t2 && focus2.t1 === focus.t1 && focus3.t1 !== focus.t1, JSON.stringify({ focus, focus2, focus3 }));
+  // «Город · Страна» над шкалой (Грегори 2026-11-21: «названия городов и стран видно на 5 км, вблизи не видно»):
+  // центр карты — по подписям самой карты и границам стран; вблизи город помнится
+  const caption = await run(`(async () => { const wait = (ms) => new Promise((r) => setTimeout(r, ms)), el = document.querySelector(".place-caption");
+    const view = atlas.map.getCenter(), zoom = atlas.map.getZoom(), out = [];
+    for (const z of [11, 15.5]) {
+      atlas.map.jumpTo({ center: [24.745, 59.437], zoom: z }); await wait(500);
+      for (let i = 0; i < 60 && !(atlas.map.loaded() && atlas.map.areTilesLoaded()); i++) await wait(250);
+      await wait(2000); out.push(el?.hidden ? "" : el?.textContent);
+    }
+    const scale = document.querySelector(".maplibregl-ctrl-scale").getBoundingClientRect(), r = el.getBoundingClientRect();
+    atlas.map.jumpTo({ center: view, zoom });
+    return { out, above: r.bottom <= scale.top + 4 && Math.abs(r.left - scale.left) < 2 }; })()`);
+  check("«Город · Страна» над шкалой: центр Таллина — «Таллин · Эстония» и на 11, и вблизи",
+    caption.out.every((t) => t === "Таллин · Эстония") && caption.above, JSON.stringify(caption));
   // «Десктоп» в правом нижнем углу (Грегори 2026-11-21): остаются карта и кнопки слева внизу — строка поиска, кнопки
   // справа, барабаны прячутся (не закрываясь); ещё раз — всё как было. Телефон: барабан под другим — меньше и размыт
   const desk = await run(`(async () => { const wait = () => new Promise((r) => setTimeout(r, 450));

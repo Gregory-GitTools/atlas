@@ -335,32 +335,52 @@ export function initLayersPanel(ctx) {
       onSwipe: name === "content" ? null : () => setDrum(name, false),
     });
 
-    // ---------- меню кнопки — карусели цепочкой влево ----------
+    // ---------- меню кнопки — карусели цепочкой вниз ----------
     // первая — меню кнопки барабана (Грегори 2026-11-21: «значки — кнопками, подписи вращаются вместе с ними; вид
     // и реакция на нажатие — одинаковые»); у центральной кнопки карусели есть связанные (related) и она включена —
-    // левее следующая карусель («после выбора горнолыжных спусков — третья карусель с профильными местами»).
-    // Кнопка барабана закрывает всю цепочку. Подписи карусели прячутся, когда левее открыта следующая
+    // ниже следующая карусель («после выбора горнолыжных спусков — третья карусель с профильными местами»).
+    // Кнопка барабана закрывает всю цепочку. Следующая — в той же колонке, ниже на кнопку, а предыдущие уходят
+    // вглубь с наклоном и без подписей (Грегори 2026-11-21: «один под другим со сдвигом вниз и отдалением нижнего
+    // слоя в глубину… наклон усилит эффект»)
+    const SHIFT = BTN + 12;
     let openKey = null;
     const levels = [];
     const level = (k) => {
       if (levels[k]) return levels[k];
       const el = Object.assign(document.createElement("div"), { className: `layers-sub carousel sub-${name}${k ? `-${k + 1}` : ""}`, hidden: true });
       document.body.append(el);
-      const L = { el, k, key: null, specs: [], prefix: "", right: 0 };
-      // центр каждой карусели — вровень с кнопкой барабана
+      const L = { el, k, key: null, specs: [], prefix: "", right: 0, cy: () => 0 };
+      // центр первой карусели — вровень с кнопкой барабана, каждой следующей — ниже на SHIFT
+      const cy = () => wheel.getBoundingClientRect().top + centerY() + k * SHIFT - el.getBoundingClientRect().top;
       L.R = rotor(el, el, {
         shown: () => !el.hidden,
-        centerY: () => wheel.getBoundingClientRect().top + centerY() - el.getBoundingClientRect().top,
+        centerY: cy,
         onStart: () => closeFrom(k + 1),
         onSettle: () => chain(k),
       });
+      L.cy = cy;
       return (levels[k] = L);
     };
+    // глубина — сколько открытых каруселей перед этой; уходит вглубь вокруг своей центральной кнопки
     const paintLevels = () => {
-      for (const L of levels) L.el.classList.toggle("covered", !L.el.hidden && !!levels[L.k + 1] && !levels[L.k + 1].el.hidden);
+      const shown = levels.filter((L) => !L.el.hidden && !L.closing).length;
+      for (const L of levels) {
+        L.el.classList.toggle("covered", !L.el.hidden && !L.closing && L.k < shown - 1);
+        L.el.style.setProperty("--depth", Math.max(0, shown - 1 - L.k));
+        if (!L.el.hidden) L.el.style.transformOrigin = `calc(100% - ${BTN / 2}px) ${Math.round(L.cy())}px`;
+      }
       document.body.classList.toggle("carousel-on", !!document.querySelector(".layers-sub.carousel:not([hidden])"));
     };
-    const closeFrom = (k) => { for (const L of levels.slice(k)) L.el.hidden = true; paintLevels(); };
+    // закрыть — уехать вверх, под предыдущую, и погаснуть, потом спрятать (Грегори 2026-11-21: «должны закрываться,
+    // а не удаляться»); открыли снова, пока закрывается, — остаётся
+    const closeFrom = (k) => {
+      for (const L of levels.slice(k)) {
+        if (L.el.hidden || L.closing) continue;
+        L.el.classList.add("closing");
+        L.closing = setTimeout(() => { L.el.hidden = true; L.el.classList.remove("closing"); L.closing = 0; paintLevels(); }, 250);
+      }
+      paintLevels();
+    };
     // карусель k: кнопки specs; та же кнопка, что была (и после закрытия) — карусель стоит, где стояла, другая —
     // в центре первая включённая или выбранная, иначе первая
     function fill(k, key, prefix, specs, tone, wait = false) {
@@ -377,9 +397,12 @@ export function initLayersPanel(ctx) {
       if (wait) cells.push(Object.assign(document.createElement("div"), { className: "wheel-cell layers-wait", textContent: "Загрузка…" }));
       // выделенные кнопки — светлой заливкой цвета группы
       L.el.style.setProperty("--tone", `var(--tone-${tone})`);
-      // первая — вплотную слева от барабана, следующая — вплотную к значкам предыдущей (её подписи спрятаны)
-      L.right = k ? levels[k - 1].right + BTN + 8 : innerWidth - wheel.getBoundingClientRect().left;
+      // все — вплотную слева от барабана, одна под другой
+      L.right = innerWidth - wheel.getBoundingClientRect().left;
       L.el.style.right = `${L.right}px`;
+      clearTimeout(L.closing);
+      L.closing = 0;
+      L.el.classList.remove("closing");
       L.el.hidden = false;
       L.R.set(cells);
       if (L.key !== key) L.R.jump(Math.max(0, specs.findIndex((x) => x.on || x.selected)));
@@ -389,7 +412,7 @@ export function initLayersPanel(ctx) {
     // за центральной кнопкой карусели k — её связанные кнопки (если она включена), иначе цепочка кончается
     function chain(k) {
       const L = levels[k];
-      if (!L || L.el.hidden) return;
+      if (!L || L.el.hidden || L.closing) return;
       const i = L.R.centerIndex(), spec = L.specs[i];
       const next = spec?.on && spec.related?.();
       if (!next?.length) return closeFrom(k + 1);
@@ -549,7 +572,8 @@ export function initLayersPanel(ctx) {
   // ничего. Полоса — от левого края подписей до правого края барабана или карусели
   const zoneAt = (x, y) => {
     if (document.body.classList.contains("desk-on")) return null;
-    for (const el of document.querySelectorAll(".wheel:not(.closed):not(.behind), .layers-sub.carousel:not([hidden])")) {
+    // передняя (открытая последней) карусель — первой (Грегори 2026-11-21: «фокус не переходит на соседнюю карусель»)
+    for (const el of [...document.querySelectorAll(".wheel:not(.closed):not(.behind), .layers-sub.carousel:not([hidden]):not(.closing)")].reverse()) {
       const box = el.getBoundingClientRect();
       if (y < box.top || y > box.bottom || x > box.right) continue;
       const parts = [...el.querySelectorAll(".wheel-cell:not([hidden]), .wheel-label")].map((c) => c.getBoundingClientRect()).filter((r) => r.width);
@@ -560,7 +584,8 @@ export function initLayersPanel(ctx) {
   };
   addEventListener("wheel", (e) => {
     const zone = e.isTrusted && zoneAt(e.clientX, e.clientY);
-    if (!zone || zone.contains(e.target)) return;
+    // над кнопкой любой карусели или барабана — крутится она сама
+    if (!zone || e.target.closest?.(".wheel, .layers-sub.carousel")) return;
     e.preventDefault();
     e.stopPropagation();
     zone.dispatchEvent(new WheelEvent("wheel", { deltaY: e.deltaY, deltaMode: e.deltaMode, clientX: e.clientX, clientY: e.clientY, bubbles: true, cancelable: true }));

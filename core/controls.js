@@ -4,6 +4,8 @@
 // Кнопок «+ −» нет (Грегори, 2026-11-02): приближают колёсиком, пальцами, двойным щелчком
 import * as settings from "./settings.js";
 import { emit, on, current } from "./events.js";
+import { countryAt } from "./borders.js";
+import { labelLanguage, uiLanguage } from "./labels.js";
 
 // кнопка столбика — полупрозрачная, как лупа и треугольник (класс glass — один на все такие кнопки)
 export function addMapButton(map, { title, html, className = "" }) {
@@ -23,6 +25,54 @@ export function addMapButton(map, { title, html, className = "" }) {
 // «м»/«км» — из русских подписей карты (locale в app.js)
 export function addScale(map, maplibregl) {
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
+  addPlaceCaption(map, maplibregl);
+}
+
+// ---------- «Город · Страна» над шкалой ----------
+// где центр карты (Грегори 2026-11-21: «названия городов и стран видно на 5 км, а вблизи не видно» — подпись
+// города стоит в его центре, страны — только издалека). Город — ближайший к центру из подписей самой карты
+// (слой place векторных тайлов, крупный город весомее деревни), страна — по границам (core/borders.js);
+// без запросов в интернет, язык — как у подписей карты. Вблизи точка города — за краем загруженных плиток,
+// поэтому увиденные места помнятся; дальше радиуса (город 15 км, деревня 3) — только страна
+const PLACE_WEIGHT = { city: 3, town: 2, village: 1 };
+const PLACE_REACH = { city: 15000, town: 7000, village: 3000 };
+function addPlaceCaption(map, maplibregl) {
+  const el = Object.assign(document.createElement("div"), { className: "maplibregl-ctrl place-caption" });
+  map.addControl({ onAdd: () => el, onRemove() {} }, "bottom-left");
+  let key = "", seq = 0;
+  const seen = new Map(); // «класс|lng|lat» → { at: LngLat, class, props }
+  const cityAt = (code) => {
+    const src = map.getStyle()?.layers.find((l) => l["source-layer"] === "place")?.source;
+    if (src) for (const f of map.querySourceFeatures(src, { sourceLayer: "place" })) {
+      if (!PLACE_WEIGHT[f.properties.class] || f.geometry.type !== "Point") continue;
+      const [lng, lat] = f.geometry.coordinates;
+      seen.set(`${f.properties.class}|${lng.toFixed(3)}|${lat.toFixed(3)}`, { at: new maplibregl.LngLat(lng, lat), class: f.properties.class, props: f.properties });
+    }
+    while (seen.size > 5000) seen.delete(seen.keys().next().value);
+    if (map.getZoom() < 6) return "";
+    const c = map.getCenter();
+    let best = null, score = Infinity;
+    for (const p of seen.values()) {
+      const d = c.distanceTo(p.at);
+      if (d < PLACE_REACH[p.class] && d / PLACE_WEIGHT[p.class] < score) { score = d / PLACE_WEIGHT[p.class]; best = p.props; }
+    }
+    return best ? (code.length === 2 && best[`name:${code}`]) || best.name || "" : "";
+  };
+  const update = async () => {
+    const code = labelLanguage().code, ll = map.getCenter();
+    const k = `${code}|${ll.lng.toFixed(4)}|${ll.lat.toFixed(4)}|${map.getZoom().toFixed(1)}`;
+    if (k === key) return;
+    key = k;
+    const mine = ++seq, city = code === "none" ? "" : cityAt(code);
+    const country = code === "none" ? null : await countryAt([ll.lng, ll.lat]);
+    if (mine !== seq) return;
+    let name = country?.name || "";
+    if (country && uiLanguage() !== "ru") try { name = new Intl.DisplayNames([uiLanguage()], { type: "region" }).of(country.iso) || name; } catch { /* нет такого кода */ }
+    el.textContent = [city, name].filter(Boolean).join(" · ");
+    el.hidden = !el.textContent;
+  };
+  map.on("idle", update);
+  on("label-language", () => { key = ""; update(); }, { replay: false });
 }
 
 // ---------- навигация («Где я») ----------
