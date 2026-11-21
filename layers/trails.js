@@ -365,7 +365,9 @@ const SKI_SPARQL = `{ ?osm osmkey:piste:type ?kind . FILTER (?kind != "ice_skate
 // «Беговые лыжи» — отдельная кнопка (Грегори 2026-11-21: «не надо их путать»): те же данные, свои линии
 let slopesMap = null, skiCtx = null, skiOn = false, skiWired = false;
 const skiShow = { downhill: false, nordic: false };
-const isNordic = (p) => p.kind === "nordic";
+// лыжня — piste:type=nordic, а ещё трасса без вида спуска, но с подготовкой под классику или конёк (Грегори 2026-11-21:
+// «трассы для беговых лыж, но они не выбраны» — в OSM у них бывает piste:type=yes)
+const isNordic = (p) => p.kind === "nordic" || (!["downhill", "sled", "playground", "snow_park"].includes(p.kind) && /classic|skating/.test(p.groom || ""));
 const pistes = new Map(), lifts = new Map(); // osm → запись из квадрата
 
 // длина линии в метрах и точки через каждые step метров (первая — в first от начала)
@@ -542,7 +544,10 @@ function slopesOn(map) {
   const firstSymbol = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
   map.addSource(SLOPES_SRC, { type: "raster", tileSize: 256, maxzoom: 17, tiles: ["https://tile.waymarkedtrails.org/slopes/{z}/{x}/{y}.png"],
     attribution: 'Спуски: <a href="https://waymarkedtrails.org" target="_blank">Waymarked Trails</a> (CC BY-SA)' });
-  map.addLayer({ id: SLOPES_LAYER, type: "raster", source: SLOPES_SRC, minzoom: 8, maxzoom: SKI_ZOOM }, firstSymbol);
+  // картинка Waymarked Trails — спуски и лыжни вместе, не разделить: издалека — только когда включены обе кнопки
+  // (Грегори 2026-11-21: «фантомы трасс — на 2 км видна, ближе нет»)
+  map.addLayer({ id: SLOPES_LAYER, type: "raster", source: SLOPES_SRC, minzoom: 8, maxzoom: SKI_ZOOM,
+    layout: { visibility: skiShow.downhill && skiShow.nordic ? "visible" : "none" } }, firstSymbol);
   const d = skiData();
   map.addSource(SKI_SRC, { type: "geojson", data: d.lines, tolerance: 0.2 });
   map.addSource(SKI_LABELS_SRC, { type: "geojson", data: d.labels });
@@ -617,6 +622,7 @@ async function withLifts(ctx) {
 // включить или выключить свою часть (спуски с подъёмниками или беговые лыжни); слои карты — пока включена хоть одна
 function skiSet(ctx, part, want) {
   skiShow[part] = want;
+  if (slopesMap?.getLayer(SLOPES_LAYER)) slopesMap.setLayoutProperty(SLOPES_LAYER, "visibility", skiShow.downhill && skiShow.nordic ? "visible" : "none");
   if (want) {
     slopesMap = ctx.map;
     skiCtx = ctx;
