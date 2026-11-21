@@ -1,6 +1,8 @@
-// Кнопки — два колеса-барабана в боковой панели справа, на одном месте (Грегори, 2026-11-02: «один
+// Кнопки — колёса-барабаны в боковой панели справа, на одном месте (Грегори, 2026-11-02: «один
 // барабан сменяет другой»):
 //  • барабан слоёв — открывает кнопка «Слои» справа внизу, над лентой фото (открыты — кнопка белая);
+//  • барабан мест (Места, Транспорт, Магазины, Спорт) — кнопка с булавкой над «Слоями» (Грегори 2026-11-21:
+//    «опять поделим Места и Слои на две кнопки»);
 //  • барабан разделов (Экскурсии, Языки, Треки, Фото) — открывает полупрозрачная лупа справа вверху,
 //    вместе со строкой поиска: с ней связаны режимы поиска разделов. Так кнопки сгруппированы по смыслу;
 //  • щелчок по лупе или треугольнику — показать свой барабан вместо другого, второй щелчок — спрятать (у лупы —
@@ -102,11 +104,14 @@ export function initLayersPanel(ctx) {
     return b;
   };
 
-  // кнопки барабана слоёв: «Карты», потом разделы и модули с видами
-  const layerEntries = () => {
+  // кнопки барабана слоёв: «Карты», потом разделы и модули с видами; раздел «Места» — свой барабан
+  const PLACES = "places";
+  const layerEntries = () => groupEntries((g) => g.id !== PLACES, true);
+  const placeEntries = () => groupEntries((g) => g.id === PLACES, false);
+  const groupEntries = (which, withMaps) => {
     const usable = modules("layer").filter(available).filter((m) => m.group !== "hidden");
     const maps = { key: "maps", title: "Карты", tone: "maps", maps: true, plain: usable.filter((m) => groupOf(m) === MAPS_GROUP) };
-    return [maps, ...GROUPS.flatMap((g) => {
+    return [...(withMaps ? [maps] : []), ...GROUPS.filter(which).flatMap((g) => {
       const mods = usable.filter((m) => groupOf(m) === g.id);
       const withMenu = mods.filter((m) => m.menu);
       let plain = mods.filter((m) => !m.menu);
@@ -158,15 +163,26 @@ export function initLayersPanel(ctx) {
   // поиска и барабан разделов, а на месте лупы — логотип (лупа уходит в строку поиска: двух луп быть не
   // должно); выбран раздел — вместо логотипа его значок; второй щелчок по логотипу или значку — закрыть всё
   const arrowBtn = Object.assign(document.createElement("button"), { className: "btn glass wheel-toggle", innerHTML: ARROW });
+  const placesBtn = Object.assign(document.createElement("button"), { className: "btn glass places-toggle", innerHTML: GROUPS.find((g) => g.id === PLACES).icon });
   const lensBtn = Object.assign(document.createElement("button"), { className: "btn glass search-toggle" });
-  const controls = [arrowBtn, lensBtn];
+  const controls = [arrowBtn, placesBtn, lensBtn];
   // барабаны — каждый своей кнопкой, один другой не прячет (Грегори 2026-11-12): разделы — лупой справа вверху
-  // (вместе со строкой поиска), слои — треугольником внизу. На компьютере оба делят высоту и не пересекаются,
-  // на телефоне лежат один на другом: нажатие на кнопку нижнего — поднять его наверх, верхнего — закрыть
-  const opened = { content: false, layers: false };
-  let front = null, searchOn = false, mode = null, routeNow = null;
+  // (вместе со строкой поиска), места и слои — кнопками внизу. На компьютере открытые делят высоту и не
+  // пересекаются, на телефоне лежат стопкой: нажатие на кнопку нижнего — поднять его наверх, верхнего — закрыть
+  // (Грегори 2026-11-21: «прикольно, что можно открыть много барабанов и поднимать их по слоям»)
+  const opened = { content: false, places: false, layers: false };
+  const BANDS = ["content", "places", "layers"]; // сверху вниз на компьютере
+  let order = []; // открытые, последний — сверху
+  let searchOn = false, mode = null, routeNow = null;
+  const front = () => order.at(-1) || null;
   const phone = () => matchMedia("(max-width: 600px)").matches;
-  const stacked = () => opened.content && opened.layers && phone();
+  const stacked = () => order.length > 1 && phone();
+  // кнопка барабана внизу: открыт и сверху — белая
+  const paintToggle = (b, name, title) => {
+    const top = opened[name] && (!stacked() || front() === name);
+    b.classList.toggle("open", top);
+    b.title = !opened[name] ? title : top ? `Спрятать: ${title.toLowerCase()}` : `${title} — наверх`;
+  };
   // «Поиск места» в барабане — светится вместе с обычным поиском (без перерисовки барабана)
   const litSearch = () => {
     const lit = searchOn && !mode;
@@ -174,9 +190,8 @@ export function initLayersPanel(ctx) {
   };
   const paint = () => {
     litSearch();
-    const layersOnTop = opened.layers && (!stacked() || front === "layers");
-    arrowBtn.classList.toggle("open", layersOnTop);
-    arrowBtn.title = !opened.layers ? "Слои карты" : layersOnTop ? "Спрятать слои карты" : "Слои карты — наверх";
+    paintToggle(arrowBtn, "layers", "Слои карты");
+    paintToggle(placesBtn, "places", "Места");
     // кнопка — ещё и индикатор режима строки поиска (Грегори 2026-11-04): режим есть — его значок, даже
     // при закрытом поиске (навигация включена — значок навигации)
     // поиск открыт — значок на цветном фоне; закрыт — сам значок цвета раздела на прозрачном (Грегори
@@ -196,9 +211,9 @@ export function initLayersPanel(ctx) {
     lensBtn.classList.toggle("drop", logo);
     lensBtn.innerHTML = target ? `<span class="search-card-arrow" style="transform: rotate(${routeNow.me ? routeNow.arrow || 0 : 0}deg)">${ROUTE_ARROW}</span>`
       : mode ? mode.icon : logo ? LOGO : LUPA;
-    lensBtn.title = opened.content && stacked() && front !== "content" ? "Разделы — наверх" : searchOn || opened.content ? "Свернуть поиск и разделы" : "Поиск и разделы";
+    lensBtn.title = opened.content && stacked() && front() !== "content" ? "Разделы — наверх" : searchOn || opened.content ? "Свернуть поиск и разделы" : "Поиск и разделы";
     // под кнопкой — только язык подписей, пока открыт поиск или любой барабан
-    setDockShown(searchOn || opened.content || opened.layers);
+    setDockShown(searchOn || order.length > 0);
   };
   // открытый поиск — шаг для «Назад» телефона
   let searchBack = null;
@@ -213,41 +228,45 @@ export function initLayersPanel(ctx) {
   };
   // открыть/закрыть барабан; открытый — наверх
   const setDrum = (name, open) => {
-    if (open) { front = name; closeOpen("right"); } else if (front === name) front = opened[name === "content" ? "layers" : "content"] ? (name === "content" ? "layers" : "content") : null;
+    order = order.filter((n) => n !== name);
+    if (open) { order.push(name); closeOpen("right"); }
     opened[name] = open;
     arrange();
   };
-  // оба открыты: компьютер — разделы сверху, слои снизу, пополам; телефон — один на другом, верхний ярче
+  // открыто несколько: компьютер — полосами сверху вниз (разделы, места, слои), поровну; телефон — стопкой, верхний ярче
   function arrange() {
-    const both = opened.content && opened.layers;
     for (const d of drums) {
       d.setOpen(opened[d.name]);
-      d.wheel.classList.toggle("behind", stacked() && front !== d.name);
+      d.wheel.classList.toggle("behind", stacked() && front() !== d.name);
       d.wheel.style.top = d.wheel.style.bottom = "";
     }
-    if (both && !phone()) {
-      const [lw, cw] = ["layers", "content"].map((n) => drums.find((d) => d.name === n).wheel);
-      const r = lw.getBoundingClientRect(), mid = Math.round((r.top + r.bottom) / 2);
-      cw.style.bottom = `${innerHeight - mid + 4}px`;
-      lw.style.top = `${mid + 4}px`;
+    const bands = BANDS.filter((n) => opened[n]);
+    if (bands.length > 1 && !phone()) {
+      const r = drums[0].wheel.getBoundingClientRect(), h = (r.bottom - r.top) / bands.length;
+      bands.forEach((n, k) => {
+        const w = drums.find((d) => d.name === n).wheel;
+        w.style.top = `${Math.round(r.top + k * h + (k ? 4 : 0))}px`;
+        w.style.bottom = `${Math.round(innerHeight - r.top - (k + 1) * h + (k < bands.length - 1 ? 4 : 0))}px`;
+      });
     }
     for (const d of drums) d.relayout();
     paint();
   }
   // кнопка барабана: закрыт — открыть; открыт, но лежит под другим (телефон) — наверх; иначе — закрыть
-  arrowBtn.addEventListener("click", () => {
-    if (opened.layers && stacked() && front !== "layers") { front = "layers"; arrange(); } else setDrum("layers", !opened.layers);
-  });
-  // лупа: закрыто — поиск и разделы; разделы под слоями (телефон) — наверх; иначе — свернуть поиск и разделы
+  const raise = (name) => { order = [...order.filter((n) => n !== name), name]; arrange(); };
+  const toggleDrum = (name) => { if (opened[name] && stacked() && front() !== name) raise(name); else setDrum(name, !opened[name]); };
+  arrowBtn.addEventListener("click", () => toggleDrum("layers"));
+  placesBtn.addEventListener("click", () => toggleDrum("places"));
+  // лупа: закрыто — поиск и разделы; разделы под другим барабаном (телефон) — наверх; иначе — свернуть поиск и разделы
   lensBtn.addEventListener("click", () => {
-    if (opened.content && stacked() && front !== "content") { front = "content"; arrange(); return; }
+    if (opened.content && stacked() && front() !== "content") { raise("content"); return; }
     if (searchOn || opened.content) { setSearch(false); setDrum("content", false); } else { setSearch(true); setDrum("content", true); }
   });
   addEventListener("resize", () => arrange());
   on("search-mode", (m) => { mode = m; paint(); });
   // раздел живёт в самой строке поиска (навигация) — строка нужна. Барабан после выбора не закрывается —
   // он под рукой, открывает и закрывает его только кнопка справа вверху (Грегори 2026-11-06)
-  on("search-show", () => { setSearch(true); if (!opened.content && !opened.layers) setDrum("content", true); }, { replay: false });
+  on("search-show", () => { setSearch(true); if (!order.length) setDrum("content", true); }, { replay: false });
 
   // ---------- барабан ----------
   function makeDrum(name, entries) {
@@ -332,7 +351,7 @@ export function initLayersPanel(ctx) {
       return { step, radius: Math.min(full, GAP / Math.sin(step)) };
     };
     // барабан прижат к своей кнопке (Грегори 2026-11-09: «уже не понятно, кто есть кто»): разделы — к верху,
-    // под кнопку справа вверху, слои — к низу, к треугольнику; хватает кнопок на всю высоту — по середине
+    // под кнопку справа вверху, места и слои — к низу, к своим кнопкам; хватает кнопок на всю высоту — по середине
     const centerY = () => {
       const h = drum.clientHeight, r = geom().radius + BTN / 2 + 4;
       return name === "content" ? Math.min(h / 2, r) : Math.max(h / 2, h - r);
@@ -424,7 +443,7 @@ export function initLayersPanel(ctx) {
       if (!drag || e.pointerId !== drag.id) return;
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       if (!drag.moved) {
-        if (name === "layers" && dx > 40 && Math.abs(dx) > 2 * Math.abs(dy)) { drag = null; suppressClick = true; setDrum("layers", false); return; }
+        if (name !== "content" && dx > 40 && Math.abs(dx) > 2 * Math.abs(dy)) { drag = null; suppressClick = true; setDrum(name, false); return; }
         if (Math.abs(dy) < 6) return;
         drag.moved = true;
         wheel.setPointerCapture(e.pointerId);
@@ -527,7 +546,7 @@ export function initLayersPanel(ctx) {
     return { name, setOpen, render, wheel, relayout: () => { if (isOpen) { layout(); if (openKey) show(openKey); } } };
   }
 
-  const drums = [makeDrum("layers", layerEntries), makeDrum("content", contentEntries)];
+  const drums = [makeDrum("layers", layerEntries), makeDrum("places", placeEntries), makeDrum("content", contentEntries)];
 
   // свёрнуто ли окно раздела; цель пути — стрелка на кнопке справа вверху, кнопка навигации в барабане светится
   let folded = null;
@@ -541,7 +560,7 @@ export function initLayersPanel(ctx) {
     if (a) a.style.transform = `rotate(${r.me ? r.arrow || 0 : 0}deg)`; else paint();
     if (!sameTarget) renderAll();
   });
-  document.body.append(arrowBtn, lensBtn);
+  document.body.append(arrowBtn, placesBtn, lensBtn);
 
   // слой включился не отсюда (сам по себе, по событию другого модуля) — кнопки обновить
   // включился другим слоем («Горнолыжные спуски» включают «Транспорт») — помнить до следующего запуска;

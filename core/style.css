@@ -1783,7 +1783,7 @@ body.has-photo-strip .status {
   position: fixed;
   right: calc(var(--side-r) - var(--gap) * 1.5);
   top: calc(var(--top-inset) + 3 * var(--gap) + 2 * var(--button));
-  bottom: calc(var(--gap) + var(--button));
+  bottom: calc(2 * var(--gap) + 2 * var(--button));
   z-index: 20;
   width: calc(var(--button) + 3 * var(--gap));
   touch-action: none;
@@ -1843,7 +1843,7 @@ body.has-photo-strip .status {
 @media (max-width: 600px) {
   .wheel {
     top: calc(var(--top-inset) + 3 * var(--gap) + 2 * var(--button));
-    bottom: calc(var(--gap) + var(--button));
+    bottom: calc(2 * var(--gap) + 2 * var(--button));
   }
 }
 
@@ -1857,15 +1857,25 @@ body.has-photo-strip .status {
   z-index: 26;
 }
 
+/* «Места» — над «Слоями», свой барабан (Грегори 2026-11-21) */
+.places-toggle {
+  position: fixed;
+  right: var(--side-r);
+  bottom: calc(2 * var(--gap) + var(--button));
+  z-index: 26;
+}
 
-.wheel-toggle.open {
+
+.wheel-toggle.open,
+.places-toggle.open {
   background: var(--panel);
   color: var(--text);
   box-shadow: var(--shadow);
   filter: none;
 }
 
-.wheel-toggle.open:hover {
+.wheel-toggle.open:hover,
+.places-toggle.open:hover {
   background: var(--panel-hover);
 }
 
