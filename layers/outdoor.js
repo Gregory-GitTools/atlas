@@ -4,7 +4,8 @@
 // светлом море и песке белый теряется (Грегори, 2026-10-04). Наши значки — поверх подписей карты.
 // Щелчок — окно: вид, название, высота, описание, направления указателя, у пляжа — покрытие и
 // спасатели. Данные — QLever (core/qlever.js); у точек — теги из OSM API.
-import { forecastBox, kiteRate, isLight, dirsRu } from "../core/forecast.js";
+import { kiteNow, kiteRate, isLight, dirsRu } from "../core/forecast.js";
+import { withWeather } from "../core/place-info.js";
 import * as settings from "../core/settings.js";
 import { register, modules, toggle } from "../core/modules.js";
 import { on, emit } from "../core/events.js";
@@ -132,12 +133,15 @@ async function showInfo(ctx, f) {
       box.append(row);
     }
   }
-  // кайт- и сёрф-споты — погода: ветер, порывы и волна на 7 дней и годность ветра для кайта
+  // кайт- и сёрф-споты — окно как у места (Грегори 2026-11-21): о споте и «Кайт: подходит» на время ленты; ветер,
+  // порывы, волна и годность для кайта на 7 дней — лента внизу по значку погоды под крестиком
   const spot = ee ? ee.kind !== "bad" : SPOT_KINDS.has(p.kind);
-  const wait = spot && box.appendChild(Object.assign(document.createElement("div"), { className: "popup-row wx-wait", textContent: "Погода…" }));
-  track(new ctx.maplibregl.Popup({ offset: 14, maxWidth: spot || ee ? "340px" : "260px" })).setLngLat(f.geometry.coordinates).setDOMContent(box).addTo(ctx.map);
-  if (spot) wait.replaceWith(await forecastBox(f.geometry.coordinates, { inside: true, at: kiteState.on ? kiteState.at : null,
-    kite: ee || { sea: seaOf(p.osm) } }));
+  if (spot) {
+    const kite = ee || { sea: seaOf(p.osm) };
+    box.append(kiteNow(f.geometry.coordinates, kite));
+    withWeather(box, f.geometry.coordinates, name || kind, kite);
+  }
+  track(new ctx.maplibregl.Popup({ offset: 14, maxWidth: ee ? "300px" : "280px" })).setLngLat(f.geometry.coordinates).setDOMContent(box).addTo(ctx.map);
 }
 const SPOT_KINDS = new Set(["surfing", "kitesurfing", "windsurfing"]);
 // «Мои споты»: какие отмечены (событие kite-favorites из content/spots.js) и открыть спот из списка
@@ -444,7 +448,7 @@ function eeInfo(s, add, box) {
 }
 
 // ---------- значки у троп ----------
-// Включаются вместе с любым слоем троп. Со шкалы 3 км — вышки, смотровые площадки, маяки, пикник;
+// Включаются вместе с пешими тропами и велодорожками (не с лыжами). Со шкалы 3 км — вышки, смотровые площадки, маяки, пикник;
 // остальное — со шкалы 500 м (Грегори: 3 км для всех — слишком густо, 100 м — слишком поздно).
 // Метки краской (route_marker) не показываются — их десятки на каждой тропе. Капли воды — самые
 // частые значки, поэтому позже всех (со шкалы «30 м») и крупнее (Грегори, 2026-10-28, travel-earth)
@@ -486,7 +490,9 @@ function eeInfo(s, add, box) {
     }
     if (map.getZoom() >= far) loader.request(cellsInView(map, CELL));
   };
-  const trailsOn = () => modules("layer").some((m) => m.id.startsWith("trails/") && m.active);
+  // лыжи — без них (Грегори 2026-11-21: к спускам попали маяки, места отдыха, щиты и карты)
+  const SKI = ["trails/slopes", "trails/nordic"];
+  const trailsOn = () => modules("layer").some((m) => m.id.startsWith("trails/") && !SKI.includes(m.id) && m.active);
   const self = () => modules("layer").find((m) => m.id === "layers/trail-poi");
 
   register({

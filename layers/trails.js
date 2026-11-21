@@ -362,7 +362,10 @@ const SKI_SPARQL = `{ ?osm osmkey:piste:type ?kind . FILTER (?kind != "ice_skate
     OPTIONAL { ?osm osmkey:ref ?ref } OPTIONAL { ?osm osmkey:name ?name } OPTIONAL { ?osm osmkey:aerialway:occupancy ?occ }
     OPTIONAL { ?osm osmkey:aerialway:capacity ?cap } OPTIONAL { ?osm osmkey:aerialway:duration ?dur } OPTIONAL { ?osm osmkey:opening_hours ?oh }
     OPTIONAL { ?osm osmkey:aerialway:heating ?heat } OPTIONAL { ?osm osmkey:aerialway:bubble ?bub } }`;
+// «Беговые лыжи» — отдельная кнопка (Грегори 2026-11-21: «не надо их путать»): те же данные, свои линии
 let slopesMap = null, skiCtx = null, skiOn = false, skiWired = false;
+const skiShow = { downhill: false, nordic: false };
+const isNordic = (p) => p.kind === "nordic";
 const pistes = new Map(), lifts = new Map(); // osm → запись из квадрата
 
 // длина линии в метрах и точки через каждые step метров (первая — в first от начала)
@@ -411,6 +414,7 @@ const pisteColor = (p) => (["downhill", "playground", "connection"].includes(p.k
 function skiData() {
   const lines = [], labels = [];
   for (const p of pistes.values()) {
+    if (!skiShow[isNordic(p) ? "nordic" : "downhill"]) continue;
     const off = OFF_PISTE.includes(p.diff);
     const props = { osm: p.osm, color: pisteColor(p), off, arrows: (p.kind === "downhill" || p.kind === "sled") && !p.area && !off };
     if (!p.labelOnly) for (const line of p.lines) lines.push({ type: "Feature", geometry: { type: "LineString", coordinates: line }, properties: props });
@@ -422,7 +426,7 @@ function skiData() {
         properties: { osm: p.osm, label: p.ref, badge: `slope-badge-${props.color}` } });
     }
   }
-  for (const l of lifts.values()) {
+  for (const l of skiShow.downhill ? lifts.values() : []) {
     lines.push({ type: "Feature", geometry: { type: "LineString", coordinates: l.line }, properties: { osm: l.osm, lift: true, kind: l.kind } });
     const label = l.ref || (l.name?.length <= NAME_MAX && l.name) || null;
     const mid = pointsAlong(l.line, lineLength(l.line) / 2, 1e9)[0];
@@ -610,14 +614,10 @@ async function withLifts(ctx) {
   await toggle(tr.id, ctx, true, { by: "trails/slopes" });
 }
 
-register({
-  ...common,
-  id: "trails/slopes",
-  title: "Горнолыжные спуски",
-  hint: "Трассы по цвету сложности, с номерами и подъёмниками",
-  icon: chipIcon(SLOPES_ICON),
-  sends: "район карты (Waymarked Trails, QLever — OpenStreetMap)",
-  async enable(ctx) {
+// включить или выключить свою часть (спуски с подъёмниками или беговые лыжни); слои карты — пока включена хоть одна
+function skiSet(ctx, part, want) {
+  skiShow[part] = want;
+  if (want) {
     slopesMap = ctx.map;
     skiCtx = ctx;
     skiOn = true;
@@ -627,14 +627,43 @@ register({
       ctx.map.on("idle", skiUpdate);
       ctx.map.on("click", skiClick);
     }
+    skiPush();
     skiUpdate();
+    return;
+  }
+  if (skiShow.downhill || skiShow.nordic) { skiPush(); return; }
+  skiOn = false;
+  skiLoader.forgetPending();
+  for (const id of [...SKI_LAYERS, SLOPES_LAYER]) if (slopesMap?.getLayer(id)) slopesMap.removeLayer(id);
+  for (const id of [SKI_LABELS_SRC, SKI_SRC, SLOPES_SRC]) if (slopesMap?.getSource(id)) slopesMap.removeSource(id);
+}
+
+register({
+  ...common,
+  id: "trails/slopes",
+  title: "Горнолыжные спуски",
+  hint: "Трассы по цвету сложности, с номерами и подъёмниками",
+  icon: chipIcon(SLOPES_ICON),
+  sends: "район карты (Waymarked Trails, QLever — OpenStreetMap)",
+  async enable(ctx) {
+    skiSet(ctx, "downhill", true);
     await withLifts(ctx);
   },
-  disable() {
-    skiOn = false;
-    skiLoader.forgetPending();
-    for (const id of [...SKI_LAYERS, SLOPES_LAYER]) if (slopesMap?.getLayer(id)) slopesMap.removeLayer(id);
-    for (const id of [SKI_LABELS_SRC, SKI_SRC, SLOPES_SRC]) if (slopesMap?.getSource(id)) slopesMap.removeSource(id);
-  },
+  disable(ctx) { skiSet(ctx, "downhill", false); },
   stats: () => ({ pistes: pistes.size, lifts: lifts.size, numbered: [...pistes.values()].filter((p) => p.ref).length }),
+});
+
+// беговые лыжни — оранжевые линии с названием и подготовкой (классика, конёк) в окне
+const NORDIC_ICON = '<circle cx="14.2" cy="3.4" r="2.1"/><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12.6 7.2 10.4 13" stroke-width="3.6"/><path d="M10.4 13l-3.6 4.6M10.4 13l4 4.4" stroke-width="2.6"/><path d="M12.2 8.6l-4.6 2.2M12.6 8.4l4.4 3" stroke-width="2"/><path d="M5.6 10.8 3.4 20M17 11.4l2.6 8.6" stroke-width="1.1"/><path d="M1.6 20.4h9.2M12.6 20.4h9.8" stroke-width="2"/></g>';
+register({
+  ...common,
+  id: "trails/nordic",
+  title: "Беговые лыжи",
+  hint: "Лыжни для беговых лыж: классика и конёк",
+  icon: chipIcon(NORDIC_ICON),
+  sends: "район карты (Waymarked Trails, QLever — OpenStreetMap)",
+  enable(ctx) { skiSet(ctx, "nordic", true); },
+  disable(ctx) { skiSet(ctx, "nordic", false); },
+  stats: () => ({ nordic: [...pistes.values()].filter(isNordic).length,
+    drawn: slopesMap?.getLayer(PISTE_LINE) ? slopesMap.queryRenderedFeatures({ layers: [PISTE_LINE] }).length : 0 }),
 });

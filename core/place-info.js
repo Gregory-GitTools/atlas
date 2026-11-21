@@ -166,10 +166,11 @@ async function pointContent(lngLat) {
 }
 
 // температура и осадки под крестиком окна места (Грегори 2026-11-14); им же пользуются окна модулей (спуски)
-export const withWeather = (box, lngLat, title) => {
+// kite — окно спота: в ленте строка «Кайт»
+export const withWeather = (box, lngLat, title, kite = null) => {
   if (!allowed(self())) return box;
   box.classList.add("wx-host");
-  box.prepend(weatherChip(Array.isArray(lngLat) ? lngLat : [lngLat.lng, lngLat.lat], title));
+  box.prepend(weatherChip(Array.isArray(lngLat) ? lngLat : [lngLat.lng, lngLat.lat], title, kite));
   return box;
 };
 

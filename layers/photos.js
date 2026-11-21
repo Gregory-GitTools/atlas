@@ -624,8 +624,12 @@ const link = (href, parent) => el("a", { href, target: "_blank", rel: "noopener"
     if (name) el("div", { className: "popup-sub", textContent: "Веб-камера" }, box);
     const page = href(url);
     // ссылка на саму картинку — показать её в окне (свежий снимок камеры) и выделить в ленте
+    // кадр — свежий при каждом щелчке по камере и по самому кадру (Грегори 2026-11-21), без кэша браузера
     if (isImage(page)) {
-      el("img", { className: "popup-photo", src: page, alt: "" }, link(page, box));
+      const fresh = () => `${page}${page.includes("?") ? "&" : "?"}t=${Date.now()}`;
+      const img = el("img", { className: "popup-photo", src: fresh(), alt: "", title: "Обновить кадр" }, box);
+      img.style.cursor = "pointer";
+      img.addEventListener("click", () => { img.src = fresh(); });
       selectStripItem(`webcam/${osm}`);
     }
     const row = el("div", { className: "popup-row" }, box);

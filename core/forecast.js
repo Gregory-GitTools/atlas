@@ -240,52 +240,6 @@ function table(v, ks, { kite = null, pick } = {}) {
   return { wrap, select, rate };
 }
 
-// окно прогноза в окне кайт-спота: at — выбранное время (unix, секунды; нет — сейчас). Сверху — ветер и
-// порывы в это время, ниже — таблица на 7 дней по 3 часа (листается вбок).
-// inside — внутри чужого окна (кайт-спот): у окна своё название, ветер — строкой помельче
-// kite — окно кайт-спота: { sea, dirs, off, rescue } — строка «Кайт: подходит · ветер с воды»
-export async function forecastBox(lngLat, { at = null, title = null, inside = false, kite = null } = {}) {
-  const box = el("div", "wx");
-  try {
-    const v = view(await load(lngLat)), { h } = v;
-    if (title) el("div", "popup-title", title, box);
-    const head = el("div", title || inside ? "wx-now wx-now-sub" : "popup-title wx-now", "", box);
-    const sub = el("div", "popup-sub", "", box);
-    const kiteLine = kite && el("div", "wx-kite", "", box);
-    // прошедшие шаги не показываем
-    const nowK = v.nowK(), ks = h.time.map((t, k) => k).filter((k) => k >= nowK);
-    let windOn = false;
-    const t = table(v, ks, { kite, pick: (k) => { select(k, false); if (windOn) emit("wind-time-set", { at: k === nowK ? null : h.time[k] }); } });
-    box.append(t.wrap);
-    // шапка — на выбранный шаг k: ветер и порывы, время, у спота — «Кайт: …»
-    const select = (k, scroll) => {
-      k = t.select(k, scroll);
-      paintNow(v, k, head, sub);
-      if (!kite) return;
-      const level = t.rate(k), land = fromLand(h.wind_direction_10m[k], kite);
-      kiteLine.className = `wx-kite wx-kite-${level}`;
-      kiteLine.style.setProperty("--kite", KITE_COLORS[level] || "var(--muted)");
-      kiteLine.textContent = [`Кайт: ${KITE_TEXT[level]}`, (level === "good" || level === "strong") && land === false && "ветер с воды",
-        land == null && !kite.off && "приблизьте карту к споту — узнаю, где вода"].filter(Boolean).join(" · ");
-    };
-    select(Math.max(nowK, v.stepAt(at)), true);
-    // время «Ветра» → рамка (окно спота и лента внизу связаны, Грегори 2026-11-12); окно закрыли — отписаться
-    let seen = false;
-    const unsub = on("wind-time", (w) => {
-      if (!box.isConnected) { if (seen) unsub?.(); return; }
-      seen = true;
-      windOn = w.on;
-      select(Math.max(nowK, v.stepAt(w.at)), true);
-    }, { replay: false });
-    on("wind-time", (w) => { windOn = w.on; }, { replay: true })();
-    sunLine(v, box);
-    el("div", "popup-row wx-src", `Прогноз Open-Meteo, время местное${v.waves ? "; ≈ волна, м / период, с — Open-Meteo Marine" : ""}`, box);
-  } catch {
-    el("div", "popup-title", "Прогноз не загрузился", box);
-  }
-  return box;
-}
-
 // ---------- погода места (Грегори 2026-11-14) ----------
 // В окне места под крестиком — температура, осадки и стрелка ветра сейчас; щелчок — внизу лента прогноза на
 // место (вместо прежнего ползунка времени «Ветра»: 5 прошедших дней бледнее и 7 вперёд, в виду — сейчас),
@@ -344,7 +298,8 @@ export const forecastTime = () => at;
 export const forecastOpen = () => !bar.hidden;
 
 const keyOf = ([lon, lat]) => `${(+lon).toFixed(5)},${(+lat).toFixed(5)}`;
-export async function openForecast(lngLat, title, chip = false) {
+// kite — лента спота: строка «Кайт» в таблице (как было в окне спота)
+export async function openForecast(lngLat, title, chip = false, kite = null) {
   const n = ++seq;
   strip = null;
   place = keyOf(lngLat);
@@ -361,7 +316,7 @@ export async function openForecast(lngLat, title, chip = false) {
     const v = view(await load(lngLat));
     if (n !== seq) return;
     const ks = v.h.time.map((t, k) => k), nowK = v.nowK();
-    const t = table(v, ks, { pick: (k) => setForecastTime(k === nowK ? null : v.h.time[k], false) });
+    const t = table(v, ks, { kite, pick: (k) => setForecastTime(k === nowK ? null : v.h.time[k], false) });
     strip = { ...t, v };
     paintWhen();
     body.replaceChildren(t.wrap, el("div", "wx-src", "Open-Meteo, время местное; бледнее — прошедшие дни"));
@@ -407,7 +362,7 @@ export function weatherView(lngLat, title) {
 
 // значок погоды под крестиком окна места: температура и осадки сейчас, под ними — стрелка ветра (цвет — сила);
 // щелчок — лента прогноза на место, ещё щелчок — убрать; пока лента открыта — значок затенён
-export function weatherChip(lngLat, title) {
+export function weatherChip(lngLat, title, kite = null) {
   const b = btn("wx-chip", "Прогноз погоды", "");
   b.hidden = true;
   loadWx(lngLat).then((d) => {
@@ -425,9 +380,30 @@ export function weatherChip(lngLat, title) {
   b.addEventListener("click", (e) => {
     e.stopPropagation();
     if (lit()) closeForecast();
-    else openForecast(lngLat, title, true);
+    else openForecast(lngLat, title, true, kite);
   });
   return b;
+}
+
+// окно спота (Грегори 2026-11-21: «погода уходит вниз, информацию о споте оставляем»): строка «Кайт: подходит ·
+// ветер с воды» на время ленты; таблица — в ленте внизу (значок погоды окна)
+export function kiteNow(lngLat, kite) {
+  const line = el("div", "wx-kite", "");
+  load(lngLat).then((r) => {
+    const v = view(r), { h } = v;
+    const paint = () => {
+      const k = Math.max(v.nowK(), v.stepAt(at)), level = v.light(k) ? kiteRate(h.wind_speed_10m[k], h.wind_gusts_10m[k], h.wind_direction_10m[k], kite) : "night";
+      const land = fromLand(h.wind_direction_10m[k], kite);
+      line.className = `wx-kite wx-kite-${level}`;
+      line.style.setProperty("--kite", KITE_COLORS[level] || "var(--muted)");
+      line.textContent = [`Кайт: ${KITE_TEXT[level]}`, at != null && `${v.dayShort(h.time[k])} · ${v.hm(h.time[k])}`,
+        (level === "good" || level === "strong") && land === false && "ветер с воды",
+        land == null && !kite.off && "приблизьте карту к споту — узнаю, где вода"].filter(Boolean).join(" · ");
+    };
+    paint();
+    const unsub = on("wx-time", () => { if (!line.isConnected) unsub?.(); else paint(); }, { replay: false });
+  }).catch(() => line.remove());
+  return line;
 }
 
 export function initForecast(c) {

@@ -11,6 +11,8 @@ export function track(popup) {
   let watch = null;
   popup.on("close", () => { open.delete(popup); watch?.disconnect(); });
   popup.on("open", () => {
+    // на карте одно окно (Грегори 2026-11-21: щелчок рядом с несколькими объектами открывал несколько)
+    for (const p of [...open]) if (p !== popup && p.isOpen()) p.remove();
     decorators.forEach((fn) => fn(popup));
     // окно целиком на экране (Грегори 2026-11-06: «„Сюда“ иногда убегает за край телефона»): выросло
     // (пришёл адрес, добавилась кнопка) и не влезает — карта чуть сдвигается, окно от этого не закрывается

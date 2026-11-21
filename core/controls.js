@@ -269,12 +269,12 @@ export function addGeolocate(map, maplibregl, status) {
   // «Позиция» — под «Навигацией» (MapLibre ставит каждую следующую кнопку угла над прежней)
   const posBtn = addMapButton(map, { title: "Позиция", className: "pos-btn", html: `${POS_ICON}<span class="pos-mode"></span>` });
   btn = addMapButton(map, { title: "Навигация", className: "geo-btn", html: NAV_ICON });
-  // навигация включает и выключает «я на карте»; выключить — с вопросом: уберётся и путь (Грегори 2026-11-21:
-  // «есть риск потери маршрута при клике на эту кнопку»)
+  // навигация включает и выключает «я на карте»; выключить при пути — с вопросом: уберётся и путь (Грегори
+  // 2026-11-21: «есть риск потери маршрута»; пути нет — без вопроса)
   btn.addEventListener("click", () => {
     if (watch === null) start();
     else if (!follow) { clearTimeout(back); back = null; follow = true; update(); center(); }
-    else if (confirm("Выключить навигацию? Путь уберётся с карты (он останется в списке «Куда»).")) stop();
+    else if (!current("route")?.target || confirm("Выключить навигацию? Путь уберётся с карты (он останется в списке «Куда»).")) stop();
   });
   // ко мне в режиме p: карточка пути открыта — свернуть (карта за мной при ней не ходит)
   const goPos = (p) => {

@@ -22,8 +22,13 @@ Object.assign(GLYPHS, {
   padel: "M12 2c4 0 7 3 7 7 0 3.5-2.5 6-5 6.6V20a2 2 0 0 1-4 0v-4.4C7.5 15 5 12.5 5 9c0-4 3-7 7-7z",
 });
 
-// вид: q — часть запроса QLever (?osm, ?sub — что это для окна места), far — виден издалека
+// вид: q — часть запроса QLever (?osm, ?sub — что это для окна места), far — виден издалека;
+// падел и теннис — первыми в меню (Грегори 2026-11-21)
 const KINDS = [
+  { id: "padel", name: "Падел", color: "#c2185b", group: true,
+    q: `?osm osmkey:sport ?sp . FILTER (REGEX(?sp, "(^|;)padel(;|$)")) BIND("padel" AS ?sub)` },
+  { id: "tennis", name: "Теннис", color: "#9e9d24", group: true,
+    q: `?osm osmkey:sport ?sp . FILTER (REGEX(?sp, "(^|;)tennis(;|$)")) ?osm osmkey:leisure ?l . FILTER (?l IN ("pitch", "sports_centre", "sports_hall")) BIND("tennis" AS ?sub)` },
   { id: "ski", name: "Горнолыжные курорты", color: "#0277bd", far: true,
     q: `?osm osmkey:landuse "winter_sports" . ?osm osmkey:name ?nm . BIND("winter_sports" AS ?sub)` },
   { id: "rental", name: "Прокат", color: "#6d4c41",
@@ -32,10 +37,6 @@ const KINDS = [
     UNION { ?osm osmkey:amenity "bicycle_rental" . ?osm osmkey:bicycle_rental "shop" . BIND("bicycle_rental" AS ?sub) }` },
   { id: "shops", name: "Спортивные магазины", color: "#5e35b1", glyph: "sportshop",
     q: `?osm osmkey:shop ?sub . FILTER (?sub IN ("sports", "outdoor", "ski", "bicycle", "surf", "fishing"))` },
-  { id: "tennis", name: "Теннис", color: "#9e9d24", group: true,
-    q: `?osm osmkey:sport ?sp . FILTER (REGEX(?sp, "(^|;)tennis(;|$)")) ?osm osmkey:leisure ?l . FILTER (?l IN ("pitch", "sports_centre", "sports_hall")) BIND("tennis" AS ?sub)` },
-  { id: "padel", name: "Падел", color: "#c2185b", group: true,
-    q: `?osm osmkey:sport ?sp . FILTER (REGEX(?sp, "(^|;)padel(;|$)")) BIND("padel" AS ?sub)` },
 ];
 // виды-модули: включаются вместе со «Спортом» и выключаются вместе с ним
 const LINKED = [

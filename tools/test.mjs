@@ -1030,6 +1030,22 @@ try {
     check("«Горнолыжные спуски»: трассы и подъёмники, включают «Канатные дороги»; выключили спуски — канатные дороги остались",
       ski.raster && ski.chairs > 0 && ski.tr && ski.marked.join() === "lifts" && ski.kept && ski.gondolas === "visible" && !skiOff.raster && skiOff.tr, JSON.stringify({ ski, skiOff }));
     await run(`atlas.toggle("places/transport", false)`);
+    // «Беговые лыжи» — отдельно от спусков (Грегори 2026-11-21: «не надо их путать»), без маяков и щитов у троп
+    if (mods.some((m) => m.id === "trails/nordic")) {
+      await run(`atlas.map.jumpTo({ center: [24.86, 59.47], zoom: 13 }); atlas.toggle("trails/nordic", true)`);
+      let nd = null;
+      for (let i = 0; i < 60; i++) {
+        nd = await run(`({ ...atlas.modules().find((m) => m.id === "trails/nordic").stats(), lifts: atlas.map.getLayer("trails-slopes-lifts-line") ? ${skiCount("trails-slopes-lifts-line")} : 0,
+          poi: atlas.modules().find((m) => m.id === "layers/trail-poi")?.active || false, slopes: atlas.modules().find((m) => m.id === "trails/slopes").active })`);
+        if (nd.drawn > 0) break;
+        await run(`atlas.map.triggerRepaint(); true`); await sleep(1000);
+      }
+      await shot("85b-nordic");
+      await run(`atlas.toggle("trails/nordic", false)`);
+      const ndOff = await run(`!!atlas.map.getLayer("trails-slopes-raster")`);
+      check("«Беговые лыжи» — своя кнопка: лыжни у Пирита без подъёмников, спусков и значков троп; выключили — слоёв нет",
+        nd.nordic > 0 && nd.drawn > 0 && nd.lifts === 0 && !nd.poi && !nd.slopes && !ndOff, JSON.stringify({ nd, ndOff }));
+    }
     const forgot = await run(`!JSON.parse(localStorage.getItem("atlas.layers.on") || "[]").includes("places/transport")`);
     check("выключенный слой забыт до следующего запуска", forgot);
     await run(`localStorage.removeItem("atlas.places.transport.profile"); true`);
@@ -2312,20 +2328,24 @@ try {
     const eeStats = `atlas.modules().find((m) => m.id === "layers/kite-ee").stats()`;
     const b = await run(`({ beaches: atlas.map.queryRenderedFeatures({ layers: ["beaches"] }).length, ee: atlas.map.queryRenderedFeatures({ layers: ["kite-ee"] }).length, ...${eeStats} })`);
     check("пляжи и «Кайт в Эстонии»: споты, места «не катаются» и пути из файла", b.beaches > 0 && b.ee > 0 && b.points >= 250 && b.lines === 15, JSON.stringify({ ...b, kite: undefined }));
-    // окно спота: описание по-русски, допустимый ветер и откуда он, погода с годностью для кайта
+    // окно спота — как окно места (Грегори 2026-11-21): описание, ветер для спота, «Кайт: …», кнопки; таблица на 7 дней
+    // со строкой «Кайт» — лента внизу по значку погоды под крестиком
     const spotPt = await run(`(() => { const f = atlas.map.queryRenderedFeatures({ layers: ["kite-ee"] }).filter((f) => f.properties.kind !== "kite-bad")
       .map((f) => atlas.map.project(f.geometry.coordinates)).find((q) => q.x > 40 && q.x < innerWidth - 90 && q.y > 120 && q.y < innerHeight - 160); return f && [f.x, f.y]; })()`);
     if (spotPt) {
       for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: spotPt[0], y: spotPt[1], button: "left", clickCount: 1 });
-      for (let i = 0; i < 30 && !(await run(`!!document.querySelector(".maplibregl-popup .wx-grid")`)); i++) await sleep(500);
-      const spot = await run(`(() => { const p = document.querySelector(".maplibregl-popup"); return p && { title: p.querySelector(".popup-title")?.textContent,
-        dirs: p.querySelector(".kite-dirs")?.textContent, now: p.querySelector(".wx-now")?.textContent, days: p.querySelectorAll(".wx-dayname").length,
-        cols: p.querySelectorAll(".wx-h").length, kiteRow: p.querySelectorAll(".wx-k").length, dark: p.querySelectorAll(".wx-h.wx-dark").length,
-        sun: p.querySelector(".wx-sun")?.textContent, kite: p.querySelector(".wx-kite")?.textContent }; })()`);
-      check("кайт-спот: ветер для спота, «Кайт: …», таблица на 7 дней по 3 часа со строкой «Кайт», ночь затемнена, восход и закат",
-        !!spot && /^Ветер для спота: [СЮЗВ]/.test(spot.dirs || "") && /Ветер \d+ м\/с, порывы \d+/.test(spot.now) && spot.days >= 7
-        && spot.cols >= 48 && spot.kiteRow === spot.cols && spot.dark > 10 && /^Восход \d\d:\d\d · закат/.test(spot.sun || "") && /^Кайт: /.test(spot.kite || ""), JSON.stringify(spot));
+      for (let i = 0; i < 30 && !(await run(`/^Кайт: /.test(document.querySelector(".maplibregl-popup .wx-kite")?.textContent || "") && !!document.querySelector(".maplibregl-popup .wx-chip:not([hidden])")`)); i++) await sleep(500);
+      await run(`document.querySelector(".maplibregl-popup .wx-chip")?.click(); true`);
+      for (let i = 0; i < 30 && !(await run(`!!document.querySelector(".wx-bar:not([hidden]) .wx-k")`)); i++) await sleep(500);
+      const spot = await run(`(() => { const p = document.querySelector(".maplibregl-popup"), b = document.querySelector(".wx-bar"); return p && { title: p.querySelector(".popup-title")?.textContent,
+        dirs: p.querySelector(".kite-dirs")?.textContent, kite: p.querySelector(".wx-kite")?.textContent, grid: !!p.querySelector(".wx-grid"),
+        buttons: p.querySelectorAll(".go-actions .go-act").length, bar: !b.hidden, days: b.querySelectorAll(".wx-dayname").length,
+        cols: b.querySelectorAll(".wx-h").length, kiteRow: b.querySelectorAll(".wx-k").length, dark: b.querySelectorAll(".wx-h.wx-dark").length }; })()`);
       await shot("89b-spot-weather");
+      check("кайт-спот: окно как у места — ветер для спота, «Кайт: …», кнопки; таблица на 7 дней со строкой «Кайт» — в ленте внизу",
+        !!spot && /^Ветер для спота: [СЮЗВ]/.test(spot.dirs || "") && /^Кайт: /.test(spot.kite || "") && !spot.grid && spot.buttons > 0
+        && spot.bar && spot.days >= 7 && spot.cols >= 48 && spot.kiteRow === spot.cols && spot.dark > 10, JSON.stringify(spot));
+      await run(`document.querySelector(".wx-bar-x").click(); true`);
       // «Мои споты» (Грегори 2026-11-12): звёздочка в окне спота → в списке раздела полоса на 7 дней; щелчок — карта к споту и его окно; крестик — убрать
       const title = spot.title;
       await run(`document.querySelector(".maplibregl-popup .popup-star").click(); true`);
@@ -2338,7 +2358,7 @@ try {
         cells: r?.querySelectorAll(".ks-strip > i").length, dark: r?.querySelectorAll(".ks-strip > i.ks-dark").length }; })()`);
       await shot("89d-my-spots");
       await run(`document.querySelector(".ks-row").click(); true`);
-      for (let i = 0; i < 30 && !(await run(`!!document.querySelector(".maplibregl-popup .wx-grid")`)); i++) await sleep(500);
+      for (let i = 0; i < 30 && !(await run(`!!document.querySelector(".maplibregl-popup .wx-kite")`)); i++) await sleep(500);
       const back = await run(`document.querySelector(".maplibregl-popup .popup-title")?.textContent`);
       await run(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); true`);
       await run(`document.querySelector(".ks-line .search-delete").click(); true`);
@@ -2379,7 +2399,8 @@ try {
     }
     check("кайт: ползунок времени — кольца пересчитаны на выбранное время на каждом шаге",
       steps.length === 8 && steps.every((x) => x.same && [9, 12].includes(x.h) && (x.levels === "" || x.drawn > 0)), JSON.stringify(steps));
-    // окно спота и ползунок связаны (Грегори 2026-11-12): ползунок — рамка в таблице; щелчок по столбцу — ползунок; «Кайт» над «Ветром»
+    // окно спота, лента и ползунок связаны (Грегори 2026-11-12): ползунок — рамка в ленте и «Кайт: …» окна на это время;
+    // щелчок по столбцу — ползунок; «Кайт» над «Ветром»
     // карта могла уйти к споту («Мои споты») — точку спота взять заново
     const spotPt2 = await run(`(() => { const f = atlas.map.queryRenderedFeatures({ layers: ["kite-ee"] }).filter((f) => f.properties.kind !== "kite-bad")
       .map((f) => atlas.map.project(f.geometry.coordinates)).find((q) => q.x > 40 && q.x < innerWidth - 90 && q.y > 120 && q.y < innerHeight - 160); return f && [f.x, f.y]; })()`);
@@ -2387,20 +2408,22 @@ try {
       await run(`${wind}.setStep(0); true`);
       await sleep(400);
       for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: spotPt2[0], y: spotPt2[1], button: "left", clickCount: 1 });
-      for (let i = 0; i < 30 && !(await run(`!!document.querySelector(".maplibregl-popup .wx-grid")`)); i++) await sleep(500);
-      for (let i = 0; i < 30 && !(await run(`!!document.querySelector(".maplibregl-popup .wx-k")`)); i++) await sleep(500);
-      const link = await run(`(async () => { const p = () => [...document.querySelectorAll(".maplibregl-popup")].find((x) => x.querySelector(".wx-k")), wait = (ms) => new Promise((r) => setTimeout(r, ms));
-        if (!p()) return { none: [...document.querySelectorAll(".maplibregl-popup .popup-title")].map((t) => t.textContent) };
-        const rows = [...p().querySelectorAll(".wx-grid th")].map((t) => t.textContent).filter(Boolean);
+      for (let i = 0; i < 30 && !(await run(`!!document.querySelector(".maplibregl-popup .wx-chip:not([hidden])")`)); i++) await sleep(500);
+      await run(`document.querySelector(".maplibregl-popup .wx-chip")?.click(); true`);
+      for (let i = 0; i < 30 && !(await run(`!!document.querySelector(".wx-bar:not([hidden]) .wx-k")`)); i++) await sleep(500);
+      const link = await run(`(async () => { const b = document.querySelector(".wx-bar:not([hidden])"), wait = (ms) => new Promise((r) => setTimeout(r, ms));
+        if (!b?.querySelector(".wx-k")) return { none: [...document.querySelectorAll(".maplibregl-popup .popup-title")].map((t) => t.textContent) };
+        const rows = [...b.querySelectorAll(".wx-grid th")].map((t) => t.textContent).filter(Boolean);
         ${wind}.setStep(6); await wait(300);
-        const atH = p().querySelector(".wx-h.wx-at")?.textContent, barH = new Date(${wind}.stats().at * 1000).getHours();
-        const sub = p().querySelector(".popup-sub:not(.kite-bad)")?.textContent;
-        const td = [...p().querySelectorAll(".wx-h")][10]; td.click(); await wait(300);
+        const atH = b.querySelector(".wx-h.wx-at")?.textContent, barH = new Date(${wind}.stats().at * 1000).getHours();
+        const kite = document.querySelector(".maplibregl-popup .wx-kite")?.textContent || "";
+        const td = [...b.querySelectorAll(".wx-h:not(.wx-past)")][10]; td.click(); await wait(300);
         const clicked = Number(td.textContent), barAfter = new Date(${wind}.stats().at * 1000).getHours();
-        return { rows: rows.slice(0, 5), atH, barH, sub, clicked, barAfter, framed: td.classList.contains("wx-at") }; })()`);
-      check("окно спота и ползунок ветра связаны: ползунок двигает рамку, щелчок по столбцу — ползунок; «Кайт» над «Ветром»",
-        link.rows.join() === "Часы,°C,Откуда,Кайт,Ветер" && Number(link.atH) === link.barH && link.clicked === link.barAfter && link.framed, JSON.stringify(link));
-      await run(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); true`);
+        return { rows: rows.slice(0, 5), atH, barH, kite, clicked, barAfter, framed: td.classList.contains("wx-at") }; })()`);
+      check("окно спота, лента и ползунок ветра связаны: ползунок двигает рамку и «Кайт: …» окна, щелчок по столбцу — ползунок; «Кайт» над «Ветром»",
+        link.rows.join() === "Часы,°C,Откуда,Кайт,Ветер" && Number(link.atH) === link.barH && new RegExp(`· ${String(link.barH).padStart(2, "0")}:00`).test(link.kite)
+        && link.clicked === link.barAfter && link.framed, JSON.stringify(link));
+      await run(`document.querySelector(".wx-bar-x").click(); document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); true`);
     }
     await run(`${wind}.setStep(0); atlas.toggle("weather/wind", false).then(() => true)`);
     await sleep(600);
@@ -2751,8 +2774,8 @@ try {
       sp = await run(`({ ...atlas.modules().find((m) => m.id === "places/sport").stats(), drawn: atlas.map.getLayer("sport") ? atlas.map.queryRenderedFeatures({ layers: ["sport"] }).length : 0 })`);
       if (sp.drawn > 0) break;
     }
-    check("спорт: в меню виды и «Сёрфинг и кайт», теннис — булавки в районе",
-      ["Горнолыжные курорты", "Прокат", "Спортивные магазины", "Теннис", "Падел", "Сёрфинг и кайт", "Кайт в Эстонии"].every((t) => menu.includes(t))
+    check("спорт: в меню первыми «Падел» и «Теннис», дальше виды и «Сёрфинг и кайт», теннис — булавки в районе",
+      menu[0] === "Падел" && menu[1] === "Теннис" && ["Горнолыжные курорты", "Прокат", "Спортивные магазины", "Теннис", "Падел", "Сёрфинг и кайт", "Кайт в Эстонии"].every((t) => menu.includes(t))
       && sp.kinds.join() === "tennis" && sp.drawn > 0, JSON.stringify({ menu, sp }));
     await run(closeLayers);
     // булавка — в середину экрана (на телефоне края закрыты строкой поиска и кнопками)
