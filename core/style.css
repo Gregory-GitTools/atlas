@@ -885,21 +885,6 @@ html, body {
   line-height: 1.4;
 }
 
-/* язык подписей — кнопка столбика слева внизу: буквы крупно, почти во всю кнопку */
-.btn.lang-btn {
-  font: inherit;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.3px;
-}
-
-.lang-menu {
-  position: fixed;
-  z-index: 40;
-  width: 200px;
-  max-height: 60vh;
-}
-
 /* звёздное небо — под прозрачным холстом карты */
 .stars {
   position: fixed;
@@ -1778,12 +1763,12 @@ body.has-photo-strip .status {
    постоянно над треугольником, при любом размере окна; на телефоне — от строки поиска до ленты фото.
    Спрятанная уезжает вправо */
 /* верх барабана — под лупой справа вверху */
-/* барабаны — ниже, к треугольнику (Грегори 2026-11-06): от кнопки языка под логотипом до треугольника */
+/* барабаны — наверху, под тремя кнопками справа (Грегори 2026-11-21: «поднимаем карусели наверх»), до «Десктопа» */
 .wheel {
   position: fixed;
   right: calc(var(--side-r) - var(--gap) * 1.5);
-  top: calc(var(--top-inset) + 3 * var(--gap) + 2 * var(--button));
-  bottom: calc(2 * var(--gap) + 2 * var(--button));
+  top: calc(var(--top-inset) + 4 * var(--gap) + 3 * var(--button));
+  bottom: calc(2 * var(--gap) + var(--button));
   z-index: 20;
   width: calc(var(--button) + 3 * var(--gap));
   touch-action: none;
@@ -1796,10 +1781,14 @@ body.has-photo-strip .status {
   pointer-events: none;
 }
 
-/* телефон, оба барабана открыты — нижний бледнее и не нажимается; его кнопка (лупа/треугольник) поднимает его наверх */
+/* телефон, оба барабана открыты — нижний бледнее, меньше и размыт, будто дальше (Грегори 2026-11-21: «то, что
+   ниже слоем и нельзя нажать, — меньше, с эффектом удаления»), и не нажимается; его кнопка поднимает его наверх */
 .wheel.behind {
   z-index: 19;
   opacity: 0.35;
+  transform: scale(0.85);
+  transform-origin: right top;
+  filter: blur(1px);
   pointer-events: none;
 }
 
@@ -1840,34 +1829,97 @@ body.has-photo-strip .status {
   opacity: 1;
 }
 
-@media (max-width: 600px) {
-  .wheel {
-    top: calc(var(--top-inset) + 3 * var(--gap) + 2 * var(--button));
-    bottom: calc(2 * var(--gap) + 2 * var(--button));
-  }
+/* постоянная подпись кнопки барабана с номером — слева от неё, крутится вместе с ней (Грегори 2026-11-21); без
+   подложки — сам текст с тонкой белой каймой, как подписи на карте: карту ничего не закрывает */
+.wheel-label {
+  position: absolute;
+  top: 50%;
+  right: calc(100% + 6px);
+  transform: translateY(-50%);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
-/* «Слои» в правом нижнем углу, поверх ленты фото (Грегори, 2026-10-29): размером с другие кнопки,
-   полупрозрачная (glass); был треугольник ◀ ▶, с 2026-11-20 — значок слоёв (Грегори: «можно поменять на
-   значок слои»); слои открыты — кнопка белая, как лупа при открытом поиске */
+/* «Десктоп»: остаются карта (с маршрутами, метками и окном места по щелчку), кнопки слева внизу, сам «Десктоп» и
+   строка состояния */
+body.desk-on > :not(#map):not(.stars):not(.desk-toggle):not(#status),
+body.desk-on .maplibregl-ctrl-top-left,
+body.desk-on .maplibregl-ctrl-top-right,
+body.desk-on .maplibregl-ctrl-bottom-right {
+  visibility: hidden !important;
+}
+
+/* открыто меню кнопки (карусель) или барабан ниже слоем — подписи барабанов спрятаны */
+body.carousel-on .wheel-label,
+.wheel.behind .wheel-label,
+.carousel.covered .layers-item > span {
+  visibility: hidden;
+}
+
+/* номер — перед подписью, приглушённо */
+/* номер — после подписи, у самой кнопки: номера стоят столбиком (Грегори 2026-11-21: «3.2 Тропы» → «Тропы 3.2») */
+.wheel-label[data-num]::after,
+.carousel .layers-item > span[data-num]::after {
+  content: attr(data-num);
+  margin-left: 5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* подписи выключены — остаётся номер; выключено и то, и другое — ничего */
+body.labels-off .wheel-label,
+body.labels-off .carousel .layers-item > span {
+  font-size: 0;
+}
+
+body.labels-off .wheel-label::after,
+body.labels-off .carousel .layers-item > span::after {
+  margin-left: 0;
+}
+
+body.numbers-off .wheel-label::after,
+body.numbers-off .carousel .layers-item > span::after {
+  content: none;
+}
+
+body.labels-off.numbers-off .wheel-label,
+body.labels-off.numbers-off .carousel .layers-item > span {
+  display: none;
+}
+
+/* кнопки барабанов — столбиком справа вверху, по номерам барабанов: лупа (разделы), «Места», «Слои» (Грегори
+   2026-11-21: «поднимаем карусели наверх, кнопку языков прячем»); полупрозрачные (glass), барабан открыт — белая */
+.places-toggle {
+  position: fixed;
+  right: var(--side-r);
+  top: calc(var(--top-inset) + 2 * var(--gap) + var(--button));
+  z-index: 26;
+}
+
 .wheel-toggle {
+  position: fixed;
+  right: var(--side-r);
+  top: calc(var(--top-inset) + 3 * var(--gap) + 2 * var(--button));
+  z-index: 26;
+}
+
+/* «Десктоп» — в правом нижнем углу: только карта, ещё раз — всё обратно (белая, пока спрятано) */
+.desk-toggle {
   position: fixed;
   right: var(--side-r);
   bottom: var(--gap);
   z-index: 26;
 }
 
-/* «Места» — над «Слоями», свой барабан (Грегори 2026-11-21) */
-.places-toggle {
-  position: fixed;
-  right: var(--side-r);
-  bottom: calc(2 * var(--gap) + var(--button));
-  z-index: 26;
-}
-
-
 .wheel-toggle.open,
-.places-toggle.open {
+.places-toggle.open,
+.desk-toggle.open {
   background: var(--panel);
   color: var(--text);
   box-shadow: var(--shadow);
@@ -1875,7 +1927,8 @@ body.has-photo-strip .status {
 }
 
 .wheel-toggle.open:hover,
-.places-toggle.open:hover {
+.places-toggle.open:hover,
+.desk-toggle.open:hover {
   background: var(--panel-hover);
 }
 
@@ -3935,34 +3988,6 @@ body.go-nav-off .go-menu {
   pointer-events: none;
 }
 
-/* ---------- столбик справа под логотипом (core/dock.js, Грегори 2026-11-06) ----------
-   шестерёнка, язык подписей, значки включённых режимов; виден, пока открыт поиск или барабан;
-   барабан, доходя сюда, уходит под него */
-.dock {
-  position: fixed;
-  right: var(--side-r);
-  top: calc(var(--top-inset) + 2 * var(--gap) + var(--button));
-  z-index: 24;
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px; /* плотнее (Грегори 2026-11-06: «очень широко, ближе друг к другу») */
-}
-
-body.dock-on .dock {
-  display: flex;
-}
-
-/* значки столбика — ровно по центру кружка, почти во весь */
-.dock .btn {
-  padding: 0;
-}
-
-.dock .btn > svg {
-  width: calc(var(--button) - 10px);
-  height: calc(var(--button) - 10px);
-}
-
 /* при старте — логотип (из travel-earth) во весь кружок, без фона; после первого щелчка его больше нет */
 .search-toggle.drop,
 .search-toggle.drop:hover {
@@ -4162,15 +4187,16 @@ body.dock-on .dock {
   box-shadow: none;
 }
 
+/* подпись — без подложки, текст с белой каймой (как у барабана); включённая — цветом группы */
 .carousel .layers-item > span {
-  padding: 5px 12px;
-  border-radius: 14px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff;
 }
 
 .carousel .layers-item.on > span {
-  background: color-mix(in srgb, var(--tone) 20%, #fff);
+  color: color-mix(in srgb, var(--tone) 75%, #000);
 }
 
 /* значок — как кнопка барабана: выключено — заливка цвета группы, включено — светлая, кольцо и галочка */

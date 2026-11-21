@@ -5,7 +5,7 @@ import { initLayersPanel } from "./layers-panel.js";
 import { initSettingsPanel } from "./settings-panel.js";
 import { initBasemaps, currentBasemap, styleOf } from "./basemaps.js";
 import { initSearch } from "./search.js";
-import { languageButton } from "./labels.js";
+import { applyLabels } from "./labels.js";
 import "./touch-tip.js"; // долгое нажатие на телефоне — подпись кнопки
 import { addScale, addGeolocate, addCompass, addStars, MAX_PITCH } from "./controls.js";
 import { initPopups } from "./popups.js";
@@ -116,7 +116,8 @@ initLayersPanel(ctx);
 // столбик слева внизу, снизу вверх: настройки, компас 2D/3D, «Где я» — полупрозрачные, как лупа и
 // треугольник (Грегори, 2026-11-02: «+ −» убраны); шкала и ⓘ — справа от столбика
 initSettingsPanel(ctx); // шестерёнка — в столбике справа под логотипом
-languageButton(map); // язык подписей — под шестерёнкой
+// язык подписей — в Настройках (Грегори 2026-11-21: «кнопку языков прячем»); стиль сменился — подписи заново
+map.on("style.load", () => applyLabels(map));
 addCompass(map);
 window.atlas.geo = addGeolocate(map, maplibregl, status);
 window.atlas.route = initRoute(ctx);

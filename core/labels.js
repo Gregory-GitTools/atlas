@@ -4,7 +4,6 @@
 // Выбор помнится; событие "label-language" — для поиска и окон мест (язык ответов)
 import * as settings from "./settings.js";
 import { emit } from "./events.js";
-import { addDockButton } from "./dock.js";
 
 export const LANGUAGES = [
   { code: "none", short: "—", name: "Без подписей" },
@@ -47,33 +46,4 @@ export function setLabelLanguage(map, lang) {
   // не пришёл совсем — подписи поставит style.load
   try { applyLabels(map); } catch { /* стиль ещё не загружен */ }
   emit("label-language", { code: lang.code, ui: uiLanguage() });
-}
-
-// язык подписей — кнопка столбика справа под логотипом (Грегори 2026-11-06; до того — слева внизу, ещё
-// раньше — в строке поиска), меню — сбоку от неё, в сторону середины экрана
-export function languageButton(map) {
-  const btn = addDockButton({ title: "Язык подписей на карте", className: "lang-btn", html: "<span></span>" });
-  const menu = Object.assign(document.createElement("div"), { className: "lang-menu menu", hidden: true });
-  document.body.append(menu);
-  const render = () => {
-    btn.firstChild.textContent = current.short;
-    menu.replaceChildren(...LANGUAGES.map((l) => {
-      const item = Object.assign(document.createElement("button"), { className: "menu-item" + (l === current ? " active" : ""), textContent: l.name });
-      item.addEventListener("click", () => { menu.hidden = true; setLabelLanguage(map, l); render(); });
-      return item;
-    }));
-  };
-  btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    menu.hidden = !menu.hidden;
-    if (menu.hidden) return;
-    const r = btn.getBoundingClientRect();
-    const right = r.left > innerWidth / 2;
-    Object.assign(menu.style, right ? { left: "", right: `${Math.round(innerWidth - r.left + 8)}px` } : { right: "", left: `${Math.round(r.right + 8)}px` });
-    menu.style.top = `${Math.round(Math.max(8, Math.min(r.top, innerHeight - menu.offsetHeight - 8)))}px`;
-  });
-  document.addEventListener("click", (e) => !menu.contains(e.target) && (menu.hidden = true));
-  render();
-  map.on("style.load", () => applyLabels(map));
-  return btn;
 }

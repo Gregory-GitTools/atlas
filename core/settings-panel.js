@@ -6,6 +6,7 @@ import { on, emit } from "./events.js";
 import { modules, available, toggle, onRegister, isBlocked, setBlocked, offline, setOffline, isMobile } from "./modules.js";
 import { downloadArea, downloading, stopDownload, trips, removeTrip, fits, routeLine, routeFits, basemapOk } from "./offline.js";
 import * as settings from "./settings.js";
+import { LANGUAGES, labelLanguage, setLabelLanguage } from "./labels.js";
 import { usage, models, removeModel, formatBytes, persist, viewCache, clearViewCache, storageParts } from "./storage.js";
 import { installSection, openedForInstall } from "./install.js";
 import { VERSION, updated, appVersion } from "./version.js";
@@ -31,6 +32,7 @@ export function initSettingsPanel(ctx) {
     // версия (Грегори 2026-11-21: «напиши в информации и в настройках»)
     body.push(h("p", "set-hint set-version", `Atlas ${VERSION}${appVersion() ? ` · приложение Android ${appVersion()}` : ""} · обновлено ${updated()}`));
     body.push(h("h3", "set-title", "Размер кнопок и текста"), sizeSection());
+    body.push(h("h3", "set-title", "Подписи"), labelsSection(ctx));
 
     // свои разделы модулей (например, папка «Моих альбомов»)
     for (const m of modules().filter((m) => m.settings && available(m))) {
@@ -223,6 +225,27 @@ async function placeSection() {
 // сенсорном экране лёжа (машина), иначе обычный. Где браузер так не умеет (компьютер) — кнопки неактивны,
 // под ними почему
 const SIZES = [["auto", "Авто"], [1, "Обычный"], [1.25, "Крупный"], [1.5, "Очень крупный"]];
+// язык подписей на карте (был кнопкой под логотипом) и подписи с номерами у кнопок барабанов и каруселей
+// (Грегори 2026-11-21: «в меню пункты видимости подписей… номера карусельных кнопок… всегда можно выключить»)
+function labelsSection(ctx) {
+  const box = h("div", "set-list");
+  const lang = h("label", "set-row set-lang-row", "Язык подписей на карте ");
+  const select = h("select", "set-lang");
+  for (const l of LANGUAGES) select.append(Object.assign(document.createElement("option"), { value: l.code, textContent: l.name, selected: l === labelLanguage() }));
+  select.addEventListener("change", () => setLabelLanguage(ctx.map, LANGUAGES.find((l) => l.code === select.value)));
+  lang.append(select);
+  box.append(lang);
+  for (const [key, text] of [["ui.labels", "Подписи кнопок"], ["ui.numbers", "Номера кнопок"]]) {
+    const row = h("label", "set-switch");
+    const check = Object.assign(document.createElement("input"), { type: "checkbox", checked: settings.get(key) !== false });
+    check.dataset.key = key;
+    check.addEventListener("change", () => { settings.set(key, check.checked ? null : false); emit("button-labels"); });
+    row.append(check, document.createTextNode(` ${text}`));
+    box.append(row);
+  }
+  return box;
+}
+
 function sizeSection() {
   const ui = window.atlasUi;
   const box = h("div", "size-box");

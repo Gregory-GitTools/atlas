@@ -34,7 +34,6 @@
 // Включённые слои, какой барабан открыт и спрятан ли поиск — помнятся. Открылась панель настроек —
 // барабан уступает место, и наоборот
 import { closeOpen, homeList, isOpen as panelOpen, close as closePanel } from "./panel.js";
-import { setDockShown } from "./dock.js";
 import { GEAR_ICON } from "./settings-panel.js";
 import { ARROW as ROUTE_ARROW } from "./route.js";
 import { backable } from "./back.js";
@@ -59,6 +58,8 @@ const groupOf = (m) => (m.group === MAPS_GROUP ? MAPS_GROUP : GROUPS.some((g) =>
 const BLOCKED = "Выключено в настройках: обращается в интернет";
 const CLEAR_ICON = '<svg viewBox="0 0 24 24" width="12" height="12"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
 // стопка листов — «Слои карты» (раньше — треугольник)
+// «Десктоп» — спрятать всё, кроме карты (Грегори 2026-11-21)
+const DESK = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>';
 const ARROW = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27zm0 2.54l-7.38-5.73L3 14.07l9 7 9-7-1.63-1.27z"/></svg>';
 // поиск места — лупа (Грегори 2026-11-06: «логотип на кнопке не используем, логично — лупа»)
 const LUPA = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>';
@@ -93,16 +94,34 @@ export function initLayersPanel(ctx) {
 
   // кнопка столбика: название, значок справа (в кольце цвета слоя на карте, если цвет что-то значит;
   // у карт — миниатюра, выбранная — в кольце)
-  const item = ({ title, icon, thumb, color, on: isOn, selected, blocked, hint, click }) => {
+  const item = ({ title, icon, thumb, color, on: isOn, selected, blocked, hint, num, click }) => {
     const b = Object.assign(document.createElement("button"), { className: "layers-item" + (isOn ? " on" : "") + (selected ? " selected" : ""),
       disabled: blocked, title: blocked ? BLOCKED : hint || "" });
     b.innerHTML = `<span></span><i class="layers-icon${color ? " ring" : ""}${thumb ? " thumb" : ""}">${thumb ? '<img alt="">' : icon || ""}</i>`;
     b.firstChild.textContent = title;
+    if (num) b.firstChild.dataset.num = num;
     if (thumb) b.querySelector("img").src = thumb;
     if (color) b.lastChild.style.borderColor = color;
     b.addEventListener("click", () => { b.disabled = true; click(); });
     return b;
   };
+
+  // кнопка карусели — один модуль, где бы она ни стояла (Грегори 2026-11-21: «кнопки начнут повторяться, а реакция
+  // должна быть одинаковой»): слой целиком — включить/выключить; вид модуля — отметить/снять (слой был выключен —
+  // только этот вид, снят последний — слой выключается). related — связанные кнопки для следующей карусели
+  const plainSpec = (p) => ({ key: p.id, title: p.title, icon: p.icon, color: p.color, on: p.active, blocked: !allowed(p), hint: p.hint,
+    click: () => switchTo(p, !p.active), related: relatedOf(p) });
+  const menuSpec = (m, it) => ({ key: `${m.id}#${it.id}`, title: it.title, icon: it.icon || m.icon, color: it.color, on: m.active && it.active, blocked: !allowed(m),
+    click: () => {
+      if (!m.active) { m.menu.choose(it.id); switchTo(m, true); }
+      else switchTo(m, m.menu.toggle(it.id));
+    } });
+  // related модуля: [{ module, item? }] — слой целиком или вид слоя с меню
+  const relatedOf = (p) => p.related && (() => p.related.map((r) => {
+    const m = modules("layer").find((x) => x.id === r.module && available(x));
+    const it = r.item && m?.menu?.items().find((i) => i.id === r.item);
+    return !m ? null : r.item ? it && menuSpec(m, it) : plainSpec(m);
+  }).filter(Boolean));
 
   // кнопки барабана слоёв: «Карты», потом разделы и модули с видами; раздел «Места» — свой барабан
   const PLACES = "places";
@@ -165,7 +184,8 @@ export function initLayersPanel(ctx) {
   const arrowBtn = Object.assign(document.createElement("button"), { className: "btn glass wheel-toggle", innerHTML: ARROW });
   const placesBtn = Object.assign(document.createElement("button"), { className: "btn glass places-toggle", innerHTML: GROUPS.find((g) => g.id === PLACES).icon });
   const lensBtn = Object.assign(document.createElement("button"), { className: "btn glass search-toggle" });
-  const controls = [arrowBtn, placesBtn, lensBtn];
+  const deskBtn = Object.assign(document.createElement("button"), { className: "btn glass desk-toggle", innerHTML: DESK });
+  const controls = [arrowBtn, placesBtn, lensBtn, deskBtn];
   // барабаны — каждый своей кнопкой, один другой не прячет (Грегори 2026-11-12): разделы — лупой справа вверху
   // (вместе со строкой поиска), места и слои — кнопками внизу. На компьютере открытые делят высоту и не
   // пересекаются, на телефоне лежат стопкой: нажатие на кнопку нижнего — поднять его наверх, верхнего — закрыть
@@ -212,8 +232,8 @@ export function initLayersPanel(ctx) {
     lensBtn.innerHTML = target ? `<span class="search-card-arrow" style="transform: rotate(${routeNow.me ? routeNow.arrow || 0 : 0}deg)">${ROUTE_ARROW}</span>`
       : mode ? mode.icon : logo ? LOGO : LUPA;
     lensBtn.title = opened.content && stacked() && front() !== "content" ? "Разделы — наверх" : searchOn || opened.content ? "Свернуть поиск и разделы" : "Поиск и разделы";
-    // под кнопкой — только язык подписей, пока открыт поиск или любой барабан
-    setDockShown(searchOn || order.length > 0);
+    deskBtn.classList.toggle("open", desk);
+    deskBtn.title = desk ? "Вернуть кнопки и окна" : "Десктоп — только карта";
   };
   // открытый поиск — шаг для «Назад» телефона
   let searchBack = null;
@@ -228,6 +248,7 @@ export function initLayersPanel(ctx) {
   };
   // открыть/закрыть барабан; открытый — наверх
   const setDrum = (name, open) => {
+    if (open && desk) setDesk(false);
     order = order.filter((n) => n !== name);
     if (open) { order.push(name); closeOpen("right"); }
     opened[name] = open;
@@ -253,6 +274,12 @@ export function initLayersPanel(ctx) {
     paint();
   }
   // кнопка барабана: закрыт — открыть; открыт, но лежит под другим (телефон) — наверх; иначе — закрыть
+  // «Десктоп» (Грегори 2026-11-21: «прячется всё, кроме самой карты, маршрутов на карте и кнопок в левом нижнем
+  // углу; окно поиска — в первую очередь»): класс desk-on у body прячет строку поиска, кнопки справа, барабаны,
+  // карусели и окна, ничего не закрывая; ещё раз — всё как было
+  let desk = false;
+  const setDesk = (on) => { desk = on; document.body.classList.toggle("desk-on", on); paint(); };
+  deskBtn.addEventListener("click", () => setDesk(!desk));
   const raise = (name) => { order = [...order.filter((n) => n !== name), name]; arrange(); };
   const toggleDrum = (name) => { if (opened[name] && stacked() && front() !== name) raise(name); else setDrum(name, !opened[name]); };
   arrowBtn.addEventListener("click", () => toggleDrum("layers"));
@@ -266,19 +293,19 @@ export function initLayersPanel(ctx) {
   on("search-mode", (m) => { mode = m; paint(); });
   // раздел живёт в самой строке поиска (навигация) — строка нужна. Барабан после выбора не закрывается —
   // он под рукой, открывает и закрывает его только кнопка справа вверху (Грегори 2026-11-06)
-  on("search-show", () => { setSearch(true); if (!order.length) setDrum("content", true); }, { replay: false });
+  on("search-show", () => { setDesk(false); setSearch(true); if (!order.length) setDrum("content", true); }, { replay: false });
 
   // ---------- барабан ----------
+  // номер барабана: разделы — 1, места — 2, слои — 3; у кнопки — номер барабана и её место, у кнопки карусели —
+  // ещё и её место в карусели: 3.2.4 (Грегори 2026-11-21: «пронумеровать все панели и их подпанели»)
   function makeDrum(name, entries) {
+    const num = BANDS.indexOf(name) + 1;
     const wheel = Object.assign(document.createElement("div"), { className: `wheel wheel-${name} closed` });
     const drum = Object.assign(document.createElement("div"), { className: "wheel-drum" });
     wheel.append(drum);
-    // меню кнопки — карусель слева от барабана (Грегори 2026-11-21: «барабан с выбором меню рядом; значки — кнопками,
-    // подписи рядом вращаются вместе с ними; вид и реакция на нажатие — одинаковые»)
-    const sub = Object.assign(document.createElement("div"), { className: `layers-sub carousel sub-${name}`, hidden: true });
-    // подпись — только у центральной кнопки, слева от неё (Грегори, 2026-10-30)
+    // подпись центральной кнопки — когда постоянные подписи выключены (Грегори, 2026-10-30)
     const tip = Object.assign(document.createElement("div"), { className: "wheel-tip" });
-    document.body.append(wheel, sub, tip);
+    document.body.append(wheel, tip);
 
     let isOpen = false;
     const setOpen = (open) => {
@@ -292,17 +319,14 @@ export function initLayersPanel(ctx) {
     document.addEventListener("click", (e) => {
       // кнопку, по которой щёлкнули, могли уже перерисовать — это щелчок внутри, а не мимо
       if (!e.target.isConnected) return;
-      if (openKey && !sub.contains(e.target) && !wheel.contains(e.target) && !controls.some((c) => c.contains(e.target))) show(null);
+      if (openKey && !levels.some((l) => l.el.contains(e.target)) && !wheel.contains(e.target) && !controls.some((c) => c.contains(e.target))) show(null);
     });
     // Esc закрывает меню кнопки; сам барабан — нет: он под рукой, Esc («Назад») сначала закрывает окна
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && isOpen && openKey && !e.defaultPrevented) { e.preventDefault(); show(null); } });
 
-    // барабан прижат к своей кнопке (Грегори 2026-11-09: «уже не понятно, кто есть кто»): разделы — к верху,
-    // под кнопку справа вверху, места и слои — к низу, к своим кнопкам; хватает кнопок на всю высоту — по середине
-    const centerY = () => {
-      const h = drum.clientHeight, r = R.geom().radius + BTN / 2 + 4;
-      return name === "content" ? Math.min(h / 2, r) : Math.max(h / 2, h - r);
-    };
+    // барабан прижат к верху, к кнопкам справа вверху (Грегори 2026-11-21: «поднимаем карусели наверх»);
+    // хватает кнопок на всю высоту — по середине
+    const centerY = () => Math.min(drum.clientHeight / 2, R.geom().radius + BTN / 2 + 4);
     const R = rotor(drum, wheel, {
       centerY, shown: () => isOpen,
       onStart: () => { hideTip(); if (openKey) show(null); },
@@ -310,23 +334,77 @@ export function initLayersPanel(ctx) {
       // на телефоне смахнуть вправо — спрятать барабан (кроме разделов: они с поиском)
       onSwipe: name === "content" ? null : () => setDrum(name, false),
     });
-    // карусель — во всю высоту экрана; её центр — всегда вровень с центром барабана (там кнопка, чьё меню
-    // открыто), крайние кнопки могут уйти за край экрана — докручиваются
-    const S = rotor(sub, sub, {
-      shown: () => !sub.hidden,
-      centerY: () => wheel.getBoundingClientRect().top + centerY() - sub.getBoundingClientRect().top,
-    });
 
-    // ---------- меню кнопки ----------
-    let openKey = null, subKey = null;
+    // ---------- меню кнопки — карусели цепочкой влево ----------
+    // первая — меню кнопки барабана (Грегори 2026-11-21: «значки — кнопками, подписи вращаются вместе с ними; вид
+    // и реакция на нажатие — одинаковые»); у центральной кнопки карусели есть связанные (related) и она включена —
+    // левее следующая карусель («после выбора горнолыжных спусков — третья карусель с профильными местами»).
+    // Кнопка барабана закрывает всю цепочку. Подписи карусели прячутся, когда левее открыта следующая
+    let openKey = null;
+    const levels = [];
+    const level = (k) => {
+      if (levels[k]) return levels[k];
+      const el = Object.assign(document.createElement("div"), { className: `layers-sub carousel sub-${name}${k ? `-${k + 1}` : ""}`, hidden: true });
+      document.body.append(el);
+      const L = { el, k, key: null, specs: [], prefix: "", right: 0 };
+      // центр каждой карусели — вровень с кнопкой барабана
+      L.R = rotor(el, el, {
+        shown: () => !el.hidden,
+        centerY: () => wheel.getBoundingClientRect().top + centerY() - el.getBoundingClientRect().top,
+        onStart: () => closeFrom(k + 1),
+        onSettle: () => chain(k),
+      });
+      return (levels[k] = L);
+    };
+    const paintLevels = () => {
+      for (const L of levels) L.el.classList.toggle("covered", !L.el.hidden && !!levels[L.k + 1] && !levels[L.k + 1].el.hidden);
+      document.body.classList.toggle("carousel-on", !!document.querySelector(".layers-sub.carousel:not([hidden])"));
+    };
+    const closeFrom = (k) => { for (const L of levels.slice(k)) L.el.hidden = true; paintLevels(); };
+    // карусель k: кнопки specs; та же кнопка, что была (и после закрытия) — карусель стоит, где стояла, другая —
+    // в центре первая включённая или выбранная, иначе первая
+    function fill(k, key, prefix, specs, tone, wait = false) {
+      const L = level(k);
+      L.specs = specs;
+      L.prefix = prefix;
+      const buttons = specs.map((spec, j) => {
+        const b = item({ ...spec, num: `${prefix}.${j + 1}` });
+        // нажатие по кнопке не в центре — докрутить её в центр, действие — сразу (как у барабана)
+        b.addEventListener("click", () => { if (!L.R.atCenter(j)) L.R.spinTo(j, () => chain(k)); });
+        return b;
+      });
+      const cells = buttons.map((b) => { const cell = Object.assign(document.createElement("div"), { className: "wheel-cell" }); cell.append(b); return cell; });
+      if (wait) cells.push(Object.assign(document.createElement("div"), { className: "wheel-cell layers-wait", textContent: "Загрузка…" }));
+      // выделенные кнопки — светлой заливкой цвета группы
+      L.el.style.setProperty("--tone", `var(--tone-${tone})`);
+      // первая — вплотную слева от барабана, следующая — вплотную к значкам предыдущей (её подписи спрятаны)
+      L.right = k ? levels[k - 1].right + BTN + 8 : innerWidth - wheel.getBoundingClientRect().left;
+      L.el.style.right = `${L.right}px`;
+      L.el.hidden = false;
+      L.R.set(cells);
+      if (L.key !== key) L.R.jump(Math.max(0, specs.findIndex((x) => x.on || x.selected)));
+      L.key = key;
+      paintLevels();
+    }
+    // за центральной кнопкой карусели k — её связанные кнопки (если она включена), иначе цепочка кончается
+    function chain(k) {
+      const L = levels[k];
+      if (!L || L.el.hidden) return;
+      const i = L.R.centerIndex(), spec = L.specs[i];
+      const next = spec?.on && spec.related?.();
+      if (!next?.length) return closeFrom(k + 1);
+      fill(k + 1, spec.key, `${L.prefix}.${i + 1}`, next, L.el.style.getPropertyValue("--tone").slice(11, -1));
+      chain(k + 1);
+    }
+
     let list = []; // кнопки барабана по порядку: { e, cell, c, x }
     function show(key) {
       openKey = key;
       if (key) hideTip();
       for (const { e, c } of list) c.classList.toggle("open", e.key === key);
-      const e = key && list.find((x) => x.e.key === key)?.e;
-      if (!e) { sub.hidden = true; return; }
-      const m = e.module;
+      const i = key ? list.findIndex((x) => x.e.key === key) : -1;
+      if (i < 0) { closeFrom(0); return; }
+      const e = list[i].e, m = e.module;
       const cur = currentBasemap();
       const col = e.content?.column;
       // раздел с панелью: список подгружается при первом открытии меню
@@ -335,40 +413,24 @@ export function initLayersPanel(ctx) {
         col.load(ctx).catch(() => {}).finally(() => openKey === key && show(key));
       }
       const colItems = col ? col.items() : [];
-      const items = [
-        ...colItems.map((it) => item({ title: it.title, thumb: it.thumb, icon: it.icon, selected: it.selected, hint: it.hint,
+      fill(0, key, `${num}.${i + 1}`, [
+        ...colItems.map((it) => ({ key: it.id, title: it.title, thumb: it.thumb, icon: it.icon, selected: it.selected, hint: it.hint,
           click: () => { col.choose(it.id, ctx); show(null); } })),
-        ...(e.maps ? BASEMAPS.map((b) => item({ title: b.name, thumb: thumbOf(b), selected: b === cur, hint: b.hint,
+        ...(e.maps ? BASEMAPS.map((b) => ({ key: b.id || b.name, title: b.name, thumb: thumbOf(b), selected: b === cur, hint: b.hint,
           click: () => { setBasemap(b); show(openKey); } })) : []),
-        ...(m ? m.menu.items().map((it) => item({ title: it.title, icon: it.icon || m.icon, color: it.color, on: m.active && it.active, blocked: !allowed(m),
-          click: () => {
-            if (!m.active) { m.menu.choose(it.id); switchTo(m, true); } // слой был выключен — только этот вид
-            else switchTo(m, m.menu.toggle(it.id)); // отметить ещё один или снять; не осталось ни одного — выключить
-          } })) : []),
-        ...e.plain.map((p) => item({ title: p.title, icon: p.icon, color: p.color, on: p.active, blocked: !allowed(p), hint: p.hint, click: () => switchTo(p, !p.active) })),
-      ];
-      // нажатие по кнопке не в центре — докрутить её в центр, действие — сразу (как у барабана)
-      items.forEach((b, i) => b.addEventListener("click", () => { if (!S.atCenter(i)) S.spinTo(i, () => {}); }));
-      const cells = items.map((b) => { const cell = Object.assign(document.createElement("div"), { className: "wheel-cell" }); cell.append(b); return cell; });
-      if (col && !colItems.length) cells.push(Object.assign(document.createElement("div"), { className: "wheel-cell layers-wait", textContent: "Загрузка…" }));
-      // выделенные кнопки меню — светлой заливкой цвета группы
-      sub.style.setProperty("--tone", `var(--tone-${e.tone})`);
-      // вплотную слева от барабана
-      sub.style.right = `${innerWidth - wheel.getBoundingClientRect().left}px`;
-      sub.hidden = false;
-      S.set(cells);
-      // другая кнопка — в центре выбранное (первое отмеченное), иначе первое; та же (и после закрытия: при смене
-      // карты меню на миг закрывается) — карусель стоит, где стояла
-      if (subKey !== key) S.jump(Math.max(0, items.findIndex((b) => b.classList.contains("on") || b.classList.contains("selected"))));
-      subKey = key;
+        ...(m ? m.menu.items().map((it) => menuSpec(m, it)) : []),
+        ...e.plain.map(plainSpec),
+      ], e.tone, col && !colItems.length);
+      chain(0);
     }
 
-    // подпись центральной кнопки: встал барабан или навели мышь — видна пару секунд
+    // подпись центральной кнопки: встал барабан или навели мышь — видна пару секунд (постоянные подписи выключены)
     let tipTimer = 0;
+    const labelsOn = () => !document.body.classList.contains("labels-off");
     function showTip() {
       clearTimeout(tipTimer);
       const l = list[R.centerIndex()];
-      if (!isOpen || openKey || !l || R.dragged()) return hideTip();
+      if (!isOpen || openKey || !l || R.dragged() || labelsOn()) return hideTip();
       tip.textContent = l.c.ariaLabel;
       const r = l.c.getBoundingClientRect();
       tip.style.right = `${innerWidth - r.left + 8}px`;
@@ -385,7 +447,7 @@ export function initLayersPanel(ctx) {
     // ---------- кнопки барабана ----------
     const render = () => {
       const centered = list[R.centerIndex()]?.e.key;
-      list = entries().map((e) => {
+      list = entries().map((e, idx) => {
         const cell = Object.assign(document.createElement("div"), { className: "layers-cell wheel-cell" });
         const c = Object.assign(document.createElement("button"), { className: `btn layers-circle tone-${e.tone}` });
         c.ariaLabel = e.title;
@@ -396,10 +458,14 @@ export function initLayersPanel(ctx) {
           c.ariaLabel = `Карты: ${currentBasemap().name}`;
         } else c.innerHTML = e.icon;
         const x = Object.assign(document.createElement("button"), { className: "layers-clear", title: "Снять всё", hidden: true, innerHTML: CLEAR_ICON });
-        cell.append(c, x);
+        // постоянная подпись с номером — слева от кнопки, крутится вместе с ней; нажатие — как по кнопке
+        const label = Object.assign(document.createElement("span"), { className: "wheel-label", textContent: e.title });
+        label.dataset.num = `${num}.${idx + 1}`;
+        label.addEventListener("click", (ev) => { ev.stopPropagation(); c.click(); });
+        cell.append(label, c, x);
         // у модуля с видами в подсказке — выбранный вид
-        const label = e.module?.menu.label();
-        if (label && label !== e.title) c.ariaLabel = `${e.title}: ${label}`;
+        const chosen = e.module?.menu.label();
+        if (chosen && chosen !== e.title) c.ariaLabel = `${e.title}: ${chosen}`;
         c.dataset.key = e.key;
         c.addEventListener("mouseenter", () => list[R.centerIndex()]?.c === c && R.settled() && showTip());
         const anyOn = !!e.module?.active || e.plain.some((m) => m.active) || !!e.content?.column.isOpen() || (e.key === "content/navigation" && !!routeNow?.target);
@@ -468,7 +534,43 @@ export function initLayersPanel(ctx) {
     if (a) a.style.transform = `rotate(${r.me ? r.arrow || 0 : 0}deg)`; else paint();
     if (!sameTarget) renderAll();
   });
-  document.body.append(arrowBtn, placesBtn, lensBtn);
+  document.body.append(arrowBtn, placesBtn, lensBtn, deskBtn);
+
+  // подписи и номера кнопок барабанов и каруселей — в Настройках (Грегори 2026-11-21: «пункты видимости подписей»)
+  const paintLabels = () => {
+    document.body.classList.toggle("labels-off", settings.get("ui.labels") === false);
+    document.body.classList.toggle("numbers-off", settings.get("ui.numbers") === false);
+  };
+  paintLabels();
+  on("button-labels", paintLabels, { replay: false });
+
+  // полоса барабанов и каруселей с подписями — карта в ней не приближается (Грегори 2026-11-21: «запретить зум карты
+  // в районе каруселей»): колёсико над ней крутит барабан или карусель, щипок двумя пальцами и двойной щелчок —
+  // ничего. Полоса — от левого края подписей до правого края барабана или карусели
+  const zoneAt = (x, y) => {
+    if (document.body.classList.contains("desk-on")) return null;
+    for (const el of document.querySelectorAll(".wheel:not(.closed):not(.behind), .layers-sub.carousel:not([hidden])")) {
+      const box = el.getBoundingClientRect();
+      if (y < box.top || y > box.bottom || x > box.right) continue;
+      const parts = [...el.querySelectorAll(".wheel-cell:not([hidden]), .wheel-label")].map((c) => c.getBoundingClientRect()).filter((r) => r.width);
+      const left = Math.min(box.left, ...parts.map((r) => r.left));
+      if (x >= left - 8 && parts.length) return el;
+    }
+    return null;
+  };
+  addEventListener("wheel", (e) => {
+    const zone = e.isTrusted && zoneAt(e.clientX, e.clientY);
+    if (!zone || zone.contains(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    zone.dispatchEvent(new WheelEvent("wheel", { deltaY: e.deltaY, deltaMode: e.deltaMode, clientX: e.clientX, clientY: e.clientY, bubbles: true, cancelable: true }));
+  }, { capture: true, passive: false });
+  addEventListener("dblclick", (e) => { if (zoneAt(e.clientX, e.clientY)) e.stopPropagation(); }, true);
+  const pinch = (e) => {
+    if (e.touches.length > 1 && [...e.touches].some((t) => zoneAt(t.clientX, t.clientY))) { e.preventDefault(); e.stopPropagation(); }
+  };
+  addEventListener("touchstart", pinch, { capture: true, passive: false });
+  addEventListener("touchmove", pinch, { capture: true, passive: false });
 
   // слой включился не отсюда (сам по себе, по событию другого модуля) — кнопки обновить
   // включился другим слоем («Горнолыжные спуски» включают «Транспорт») — помнить до следующего запуска;

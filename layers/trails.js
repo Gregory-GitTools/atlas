@@ -645,6 +645,9 @@ register({
   hint: "Трассы по цвету сложности, с номерами и подъёмниками",
   icon: chipIcon(SLOPES_ICON),
   sends: "район карты (Waymarked Trails, QLever — OpenStreetMap)",
+  // включены — левее карусель с профильными местами (Грегори 2026-11-21: «после горнолыжных спусков — третья
+  // карусель с выбором профильных мест»)
+  related: [{ module: "places/sport", item: "ski" }, { module: "places/sport", item: "rental" }, { module: "places/sport", item: "shops" }],
   async enable(ctx) {
     skiSet(ctx, "downhill", true);
     await withLifts(ctx);
@@ -662,6 +665,7 @@ register({
   hint: "Лыжни для беговых лыж: классика и конёк",
   icon: chipIcon(NORDIC_ICON),
   sends: "район карты (Waymarked Trails, QLever — OpenStreetMap)",
+  related: [{ module: "places/sport", item: "ski" }, { module: "places/sport", item: "rental" }, { module: "places/sport", item: "shops" }],
   enable(ctx) { skiSet(ctx, "nordic", true); },
   disable(ctx) { skiSet(ctx, "nordic", false); },
   stats: () => ({ nordic: [...pistes.values()].filter(isNordic).length,
