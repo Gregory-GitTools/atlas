@@ -491,7 +491,9 @@ html, body {
 
 /* выбранный размер кнопок и текста (настройки) */
 .size-btn.on,
-.size-btn.on:hover {
+.size-btn.on:hover,
+.tilt-btn.on,
+.tilt-btn.on:hover {
   border-color: var(--accent);
   background: var(--active);
 }
@@ -1912,15 +1914,16 @@ body.desk-on .maplibregl-ctrl-bottom-right {
   visibility: hidden !important;
 }
 
-/* подписи барабана — только пока его крутят (и сразу после открытия), через 3 с гаснут (Грегори 2026-11-22: «нет
-   возможности увидеть незакрытое подписями окно»); класс labels-live ставит core/layers-panel.js */
+/* подписи барабана — с мышью: пока она над его кнопками (labels-here), ушла — сразу гаснут; на сенсорном экране —
+   пока крутят (и сразу после открытия), через 2 с гаснут (Грегори 2026-11-22: «нет возможности увидеть незакрытое
+   подписями окно»); классы ставит core/layers-panel.js */
 .wheel-label,
 .carousel .layers-item > span {
   transition: opacity 0.4s;
 }
 
-body:not(.labels-live) .wheel-label,
-body:not(.labels-live) .carousel .layers-item > span {
+body:not(.labels-live) .wheel:not(.labels-here) .wheel-label,
+body:not(.labels-live) .carousel:not(.labels-here) .layers-item > span {
   opacity: 0;
   pointer-events: none;
 }
@@ -4190,7 +4193,17 @@ body.go-nav-off .go-menu {
   background-color: var(--panel-hover);
 }
 
-/* подпись кнопки по долгому нажатию на телефоне (core/touch-tip.js) */
+/* подпись кнопки по долгому нажатию на телефоне и при наведении мыши (core/touch-tip.js); мышь ушла — гаснет */
+.hover-tip {
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+
+.hover-tip.on {
+  opacity: 1;
+  transition-duration: 0.1s;
+}
+
 .touch-tip {
   position: fixed;
   z-index: 100;
@@ -4421,7 +4434,7 @@ body.go-nav-off .go-menu {
 }
 
 .layers-sub.carousel.covered {
-  transform: perspective(600px) translateZ(calc(-110px * var(--depth, 1))) rotateX(28deg);
+  transform: perspective(600px) translateZ(calc(-110px * var(--depth, 1))) rotateX(var(--carousel-tilt, 28deg));
   opacity: 0.5;
   filter: blur(1px);
 }

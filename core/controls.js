@@ -141,7 +141,7 @@ export function addGeolocate(map, maplibregl, status) {
   };
   // открыта карточка пути — карта за мной не ходит: на экране весь путь (Грегори 2026-11-06: «не
   // позиционируем моё положение при открытой карточке; закрыли — сразу ко мне, без задержки»)
-  let hold = false, tilting = false;
+  let hold = false, tilting = false, handZoom = false;
   let pos = POS.includes(settings.get("nav.position")) ? settings.get("nav.position") : "arrow", enter = false, viewSave = false, posEntered = false;
   const manual = () => settings.get("nav.manual", {});
   const setPos = (p) => { pos = p; settings.set("nav.position", p); };
@@ -170,7 +170,9 @@ export function addGeolocate(map, maplibregl, status) {
   // всегда 3D (Грегори 2026-11-10: «ставим курсор на начальную точку только в момент начала навигации и
   // первый раз переключаем в 3D»), дальше наклон — как поставили
   const center = (duration = 800) => {
-    if (!position || compassTurning || hold || tilting) return;
+    // масштаб меняют рукой — замер GPS не перебивает (Грегори 2026-11-22: при записи трека не приближалось до 50 м:
+    // easeTo каждую секунду возвращал прежний масштаб); отпустили — moveend снова центрирует
+    if (!position || compassTurning || hold || tilting || handZoom) return;
     if (enter) { enterPos(); return; }
     // весь путь: карта стоит, пока я на экране; ушёл за край — путь заново (пути нет — за мной, как обычно)
     if (pos === "route" && posEntered) {
@@ -357,6 +359,9 @@ export function addGeolocate(map, maplibregl, status) {
     viewSave = true;
   };
   map.on("zoomstart", userView);
+  // масштаб меняют рукой (щипок, колёсико) — до конца жеста центр не трогаем (см. center)
+  map.on("zoomstart", (e) => { if (e.originalEvent) handZoom = true; });
+  map.on("zoomend", () => { handZoom = false; });
   map.on("pitchstart", userView);
   map.on("moveend", () => {
     if (!viewSave) return;

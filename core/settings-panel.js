@@ -224,6 +224,8 @@ async function placeSection() {
 // размер кнопок и текста (core/ui-scale.js; Грегори 2026-11-17, магнитола): «Авто» — крупный на широком
 // сенсорном экране лёжа (машина), иначе обычный. Где браузер так не умеет (компьютер) — кнопки неактивны,
 // под ними почему
+// наклон задней карусели цепочки по умолчанию, градусы (там же — «Наклон задних каруселей»)
+export const TILT = 28;
 const SIZES = [["auto", "Авто"], [1, "Обычный"], [1.25, "Крупный"], [1.5, "Очень крупный"]];
 // язык подписей на карте (был кнопкой под логотипом) и подписи с номерами у кнопок барабанов и каруселей
 // (Грегори 2026-11-21: «в меню пункты видимости подписей… номера карусельных кнопок… всегда можно выключить»)
@@ -244,6 +246,17 @@ function labelsSection(ctx) {
     row.append(check, document.createTextNode(text));
     box.append(row);
   }
+  // наклон задних каруселей в цепочке (Грегори 2026-11-22: «поэкспериментируем с углом наклона каруселей»)
+  const tilt = h("div", "set-row tilt-row");
+  const paintTilt = () => tilt.querySelectorAll("button").forEach((b) => b.classList.toggle("on", +b.dataset.deg === (settings.get("ui.tilt") ?? TILT)));
+  for (const deg of [0, 15, TILT, 45, 60, 75]) {
+    const b = h("button", "text-btn tilt-btn", `${deg}°`);
+    b.dataset.deg = deg;
+    b.addEventListener("click", () => { settings.set("ui.tilt", deg === TILT ? null : deg); emit("button-labels"); paintTilt(); });
+    tilt.append(b);
+  }
+  paintTilt();
+  box.append(h("p", "set-hint", "Наклон задних каруселей"), tilt);
   return box;
 }
 

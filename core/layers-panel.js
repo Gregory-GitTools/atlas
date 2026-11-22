@@ -34,7 +34,7 @@
 // Включённые слои, какой барабан открыт и спрятан ли поиск — помнятся. Открылась панель настроек —
 // барабан уступает место, и наоборот
 import { closeOpen, homeList, isOpen as panelOpen, close as closePanel } from "./panel.js";
-import { GEAR_ICON } from "./settings-panel.js";
+import { GEAR_ICON, TILT } from "./settings-panel.js";
 import { ARROW as ROUTE_ARROW } from "./route.js";
 import { backable } from "./back.js";
 import { modules, toggle, available, allowed, onRegister, MODULES } from "./modules.js";
@@ -260,7 +260,8 @@ export function initLayersPanel(ctx) {
     for (const d of drums) {
       d.setOpen(opened[d.name]);
       d.wheel.classList.toggle("behind", stacked() && front() !== d.name);
-      d.wheel.style.top = d.wheel.style.bottom = "";
+      // закрытый остаётся, где был, — уезжает с места (Грегори 2026-11-22: «прыгает наверх под нижнюю кнопку»)
+      if (opened[d.name]) d.wheel.style.top = d.wheel.style.bottom = "";
     }
     const bands = BANDS.filter((n) => opened[n]);
     if (bands.length > 1 && !phone()) {
@@ -572,6 +573,8 @@ export function initLayersPanel(ctx) {
     document.body.classList.toggle("labels-off", settings.get("ui.labels") === false);
     // номера — для наладки, по умолчанию выключены (Грегори 2026-11-21)
     document.body.classList.toggle("numbers-off", settings.get("ui.numbers") !== true);
+    // наклон задних каруселей цепочки — подбирается в настройках (Грегори 2026-11-22: «поэкспериментируем»)
+    document.documentElement.style.setProperty("--carousel-tilt", `${settings.get("ui.tilt") ?? TILT}deg`);
   };
   paintLabels();
   on("button-labels", paintLabels, { replay: false });
@@ -585,11 +588,15 @@ export function initLayersPanel(ctx) {
     for (const el of [...document.querySelectorAll(".wheel:not(.closed):not(.behind), .layers-sub.carousel:not([hidden]):not(.closing)")].reverse()) {
       const box = el.getBoundingClientRect();
       if (y < box.top || y > box.bottom || x > box.right) continue;
-      // по высоте — только где кнопки (Грегори 2026-11-22: карусели ниже первой крутились, когда мышь уже на карте)
-      const parts = [...el.querySelectorAll(".wheel-cell:not([hidden]), .wheel-label")].map((c) => c.getBoundingClientRect()).filter((r) => r.width);
+      // только где кнопки и видимые подписи — и по высоте, и слева (Грегори 2026-11-22: карусели ниже первой
+      // крутились, когда мышь уже на карте: карусель — во всю ширину экрана, левый край брался от неё)
+      const live = document.body.classList.contains("labels-live") || el.classList.contains("labels-here");
+      const sel = el.classList.contains("wheel")
+        ? `.wheel-cell:not([hidden])${live ? ", .wheel-label" : ""}`
+        : `.wheel-cell:not([hidden]) .layers-icon${live ? ", .wheel-cell:not([hidden]) .layers-item > span" : ""}`;
+      const parts = [...el.querySelectorAll(sel)].map((c) => c.getBoundingClientRect()).filter((r) => r.width);
       if (!parts.length || y < Math.min(...parts.map((r) => r.top)) - 8 || y > Math.max(...parts.map((r) => r.bottom)) + 8) continue;
-      const left = Math.min(box.left, ...parts.map((r) => r.left));
-      if (x >= left - 8) return el;
+      if (x >= Math.min(...parts.map((r) => r.left)) - 8) return el;
     }
     return null;
   };
@@ -602,6 +609,22 @@ export function initLayersPanel(ctx) {
     zone.dispatchEvent(new WheelEvent("wheel", { deltaY: e.deltaY, deltaMode: e.deltaMode, clientX: e.clientX, clientY: e.clientY, bubbles: true, cancelable: true }));
   }, { capture: true, passive: false });
   addEventListener("dblclick", (e) => { if (zoneAt(e.clientX, e.clientY)) e.stopPropagation(); }, true);
+  // мышь: подписи — у того барабана или карусели, над чьими кнопками она сейчас, ушла — сразу гаснут
+  // (Грегори 2026-11-22: «включай подписи при наведении мыши на конкретный барабан и выключай с затуханием
+  // сразу после потери фокуса без задержки»)
+  let hoverFrame = 0;
+  const hoverLabels = (x, y) => {
+    const z = x === null ? null : zoneAt(x, y);
+    for (const el of document.querySelectorAll(".labels-here")) if (el !== z) el.classList.remove("labels-here");
+    z?.classList.add("labels-here");
+  };
+  addEventListener("pointermove", (e) => {
+    if (e.pointerType !== "mouse") return;
+    mouseUser = true;
+    cancelAnimationFrame(hoverFrame);
+    hoverFrame = requestAnimationFrame(() => hoverLabels(e.clientX, e.clientY));
+  }, { passive: true });
+  document.addEventListener("pointerleave", () => { cancelAnimationFrame(hoverFrame); hoverLabels(null); });
   const pinch = (e) => {
     if (e.touches.length > 1 && [...e.touches].some((t) => zoneAt(t.clientX, t.clientY))) { e.preventDefault(); e.stopPropagation(); }
   };
@@ -650,13 +673,17 @@ export function initLayersPanel(ctx) {
 // кругу; кнопка, проходя через центр, притормаживает, после прокрутки барабан встаёт ближайшей кнопкой в центр.
 // Один и тот же у барабанов и у карусели меню (Грегори 2026-11-21: «вид и реакция на нажатие — одинаковые»).
 // box — где кнопки (его высота — высота барабана), el — что слушает колёсико и палец; centerY() — где центр,
-// подписи барабанов видны, пока крутят, и 3 с после (Грегори 2026-11-22: «подписи показывать только при вращении
-// карусели и через 3 с гасить»): fade = true — начать отсчёт, иначе — держать
-let liveTimer = 0;
+// подписи барабанов видны, пока крутят, и 2 с после (Грегори 2026-11-22: «подписи показывать только при вращении
+// карусели и через 3 с гасить», потом — «уменьши до 2 с»): fade = true — начать отсчёт, иначе — держать
+// с мышью — нет: там подписи по наведению (labels-here). Мышь или палец — по тому, чем трогали последним
+// (сенсорный экран — пока не тронули — палец)
+let liveTimer = 0, mouseUser = !navigator.maxTouchPoints;
+addEventListener("pointerdown", (e) => { mouseUser = e.pointerType === "mouse"; }, { capture: true, passive: true });
 function liveLabels(fade) {
+  if (mouseUser) return;
   clearTimeout(liveTimer);
   document.body.classList.add("labels-live");
-  if (fade) liveTimer = setTimeout(() => document.body.classList.remove("labels-live"), 3000);
+  if (fade) liveTimer = setTimeout(() => document.body.classList.remove("labels-live"), 2000);
 }
 
 // shown() — виден ли; onStart — начали крутить, onSettle — встал после прокрутки, onSwipe — смахнули вправо
