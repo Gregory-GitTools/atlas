@@ -116,6 +116,9 @@ export function initSearch({ map, maplibregl }) {
   const unfoldPanel = () => { cardOpen = false; close(); emit("panel-fold-request", { fold: false }); };
   // «Поиск места» в барабане — из режима раздела в обычный поиск: окно раздела закрыть, режим снять
   on("search-plain", () => { closeOpen("left"); setMode(null); input.value = plainText(); clearBtn.hidden = !input.value; }, { replay: false });
+  // выбрали «Поиск» или «Путь» в барабане — сразу их история (Грегори 2026-11-22: «все открывают историю, чтобы
+  // было понятно, что выбор сработал»), как окна других разделов
+  on("search-list", () => { if (mode && !mode.list) return; if (leftOpen) emit("panel-fold-request", { fold: true }); suggest(); }, { replay: false });
   // открыт ли поиск (кнопка справа вверху) — карточка пути видна только с ним
   let searchOn = false, cardShown = false, routeViewing = false;
   on("search-shown", (v) => { searchOn = v; refresh(false); });
@@ -269,6 +272,8 @@ export function initSearch({ map, maplibregl }) {
       label: (e) => { const [t, ...rest] = e.display_name.split(", "); return e.name ? { title: e.name, sub: e.display_name } : { title: t, sub: rest.join(", ") }; },
       rename: (e, name) => ({ ...e, name }), lngLat: (e) => [Number(e.lon), Number(e.lat)],
       fold: closeList, close: hideSearch,
+      fromPlace: ({ title, sub, lngLat: [x, y] }) => ({ display_name: [title, sub].filter(Boolean).join(", "), lat: String(y), lon: String(x),
+        boundingbox: [y - 0.005, y + 0.005, x - 0.005, x + 0.005].map(String) }),
       // страны узнаются в фоне — закрытый за это время список сам не открывается
       pick: (e) => choose(e, e.name || e.display_name.split(", ")[0]), changed: () => !list.hidden && suggest() });
     // строкам истории — как найденным: стрелки ↑↓ ходят по ним

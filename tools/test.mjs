@@ -333,8 +333,8 @@ try {
   const files = await run(`(() => { Object.defineProperty(navigator, "share", { value: undefined, configurable: true });
     return { gpx: atlas.route.gpx(), url: atlas.route.routeUrl() }; })()`);
   check("маршрут: остановка — запись со значком маршрута в «Куда», его точки — своим списком (назад, «Поделиться», GPX); перетащили — финиш другой",
-    JSON.stringify(view.btns) === '["Все места","Поделиться маршрутом","Сохранить трек (GPX)","Карточка пути"]' && viewAtOnce && JSON.stringify(view.rows) === '["1Остановка","Проба"]' && view.finish
-    && moved.target?.title === "Остановка" && JSON.stringify(moved.stops) === '["Проба"]' && JSON.stringify(moved.rows) === '["1Проба","Остановка"]'
+    JSON.stringify(view.btns) === '["Все места","Поделиться маршрутом","Сохранить трек (GPX)","Карточка пути"]' && viewAtOnce && JSON.stringify(view.rows) === '["Остановка","Проба"]' && view.finish
+    && moved.target?.title === "Остановка" && JSON.stringify(moved.stops) === '["Проба"]' && JSON.stringify(moved.rows) === '["Проба","Остановка"]'
     && moved.entry.title === "Остановка" && JSON.stringify(moved.entry.stops) === '["Проба"]', JSON.stringify({ view, moved: { target: moved.target?.title, stops: moved.stops, rows: moved.rows, entry: moved.entry } }));
   check("маршрут: «Поделиться» — ссылка Google Карт через остановки, «Сохранить трек» — GPX с точками",
     /^https:\/\/www\.google\.com\/maps\/dir\/\?api=1&destination=59\.435000,24\.770000&waypoints=/.test(files.url) && (files.gpx.match(/<wpt /g) || []).length === 2
@@ -386,6 +386,19 @@ try {
   await sleep(200);
   const back = await run(`!document.querySelector(".route-view-head") && !!document.querySelector(".search-results .history-icon")`);
   check("маршрут: «назад» — снова весь список «Куда»", back);
+  // внизу списка точек — способы пути и «Сохранить маршрут», и без навигации (Грегори 2026-11-22)
+  const foot = await run(`(async () => { const w = (t) => new Promise((r) => setTimeout(r, t));
+    document.querySelector(".search-results .history-icon")?.closest(".search-item")?.click(); await w(300);
+    const r = [...document.querySelectorAll(".search-results .search-item")].find((i) => i.textContent.includes("→")); r?.click(); await w(400);
+    const f = document.querySelector(".search-results .route-view-foot");
+    const out = { foot: !!f, ways: f ? [...f.querySelectorAll(".go-way")].map((b) => b.title) : [], geo: atlas.geo.state().on };
+    f?.querySelector('.go-way[title="Сохранить маршрут"]')?.click(); await w(300);
+    out.saved = JSON.parse(localStorage.getItem("atlas.route.history") || "[]").filter((e) => e.saved).length;
+    document.querySelector(".route-view-back")?.click(); await w(200);
+    document.querySelector(".search-results .route-view-back")?.click(); await w(200); // из страны — ко всему списку
+    return out; })()`);
+  check("маршрут: внизу списка точек — способы пути и «Сохранить маршрут» (навигация выключена)",
+    foot.foot && foot.ways.length > 2 && foot.ways.some((t) => t.startsWith("Проложить путь")) && foot.ways.at(-1) === "Сохранить маршрут" && foot.saved > 0, JSON.stringify(foot));
   // назад к одной точке «Проба»
   await run(`atlas.route.setTarget({ lngLat: [24.76, 59.43], title: "Проба", way: "foot" });
     localStorage.setItem("atlas.route.history", JSON.stringify(JSON.parse(localStorage.getItem("atlas.route.history") || "[]").filter((e) => !e.saved))); true`);
@@ -426,7 +439,7 @@ try {
     hm.saveList("zz.hist", [{ id: 1, t: "Старое", r: 1 }]);
     let box; const make = () => { box?.remove(); box = hm.historyList({ key: "zz.hist", id: (e) => e.id, label: (e) => ({ title: e.t, icon: e.r ? "<svg></svg>" : "" }), rename: (e, t) => ({ ...e, t }), pick() { picked++; }, changed: make }); document.body.append(box); };
     let picked = 0; make();
-    const icon = !!box.querySelector(".history-icon"), pencil = !!box.querySelector(".search-rename");
+    const icon = !!box.querySelector(".search-drag.history-icon") && box.querySelectorAll(".history-icon").length === 1, pencil = !!box.querySelector(".search-rename");
     const it = box.querySelector(".search-item");
     it.click();
     it.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, clientX: 50, clientY: 20 }));
@@ -435,8 +448,24 @@ try {
     const i = box.querySelector(".history-rename"); i.value = "Новое"; i.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     const r = { icon, pencil, picked, title: hm.loadList("zz.hist")[0].t, shown: box.querySelector(".search-item-title")?.textContent };
     box.remove(); hm.saveList("zz.hist", []); return r; })()`);
-  check("история: долгое нажатие переименовывает запись прямо в строке, карандаша нет, у сохранённого маршрута — значок",
+  check("история: долгое нажатие переименовывает запись прямо в строке, карандаша нет; значок записи — вместо ручки",
     ren.icon && !ren.pencil && ren.picked === 1 && ren.title === "Новое" && ren.shown === "Новое", JSON.stringify(ren));
+  // импорт в историю (Грегори 2026-11-22: «добавь всем Импорт»): KML — точки, папка — группа, значок — из описания (как в экспорте)
+  const imp = await run(`(async () => { const hm = await import(new URL("core/history.js", location.href));
+    hm.saveList("zz.imp", [{ id: "a", t: "Было", ll: [24.75, 59.44] }]);
+    let n = 0; const opts = { key: "zz.imp", title: "Проба", id: (e) => e.id, label: (e) => ({ title: e.t }), lngLat: (e) => e.ll, pick() {}, changed: () => n++,
+      fromPlace: ({ title, sub, lngLat }) => ({ id: lngLat.join(), t: title, sub, ll: lngLat }) };
+    const headBtn = !!hm.historyPanel(opts)[0].querySelector(".history-import");
+    hm.importNext('<?xml version="1.0"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><Folder><name>Поездка</name><Placemark><name>Маяк</name><description>у моря · Гостиница</description><Point><coordinates>24.7,59.4,0</coordinates></Point></Placemark></Folder>'
+      + '<Placemark><name>Пристань</name><Point><coordinates>24.8,59.5,0</coordinates></Point></Placemark></Document></kml>');
+    const box = document.createElement("div"); box.append(...hm.historyPanel(opts)); document.body.append(box);
+    box.querySelector(".history-import").click();
+    const list = hm.loadList("zz.imp"), m = list.find((e) => e.t.startsWith("Маяк"));
+    box.replaceChildren(...hm.historyPanel(opts));
+    const r = { headBtn, n, count: list.length, icon: m?.icon, grouped: !!m?.group, other: !list.find((e) => e.t === "Пристань")?.group, folder: box.textContent.includes("Поездка") };
+    box.remove(); hm.saveList("zz.imp", []); hm.historyPanel(opts); return r; })()`);
+  check("история: «Импорт» в шапке — точки из KML в конец списка, папка — группой, значок — из описания",
+    imp.headBtn && imp.n === 1 && imp.count === 3 && imp.icon && imp.grouped && imp.other && imp.folder, JSON.stringify(imp));
   // кнопка «Навигация» в барабане поиска светится, пока навигация включена; выключили — путь убран, точка осталась
   const wheelNav = `document.querySelector('.wheel-content .layers-circle[data-key="content/navigation"]')`;
   const lit = await run(`({ on: ${wheelNav}?.classList.contains("on"), nav: ${navStats}.navOn })`);
@@ -873,6 +902,15 @@ try {
     ev.emit("route-target", null); s.setSearchMode(null); await wait(300);
     for (const [k, v] of keep) v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v);
     return { one, two }; })()`);
+  // «Поиск» и «Путь» в барабане — сразу их история, как окна других разделов (Грегори 2026-11-22)
+  const drumHist = await run(`(async () => { const w = (t) => new Promise((r) => setTimeout(r, t)), out = {};
+    for (const k of ["search", "content/navigation"]) {
+      document.querySelector('.wheel-content .layers-circle[data-key="' + k + '"]').click(); await w(800);
+      out[k] = { list: !document.querySelector(".search-results").hidden, head: document.querySelector(".search-results .history-head, .search-results .search-history-head")?.textContent || document.querySelector(".search-results")?.textContent.slice(0, 30) };
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); await w(300);
+    }
+    (await import(new URL("core/search.js", location.href))).setSearchMode(null); return out; })()`);
+  check("барабан: «Поиск» и «Путь» сразу открывают свою историю", drumHist.search.list && drumHist["content/navigation"].list, JSON.stringify(drumHist));
   check("поиск: лупа в строке в режиме «Путь» — поиск мест; выбранное — в обе истории и целью, при цели — окно места, цель та же",
     lensNav.one.ph === "Куда" && lensNav.one.n1 > 0 && lensNav.one.t1 && lensNav.one.open && lensNav.one.card && lensNav.one.route && lensNav.one.search &&
     lensNav.two.n2 > 0 && lensNav.two.target === lensNav.one.t1 && lensNav.two.popup && lensNav.two.open, JSON.stringify(lensNav));
@@ -961,7 +999,7 @@ try {
     document.querySelector(".search-toggle").click(); true`);
   await sleep(500);
   check("окно истории: шапка (по странам, экспорт, корзина, свернуть, закрыть); подержать ручку — значки и группы; группа — одной строкой и в стране первой записи; экспорт KML",
-    hHead.title === "История поиска" && hHead.btns.join() === "Сгруппировать по странам,Экспорт (KML),Очистить историю,Свернуть,Закрыть"
+    hHead.title === "История поиска" && hHead.btns.join() === "Сгруппировать по странам,Импорт (KML, GPX),Экспорт (KML),Очистить историю,Свернуть,Закрыть"
     && hPick.icons > 15 && hPick.names.join() === "Аэропорт,Аренда авто,Гостиница,Апартаменты" && hPick.acts.join() === "В новую группу"
     && hIcon.icon === "hotel" && hIcon.shown && hGroup.join() === "Группа 1,Tallinn" && /^Греция \(2\),Эстония \(1\)$/.test(hLands.join())
     && hIn.head === "Греция" && hIn.rows.join() === "Группа 1" && hMembers.head === "Группа 1" && hMembers.rows.join() === "Nafplio,Athens International Airport"
@@ -2100,7 +2138,7 @@ try {
       await sleep(500);
       await run(`${ts}.addText("ski.gpx", ${JSON.stringify(skiGpx)}).then(() => true)`);
       await sleep(1500);
-      const sk = await run(`({ kind: document.querySelector(".tk-kind-btn").textContent, facts: Object.fromEntries([...document.querySelectorAll(".tk-fact")].map((f) => [f.lastChild.textContent, f.firstChild.textContent])),
+      const sk = await run(`({ kind: document.querySelector('[data-panel="tracks"] .panel-title').title.split(" — ")[0], facts: Object.fromEntries([...document.querySelectorAll(".tk-fact")].map((f) => [f.lastChild.textContent, f.firstChild.textContent])),
         lifts: document.querySelectorAll(".tk-chart .tk-lift").length, mapLift: atlas.map.getSource("tracks-lift").serialize().data.features.length })`);
       check("треки: горные лыжи — 3 спуска и 3 подъёма, скорость только на спусках", sk.kind === "Лыжи горные" && sk.facts["спусков"] === "3" && sk.facts["подъёмов"] === "3"
         && /км\/ч$/.test(sk.facts["максимальная скорость на спусках"]) && /^(59\d|60\d) м$/.test(sk.facts["перепад на спусках"]) && sk.lifts === 3 && sk.mapLift === 1, JSON.stringify(sk));
@@ -2124,6 +2162,37 @@ try {
       chart: !!document.querySelector(".tk-chart svg .tk-ele"), line: atlas.map.queryRenderedFeatures({ layers: ["tracks-line"] }).length,
       ends: atlas.map.queryRenderedFeatures({ layers: ["tracks-ends"] }).length, mode: document.querySelector(".search-box input").placeholder })`);
     check("треки: файл открыт — панель, цифры, график, линия и концы на карте", tk.panel && tk.open === "Проверочный трек" && /^(1,9\d|2,0\d) км$/.test(tk.facts[0]) && tk.chart && tk.line > 0 && tk.ends === 2 && tk.mode === "Найти трек", JSON.stringify(tk));
+    // шапка (Грегори 2026-11-22): у списка — группировка, импорт, экспорт; у открытого трека их нет. Короткий трек
+    // (20 м) — приближение ближе прежнего (до шкалы «50 м»); у своего трека в списке — крестик «удалить»
+    {
+      const P = `document.querySelector('[data-panel="tracks"]')`;
+      const vis = `[...${P}.querySelectorAll(".panel-head .panel-btn")].filter((b) => !b.hidden).map((b) => b.title)`;
+      const inTrack = await run(vis);
+      let pts = ""; for (let i = 0; i < 20; i++) pts += `<trkpt lat="${(59.43 + i * 0.000008).toFixed(6)}" lon="${(24.8 + i * 0.000005).toFixed(6)}"><ele>70</ele><time>${new Date(Date.UTC(2026, 10, 22, 7, 15, i * 3)).toISOString()}</time></trkpt>`;
+      await run(`atlas.map.jumpTo({ center: [10, 50], zoom: 5 }); ${ts}.addText("Короткий.gpx", ${JSON.stringify(`<?xml version="1.0"?><gpx><trk><trkseg>${pts}</trkseg></trk></gpx>`)}).then(() => true)`);
+      await sleep(2500);
+      const zoom = await run(`atlas.map.getZoom()`);
+      await run(`${P}.querySelector('.pb-btn[title="Ко всем трекам"]').click(); true`);
+      await sleep(400);
+      const list = await run(`(async () => { const ex = await ${ts}.exportAll();
+        return { btns: ${vis}, dels: ${P}.querySelectorAll(".home-line .search-delete").length, trk: (ex.match(/<trk>/g) || []).length, names: ["Проверочный трек", "Короткий"].every((n) => ex.includes(n)) }; })()`);
+      await run(`${P}.querySelector('.panel-btn[title="Сгруппировать по странам"]').click(); true`);
+      let groups = [];
+      for (let i = 0; i < 20; i++) { groups = await run(`[...${P}.querySelectorAll(".tk-country")].map((r) => r.textContent)`); if (groups.some((g) => /\(2\)$/.test(g))) break; await sleep(300); }
+      await run(`[...${P}.querySelectorAll(".tk-country")].find((r) => r.textContent.endsWith("(2)"))?.click(); true`);
+      const inCountry = await run(`({ back: !!${P}.querySelector(".tk-country-back"), rows: ${P}.querySelectorAll(".home-line .tr-row").length })`);
+      await run(`${P}.querySelector(".tk-country-back")?.click(); ${P}.querySelector('.panel-btn[title="Разгруппировать"]')?.click(); true`);
+      const before = await run(`${ts}.stats().tracks`);
+      await run(`window.confirm = () => true; [...${P}.querySelectorAll(".home-line")].find((l) => l.textContent.includes("Короткий")).querySelector(".search-delete").click(); true`);
+      await sleep(500);
+      const after = await run(`({ n: ${ts}.stats().tracks, rows: [...${P}.querySelectorAll(".home-line .tr-row-title")].map((t) => t.textContent) })`);
+      check("треки: в шапке списка — группировка по странам, импорт, экспорт всех в один GPX; у открытого трека их нет; короткий трек — крупно; крестик удаляет трек",
+        !inTrack.some((t) => /стран|Импорт|Экспорт/.test(t)) && zoom > 16.5 && ["Сгруппировать по странам", "Импорт (GPX, KML)", "Экспорт всех треков (GPX)"].every((t) => list.btns.includes(t))
+        && list.dels === 2 && list.trk === 2 && list.names && groups.length && inCountry.back && inCountry.rows === 2 && after.n === before - 1 && !after.rows.includes("Короткий"),
+        JSON.stringify({ inTrack, zoom, list, groups, inCountry, before, after }));
+      await run(`[...${P}.querySelectorAll(".home-line .tr-row")].find((r) => r.textContent.includes("Проверочный трек")).click(); true`);
+      await sleep(1500);
+    }
     // оформление: название, цвет, заметка — сразу сохраняются; цвет — на карте, заметку находит поиск
     const look = await run(`(async () => { const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       const n = document.querySelector(".tk-name"); n.value = "Вокруг озера"; n.dispatchEvent(new Event("change"));
@@ -2153,7 +2222,7 @@ try {
     await shot("99b-tracks");
     // правка: наибольшие скорость и высота, отрезки по км; выбрать вторую половину — оставить её; «Назад»
     const ed0 = await run(`({ labels: [...document.querySelectorAll(".tk-fact span")].map((x) => x.textContent), splits: document.querySelectorAll(".tk-splits tbody tr").length,
-      kind: !!document.querySelector(".tk-kind"), trim: document.querySelector(".tk-edit .text-btn").disabled })`);
+      kind: !!document.querySelector(".tk-kind") || !!document.querySelector('[data-panel="tracks"] .panel-title svg'), trim: document.querySelector(".tk-edit .text-btn").disabled })`);
     check("треки: максимальная скорость и высота, вид активности, отрезки по 1 км", ["максимальная скорость", "максимальная высота", "минимальная высота", "средняя скорость"].every((l) => ed0.labels.includes(l)) && ed0.splits === 2 && ed0.kind && ed0.trim, JSON.stringify(ed0));
     const row1 = await run(`[...document.querySelectorAll(".tk-splits tbody tr:first-child td")].map((td) => td.textContent)`);
     check("треки: отрезок — «0–1» км, время, средняя и макс. скорость, набор, сброс, высота", row1[0] === "0–1" && /^\d+:\d\d$/.test(row1[1]) && row1[3] && /^\d+–\d+$/.test(row1[6]), JSON.stringify(row1));
@@ -2187,11 +2256,17 @@ try {
     check("треки: при сдвиге графика масштаб высоты не меняется", steady.after > steady.before, JSON.stringify(steady));
     check("треки: ползунок — край тянется (крупнее), середина двигает", /^крупно: 0 м – /.test(gp.zoomed) && /^крупно: /.test(gp.moved) && gp.moved !== gp.zoomed, JSON.stringify(gp));
     // вид активности — список с чёрно-белыми значками
-    const kp = await run(`(async () => { document.querySelector(".tk-kind-btn").click(); await new Promise((ok) => setTimeout(ok, 100));
-      const items = [...document.querySelectorAll(".tk-kind-item")]; const names = items.map((i) => i.textContent);
+    // вид активности — значком в шапке окна, долгое нажатие на заголовок — список (Грегори 2026-11-22); на
+    // компьютере ещё и кнопкой в окне, на телефоне — только в шапке
+    const kp = await run(`(async () => { const head = ${ts}.headKind(); await new Promise((ok) => setTimeout(ok, 100));
+      const items = [...document.querySelectorAll(".tk-kind-list:not([hidden]) .tk-kind-item")]; const names = items.map((i) => i.textContent);
       items.find((i) => i.textContent === "Кайтсёрфинг").click(); await new Promise((ok) => setTimeout(ok, 400));
-      return { names, chosen: document.querySelector(".tk-kind-btn").textContent, svg: !!document.querySelector(".tk-kind-btn svg[fill=currentColor]") }; })()`);
-    check("треки: вид активности — список со значками, лыжи беговые и горные", kp.names.includes("Лыжи беговые") && kp.names.includes("Лыжи горные") && kp.names.includes("Кайтсёрфинг") && kp.chosen === "Кайтсёрфинг" && kp.svg, JSON.stringify(kp));
+      const t = document.querySelector('[data-panel="tracks"] .panel-title');
+      return { head, names, chosen: t.title.split(" — ")[0], svg: !!t.querySelector("svg[fill=currentColor]"), gone: !document.querySelector(".tk-kind-head"),
+        btn: document.querySelector(".tk-kind-btn")?.textContent || null }; })()`);
+    check("треки: вид активности — в шапке, долгое нажатие — список со значками; на телефоне кнопки в окне нет",
+      kp.head && kp.names.includes("Лыжи беговые") && kp.names.includes("Лыжи горные") && kp.names.includes("Кайтсёрфинг") && kp.chosen === "Кайтсёрфинг" && kp.svg && kp.gone
+      && (PHONE ? kp.btn === null : kp.btn === "Кайтсёрфинг"), JSON.stringify(kp));
     await run(`${ts}.select(0.5, 1).then(() => true)`);
     await sleep(300);
     const ed1 = await run(`({ info: document.querySelector(".tk-sel-info").textContent, sel: atlas.map.getSource("tracks-sel").serialize().data.features.length })`);
@@ -2271,11 +2346,11 @@ try {
     // стоп: своё окно «Трек: дата — вид, место» (Отмена, Пауза, Остановить), «Остановить» — итог с цифрами и
     // графиком, вид можно сменить; «Сохранить» — в «Мои треки»
     const rs = await run(`(() => { document.querySelector(".rec-btn").click();
-      const title = document.querySelector(".rec-stop .rec-kinds-title")?.textContent, acts = [...document.querySelectorAll(".rec-stop [data-act]")].map((b) => b.textContent).join();
+      const title = document.querySelector(".rec-stop .rec-kinds-title")?.textContent, acts = [...document.querySelectorAll(".rec-stop [data-act]")].map((b) => (b.querySelector("svg") && !b.textContent ? b.title : "текст")).join();
       document.querySelector(".rec-stop [data-act=stop]").click();
       return { title, acts, paused: JSON.parse(AtlasTrack.state()).pausedAt > 0, review: document.querySelector(".rec-review .rec-kinds-title")?.textContent,
         facts: document.querySelectorAll(".rec-review .tk-fact").length, chart: !!document.querySelector(".rec-review .tk-chart svg"),
-        racts: [...document.querySelectorAll(".rec-review [data-act]")].map((b) => b.textContent).join() }; })()`);
+        racts: [...document.querySelectorAll(".rec-review [data-act]")].map((b) => (b.querySelector("svg") && !b.textContent ? b.title : "текст")).join() }; })()`);
     await run(`document.querySelector(".rec-review [data-act=save]").click(); true`);
     for (let i = 0; i < 10 && !(await run(`${ts}.stats().tracks === 1 && !${ts}.recState().finishing`)); i++) await sleep(300);
     const rc3 = await run(`({ ...${ts}.recState(), ...${ts}.stats(), kinds: __recKinds.join(), navOn: __recNav, navOff: !atlas.geo.state().on, kindSaved: ${ts}.recKind(), left: __rec.length, segs: atlas.map.getSource("tracks-rec").serialize().data.features.length, hint: document.querySelector('[data-panel="tracks"] .pb-hint')?.textContent })`);
@@ -2344,7 +2419,7 @@ try {
     // остановили в шторке, а точек нет — окно об этом (без «Назад»), «Закрыть» выключает навигацию
     await run(`AtlasTrack.__st.on = false; __rec.length = 0; true`);
     await sleep(1500);
-    const se = await run(`({ nav: atlas.geo.state().on, acts: [...document.querySelectorAll(".rec-review [data-act]")].map((b) => b.textContent).join(),
+    const se = await run(`({ nav: atlas.geo.state().on, acts: [...document.querySelectorAll(".rec-review [data-act]")].map((b) => b.title).join(),
       empty: /ни одной точки/.test(document.querySelector(".rec-review")?.textContent) })`);
     await run(`document.querySelector(".rec-review [data-act=discard]")?.click(); true`);
     await sleep(1000);
@@ -3059,6 +3134,14 @@ try {
   const wl = await run(`[...document.querySelectorAll(".wheel-layers .wheel-cell:not([hidden])")].slice(0, 4).map((cell) => { const l = cell.querySelector(".wheel-label"), c = cell.querySelector(".layers-circle");
     const a = l.getBoundingClientRect(), b = c.getBoundingClientRect(); return { num: l.dataset.num, text: l.textContent, left: a.right <= b.left, level: Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) <= 1, title: c.ariaLabel.startsWith(l.textContent) }; })`);
   check("барабан: у каждой кнопки постоянная подпись с номером 3.N слева, вровень с ней", wl.length === 4 && wl.every((x) => /^3\.\d+$/.test(x.num) && x.left && x.level && x.title), JSON.stringify(wl));
+  // подписи — пока крутят и 3 с после, потом гаснут (Грегори 2026-11-22: окно под ними не видно)
+  const live = await run(`(async () => { const w = (t) => new Promise((r) => setTimeout(r, t));
+    document.querySelector(".wheel-layers").dispatchEvent(new WheelEvent("wheel", { deltaY: -200, bubbles: true, cancelable: true })); await w(300);
+    const during = document.body.classList.contains("labels-live");
+    for (let t = 0; t < 40 && document.body.classList.contains("labels-live"); t++) await w(250);
+    await w(600);
+    return { during, after: document.body.classList.contains("labels-live"), opacity: getComputedStyle(document.querySelector(".wheel-layers .wheel-label")).opacity }; })()`);
+  check("барабан: подписи видны, пока его крутят, и гаснут через 3 с", live.during && !live.after && live.opacity === "0", JSON.stringify(live));
   // подписи выключены — подпись центральной всплывает
   await run(`(async () => { (await import("./core/settings.js")).set("ui.labels", false); (await import("./core/events.js")).emit("button-labels"); return true; })()`);
   await run(`document.querySelector(".wheel-layers").dispatchEvent(new WheelEvent("wheel", { deltaY: -200, bubbles: true, cancelable: true })); true`);

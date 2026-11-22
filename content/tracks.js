@@ -23,6 +23,8 @@ import { claimLayers, captureClicks } from "../core/popups.js";
 import * as settings from "../core/settings.js";
 import { addMapButton } from "../core/controls.js";
 import { openGalleryWith } from "../core/photo-strip.js";
+import { countryAt } from "../core/borders.js";
+import { flagUrl } from "../core/flags.js";
 
 const svg = (d, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor"><path d="${d}"/></svg>`;
 // линия трека между двумя точками
@@ -290,6 +292,24 @@ async function addFiles(files) {
   setTimeout(() => ctx?.status(""), 4000);
 }
 
+// страна трека — по первой точке (core/borders.js), узнаётся один раз: свои — в списке, из альбомов — до перезапуска
+const albumCountry = new Map();
+let locating = false;
+async function locateTracks() {
+  if (locating) return;
+  locating = true;
+  let found = false;
+  try {
+    for (const x of [...index.filter((x) => x.country === undefined), ...albumIndex.filter((e) => !albumCountry.has(e.key))]) {
+      const own = "id" in x, t = await getTrack(own ? x.id : x.key), p = t?.segs.flat()[0];
+      const c = p ? await countryAt([p[0], p[1]]) : null;
+      if (c === undefined) break; // границы не загрузились — в другой раз
+      if (own) x.country = c; else albumCountry.set(x.key, c);
+      found = true;
+    }
+  } finally { locating = false; }
+  if (found) { saveIndex(); if (isOpen("tracks") && !openId && grouped) renderList(); }
+}
 async function removeTrack(id) {
   index = index.filter((x) => x.id !== id);
   tracks.delete(id);
@@ -310,6 +330,16 @@ function toGpx(t) {
     + `<metadata><name>${esc(t.name)}</name>${t.color ? `<extensions><atlas:color>${t.color}</atlas:color></extensions>` : ""}</metadata>`
     + `<trk><name>${esc(t.name)}</name>${t.note ? `<desc>${esc(t.note)}</desc>` : ""}${KIND_WORD[t.kind] ? `<type>${KIND_WORD[t.kind]}</type>` : ""}`
     + t.segs.map((s) => `<trkseg>${s.map(pt).join("")}</trkseg>`).join("") + "</trk></gpx>\n";
+}
+let lastExport = ""; // для проверки
+async function exportAll() {
+  const all = (await Promise.all([...index.map((x) => x.id), ...albumIndex.map((e) => e.key)].map((id) => getTrack(id)))).filter(Boolean);
+  if (!all.length) return;
+  const trk = all.map((t) => toGpx(t).match(/<trk>[\s\S]*<\/trk>/)[0]).join("\n");
+  lastExport = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="Atlas"><metadata><name>Atlas — Мои треки</name></metadata>\n${trk}\n</gpx>\n`;
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([lastExport], { type: "application/gpx+xml" })), download: "Atlas — Мои треки.gpx" });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 function download(t) {
   const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([toGpx(t)], { type: "application/gpx+xml" })),
@@ -404,11 +434,14 @@ async function showOnMap(on) {
   for (const id of [...LAYERS].reverse()) if (ctx.map.getLayer(id)) ctx.map.removeLayer(id);
   for (const id of ["tracks", "tracks-ends", "tracks-sel", "tracks-lift", "tracks-photos"]) if (ctx.map.getSource(id)) ctx.map.removeSource(id);
 }
+// открыли трек — он весь на экране; короткий — не ближе шкалы «50 м» (Грегори 2026-11-22). Навигация включена —
+// карта за мной не уходит (nav-look), иначе она сразу возвращалась ко мне и приближения не было видно
 function fit(t) {
   const all = t.segs.flat(), lng = all.map((p) => p[0]), lat = all.map((p) => p[1]);
   const phone = innerWidth <= 600;
+  emit("nav-look");
   ctx.map.fitBounds([[Math.min(...lng), Math.min(...lat)], [Math.max(...lng), Math.max(...lat)]],
-    { padding: phone ? { top: innerHeight * 0.6, bottom: 110, left: 30, right: 30 } : { top: 80, bottom: 110, left: 440, right: 90 }, maxZoom: 16, duration: 1500 });
+    { padding: phone ? { top: innerHeight * 0.6, bottom: 110, left: 30, right: 30 } : { top: 80, bottom: 110, left: 440, right: 90 }, maxZoom: 18, pitch: 0, duration: 1500 });
 }
 
 // ---------- панель ----------
@@ -416,6 +449,21 @@ const panel = createPanel({ id: "tracks", title: "Мои треки", icon: trac
 const h = (tag, cls, text) => Object.assign(document.createElement(tag), { className: cls || "", textContent: text || "" });
 const btn = (icon, title, fn) => { const b = h("button", "pb-btn"); b.innerHTML = icon; b.title = title; b.addEventListener("click", fn); return b; };
 let searchText = "";
+// шапка списка — как у «Куда» (Грегори 2026-11-22): группировка по странам, импорт, экспорт; свернуть и закрыть —
+// у окна. В открытом треке их нет: там слева — его вид активности (долгое нажатие — сменить)
+const GLOBE_D = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z";
+const IMPORT_D = "M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z";
+const EXPORT_D = "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z";
+const CLEAR_X = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+let grouped = settings.get("tracks.grouped") === true, inCountry = null;
+const groupBtn = panel.addButton(svg(GLOBE_D), "Сгруппировать по странам", () => { grouped = !grouped; settings.set("tracks.grouped", grouped || null); inCountry = null; renderList(); });
+const importBtn = panel.addButton(svg(IMPORT_D), "Импорт (GPX, KML)", () => input.click());
+const exportBtn = panel.addButton(svg(EXPORT_D), "Экспорт всех треков (GPX)", () => exportAll());
+const listButtons = (on) => {
+  for (const b of [groupBtn, importBtn, exportBtn]) b.hidden = !on;
+  groupBtn.classList.toggle("on", grouped);
+  groupBtn.title = grouped ? "Разгруппировать" : "Сгруппировать по странам";
+};
 
 // ---------- запись трека (только приложение Android) ----------
 // Грегори 2026-11-19: «если приложение не работает в фоновом режиме с выключенным экраном, в этой функции
@@ -490,11 +538,18 @@ function recGo(kind) {
 const pad2 = (n) => String(n).padStart(2, "0");
 const stamp = (t) => { const d = new Date(t); return `${d.getFullYear()}.${pad2(d.getMonth() + 1)}.${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; };
 const recName = (start, kind) => [stamp(start), [kindOf(kind)?.[1].toLowerCase(), settings.get("tracks.rec.place")].filter(Boolean).join(", ")].filter(Boolean).join(" — ");
+// кнопки окон записи — значками, название — подсказкой (Грегори 2026-11-22: «в записи трека переходим на
+// кнопки иконки вместо текста»)
+const CLOSE_D = "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z";
+const BACK_D = "M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z";
+const SAVE_D = "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z";
+const DELETE_D = "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z";
 function recButtons(box, list) {
   const row = h("div", "rec-kinds-btns");
-  for (const [act, text, fn] of list) {
-    const b = h("button", "text-btn", text);
-    Object.assign(b, { type: "button" });
+  for (const [act, text, fn, d] of list) {
+    const b = h("button", "rec-icon-btn");
+    Object.assign(b, { type: "button", title: text, innerHTML: svg(d, 26) });
+    b.setAttribute("aria-label", text);
     b.dataset.act = act;
     b.addEventListener("click", () => { box.remove(); fn(); });
     row.append(b);
@@ -507,9 +562,9 @@ function recStop() {
   box.addEventListener("click", (e) => { if (e.target === box) box.remove(); });
   card.append(h("div", "rec-kinds-title", `Трек: ${recName(recState.start, settings.get("tracks.rec.kind"))}`),
     h("div", "rec-kinds-sub", [recWhen(recState), km(recState.dist), recState.max != null && recSpeed(recState)].filter(Boolean).join(" · ")),
-    recButtons(box, [["cancel", "Отмена", () => {}],
-      ["pause", paused ? "Продолжить" : "Пауза", () => { if (paused) rec().resume(); else rec().pause(); setTimeout(recPoll, 300); }],
-      ["stop", "Остановить", () => { if (!paused) rec().pause(); recReview(!paused); }]]));
+    recButtons(box, [["cancel", "Отмена", () => {}, CLOSE_D],
+      ["pause", paused ? "Продолжить" : "Пауза", () => { if (paused) rec().resume(); else rec().pause(); setTimeout(recPoll, 300); }, paused ? PLAY_D : PAUSE_D],
+      ["stop", "Остановить", () => { if (!paused) rec().pause(); recReview(!paused); }, STOP_D]]));
 }
 // итог записи: вид, цифры и графики, как у трека; «Назад» — запись дальше (была на паузе — так и остаётся),
 // остановили в шторке — «Назад» нет
@@ -531,9 +586,9 @@ function recReview(resume, stopped = false) {
       if (c) nodes.push(c);
     } else nodes.push(h("div", "rec-kinds-sub", "Не записано ни одной точки: GPS не дал ни одного точного замера (точнее 40 м) — в помещении так бывает. Сохранять нечего"));
     const acts = [];
-    if (!stopped) acts.push(["back", "Назад", () => { recReviewing = false; if (resume) { rec().resume(); setTimeout(recPoll, 300); } }]);
-    acts.push(["discard", segs.length ? "Выйти не сохраняя" : "Закрыть", () => recEnd(null)]);
-    if (segs.length) acts.push(["save", "Сохранить", () => { t.name = recName(start, t.kind); recEnd(t); }]);
+    if (!stopped) acts.push(["back", "Назад", () => { recReviewing = false; if (resume) { rec().resume(); setTimeout(recPoll, 300); } }, BACK_D]);
+    acts.push(["discard", segs.length ? "Выйти не сохраняя" : "Закрыть", () => recEnd(null), segs.length ? DELETE_D : CLOSE_D]);
+    if (segs.length) acts.push(["save", "Сохранить", () => { t.name = recName(start, t.kind); recEnd(t); }, SAVE_D]);
     card.replaceChildren(...nodes, recButtons(box, acts));
   };
   render();
@@ -680,14 +735,48 @@ function renderList(query = searchText) {
   searchText = query;
   draw();
   const q = query.toLowerCase();
-  const list = index.filter((x) => !q || [x.name, day(x.date), x.note].join(" ").toLowerCase().includes(q)).sort((a, b) => (b.date || 0) - (a.date || 0));
+  let list = index.filter((x) => !q || [x.name, day(x.date), x.note].join(" ").toLowerCase().includes(q)).sort((a, b) => (b.date || 0) - (a.date || 0));
   panel.setTitle(q ? "Найденные треки" : "Мои треки");
+  panel.setIcon();
+  listButtons(true);
   cameFrom = null;
   // «Открыть трек…» убрана (Грегори 2026-11-09: «убираем… с меню треков указания на папку», «закомментируй»):
   // треки — из папок со снимками; файл можно и перетащить на карту
   const nodes = [/* openButton() */ ...recRows()];
-  const inAlbums = albumIndex.filter((e) => !q || [e.name, e.albumTitle, tracks.get(e.key)?.note].join(" ").toLowerCase().includes(q))
+  let inAlbums = albumIndex.filter((e) => !q || [e.name, e.albumTitle, tracks.get(e.key)?.note].join(" ").toLowerCase().includes(q))
     .sort((a, b) => (tracks.get(b.key)?.date || 0) - (tracks.get(a.key)?.date || 0));
+  // по странам: сначала страны с флажками и числом треков, в стране — её треки; набирают текст — без стран
+  if (grouped && !q && (list.length || inAlbums.length)) {
+    locateTracks();
+    const by = new Map();
+    for (const c of [...list.map((x) => x.country), ...inAlbums.map((e) => albumCountry.get(e.key))]) {
+      const name = c?.name || "Без страны";
+      by.set(name, { n: (by.get(name)?.n || 0) + 1, iso: by.get(name)?.iso || c?.iso || "" });
+    }
+    if (inCountry && !by.has(inCountry)) inCountry = null;
+    if (!inCountry) {
+      for (const [name, { n, iso }] of [...by].sort((x, y) => (y[0] === "Без страны") - (x[0] === "Без страны") || x[0].localeCompare(y[0], "ru"))) {
+        const r = h("button", "tr-row tk-country");
+        const icon = h("span", "tr-icon");
+        icon.innerHTML = iso ? `<img class="history-flag" alt="" src="${flagUrl(iso)}">` : svg(GLOBE_D, 20);
+        const text = h("span", "tr-row-text");
+        text.append(h("span", "tr-row-title", `${name} (${n})`));
+        r.append(icon, text);
+        r.addEventListener("click", () => { inCountry = name; renderList(); });
+        nodes.push(r);
+      }
+      panel.body.replaceChildren(...nodes);
+      return;
+    }
+    const back = h("button", "tr-row tk-country-back");
+    back.innerHTML = `<span class="tr-icon">${BACK}</span>`;
+    back.append(h("span", "tr-row-title", inCountry));
+    back.title = "Все страны";
+    back.addEventListener("click", () => { inCountry = null; renderList(); });
+    nodes.push(back);
+    list = list.filter((x) => (x.country?.name || "Без страны") === inCountry);
+    inAlbums = inAlbums.filter((e) => (albumCountry.get(e.key)?.name || "Без страны") === inCountry);
+  }
   if (!index.length && !albumIndex.length) nodes.push(h("p", "pb-hint", "Треков пока нет. Выгрузите трек из программы на телефоне (Sports Tracker: тренировка → ⋯ → «Экспорт GPX») и перетащите файл на карту или положите его в папку со снимками. Треки хранятся только на этом устройстве."));
   else if (q && !list.length && !inAlbums.length) nodes.push(h("p", "pb-hint", "Ничего не нашлось"));
   for (const x of list) {
@@ -699,7 +788,13 @@ function renderList(query = searchText) {
     text.append(h("span", "tr-row-title", x.name), h("span", "tr-row-sub", [kindOf(x.kind)?.[1], day(x.date), km(x.dist)].filter(Boolean).join(" · ")));
     r.append(icon, text);
     r.addEventListener("click", () => openTrack(x.id));
-    nodes.push(r);
+    // крестик — удалить трек (Грегори 2026-11-22), как строки истории
+    const line = h("div", "home-line");
+    const del = h("button", "search-delete");
+    Object.assign(del, { type: "button", title: "Удалить трек с этого устройства", innerHTML: CLEAR_X });
+    del.addEventListener("click", (e) => { e.stopPropagation(); if (confirm(`Удалить трек «${x.name}» с этого устройства?`)) removeTrack(x.id); });
+    line.append(r, del);
+    nodes.push(line);
   }
   // из альбомов — под своими, с названием альбома
   if (inAlbums.length) nodes.push(h("div", "pb-sub tk-section", "Из альбомов"));
@@ -1199,6 +1294,38 @@ function looks(t) {
   return wrap;
 }
 
+// вид активности открытого трека — значком в шапке окна; долгое нажатие (или правая кнопка) — список видов
+let headTrack = null;
+function headKind(t) {
+  headTrack = t;
+  const k = kindOf(t.kind);
+  panel.setIcon(k ? mdi(k[2], 20) : trackIcon(18));
+  const title = panel.el.querySelector(".panel-title");
+  title.title = `${k ? k[1] : "Вид активности"} — подержите, чтобы сменить`;
+  if (title.dataset.kindHold) return;
+  title.dataset.kindHold = "1";
+  let timer = 0, at = null;
+  const open = () => {
+    const t = headTrack;
+    if (!t || !openId) return;
+    panel.el.querySelector(".tk-kind-head")?.remove();
+    const wrap = kindPicker(t, () => { wrap.remove(); openTrack(openId, true); });
+    wrap.classList.add("tk-kind-head");
+    wrap.querySelector(".tk-kind-btn").hidden = true;
+    const list = wrap.querySelector(".tk-kind-list");
+    list.hidden = false;
+    panel.body.prepend(wrap);
+    // щелчок мимо списка — закрыть; щелчок по заголовку (палец отпустили после долгого нажатия) — не считается
+    const off = (e) => { if (e.target.closest(".panel-title")) return; wrap.remove(); document.removeEventListener("click", off); };
+    setTimeout(() => document.addEventListener("click", off));
+  };
+  const stop = () => { clearTimeout(timer); at = null; };
+  title.addEventListener("pointerdown", (e) => { if (e.button || !openId) return; at = [e.clientX, e.clientY]; timer = setTimeout(() => { at = null; open(); }, 500); });
+  title.addEventListener("pointermove", (e) => { if (at && Math.hypot(e.clientX - at[0], e.clientY - at[1]) > 10) stop(); });
+  for (const ev of ["pointerup", "pointercancel", "pointerleave"]) title.addEventListener(ev, stop);
+  title.addEventListener("contextmenu", (e) => { e.preventDefault(); if (openId) open(); });
+}
+
 // выбор вида активности: список со значками (в обычном списке браузера значки не нарисовать)
 function kindPicker(t, done, save = persist) {
   const wrap = h("div", "tk-kind");
@@ -1333,6 +1460,8 @@ async function openTrack(id, keep = false) {
   draw();
   if (!again) fit(t);
   panel.setTitle(t.name);
+  listButtons(false);
+  headKind(t);
   const bar = h("div", "pb-bar");
   const left = h("div", "tr-bar-left");
   const e = t.album;
@@ -1364,7 +1493,8 @@ async function openTrack(id, keep = false) {
   liftPieces = ski?.lifts.length ? pieces(t, (g) => ski.lifts.some(([a, b]) => g >= a && g <= b)) : null;
   const nodes = [bar, looks(t)];
   if (when) nodes.push(h("div", "tr-facts tk-when", when));
-  nodes.push(kind, factTiles(s, ski));
+  // на телефоне вид — только в шапке (Грегори 2026-11-22), на компьютере — и кнопкой здесь
+  nodes.push(...(innerWidth > 600 ? [kind] : []), factTiles(s, ski));
 
   // выбранный кусок: его цифры и правка
   const whole = () => sel.a === 0 && sel.b === last;
@@ -1644,6 +1774,8 @@ register({
   // для проверки
   stats: () => ({ tracks: index.length, albumTracks: albumIndex.length, shown, open: openId ? tracks.get(openId)?.name : null, fromAlbum: cameFrom }),
   addText: (name, text) => addFiles([new File([text], name)]),
+  exportAll: () => exportAll().then(() => lastExport),
+  headKind: () => { const t = panel.el.querySelector(".panel-title"); t.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })); return !!panel.el.querySelector(".tk-kind-head .tk-kind-list:not([hidden])"); },
   // выбрать кусок a..b (доли трека 0…1), как ручками на графике
   select: (a, b) => {
     const t = tracks.get(openId), n = stats(t).profile.length - 1;

@@ -50,14 +50,16 @@ export function historyList({ key, id, label, pick, changed, match, rename, load
     const row = Object.assign(document.createElement("div"), { className: g ? "search-history-row history-group-row" : "search-history-row" });
     if (g) row.group = g.group; else row.entry = item;
     row.item = item;
-    const handle = Object.assign(document.createElement("span"), { className: "search-drag", title: hold ? "Перетащить; подержать — значок и группа" : "Перетащить выше или ниже", innerHTML: DRAG });
+    const { title: t, sub, icon } = g ? g.label : label(item);
+    // значок записи — вместо ручки, сам он и ручка (Грегори 2026-11-22: «по умолчанию шесть точек ручки
+    // перемещения, а при выборе нового значка не ставить второй значок, а ставить его вместо ручки»)
+    const handle = Object.assign(document.createElement("span"), { className: "search-drag" + (icon ? " history-icon" : ""),
+      title: hold ? "Перетащить; подержать — значок и группа" : "Перетащить выше или ниже", innerHTML: icon || DRAG });
     handle.addEventListener("pointerdown", (e) => drag(e, row));
     handle.addEventListener("contextmenu", (e) => e.preventDefault());
-    const { title: t, sub, icon } = g ? g.label : label(item);
     const b = Object.assign(document.createElement("button"), { type: "button", className: "search-item" });
     b.innerHTML = `<span class="search-item-title"></span><span class="search-item-sub"></span>`;
     b.firstChild.textContent = t;
-    if (icon) b.firstChild.insertAdjacentHTML("afterbegin", `<i class="history-icon">${icon}</i>`);
     b.lastChild.textContent = sub || "";
     let held = false;
     b.addEventListener("click", () => { if (held) held = false; else if (g) g.pick(); else pick(item); });
@@ -173,6 +175,7 @@ const NONE = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z
 const GLOBE = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z";
 const TRASH = "M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z";
 const SAVE = "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z";
+const OPEN = "M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z";
 // свернуть и закрыть — те же, что у окон (core/panel.js)
 const FOLD_ICON = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" d="M5 15l7-7 7 7"/></svg>';
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" width="24" height="24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" fill="none"/></svg>';
@@ -236,14 +239,67 @@ function exportKml(name, list, groups, label, lngLat) {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   return text;
 }
+// импорт — обратно из KML (свой экспорт, Google «Мои карты», Organic Maps) или GPX (путевые точки): папки —
+// группами, значок — по его названию в описании; уже известные места не повторяются
+function parsePlaces(text) {
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  const out = [];
+  const txt = (n, tag) => n.getElementsByTagName(tag)[0]?.textContent.trim() || "";
+  for (const p of doc.getElementsByTagName("Placemark")) {
+    const c = txt(p, "coordinates").split(/\s+/)[0]?.split(",").map(Number);
+    if (!c || c.length < 2 || c.some((x) => Number.isNaN(x))) continue;
+    const folder = p.parentElement?.tagName === "Folder" ? txt(p.parentElement, "name") : "";
+    out.push({ title: txt(p, "name"), about: txt(p, "description"), lngLat: [c[0], c[1]], folder });
+  }
+  for (const w of doc.getElementsByTagName("wpt")) {
+    const lngLat = [Number(w.getAttribute("lon")), Number(w.getAttribute("lat"))];
+    if (!lngLat.some((x) => Number.isNaN(x))) out.push({ title: txt(w, "name"), about: txt(w, "desc"), lngLat, folder: "" });
+  }
+  return out;
+}
+// тексты файлов → в конец списка; сколько добавлено
+function importPlaces(key, id, fromPlace, texts) {
+  let list = loadList(key), groups = loadGroups(key), added = 0;
+  const known = new Set(list.map(id));
+  for (const text of texts) {
+    for (const p of parsePlaces(text)) {
+      const parts = p.about.split(" · "), icon = ICONS.find((i) => i.name === parts[parts.length - 1]);
+      if (icon) parts.pop();
+      const e = fromPlace({ title: p.title || `${p.lngLat[1].toFixed(5)}, ${p.lngLat[0].toFixed(5)}`, sub: parts.join(" · "), lngLat: p.lngLat });
+      if (known.has(id(e))) continue;
+      known.add(id(e));
+      if (icon) e.icon = icon.id;
+      if (p.folder) {
+        let g = groups.find((x) => x.name === p.folder);
+        if (!g) { g = { id: `g${Date.now()}${groups.length}`, name: p.folder }; groups = [...groups, g]; }
+        e.group = g.id;
+      }
+      list = [...list, e];
+      added++;
+    }
+  }
+  saveGroups(key, groups);
+  saveList(key, list);
+  return added;
+}
+function importFile(key, id, fromPlace, done) {
+  if (testText != null) { importPlaces(key, id, fromPlace, [testText]); testText = null; done(); return; }
+  const input = Object.assign(document.createElement("input"), { type: "file", multiple: true, accept: ".kml,.gpx,application/vnd.google-earth.kml+xml,application/gpx+xml" });
+  input.addEventListener("change", async () => { importPlaces(key, id, fromPlace, await Promise.all([...input.files].map((f) => f.text()))); done(); });
+  input.click();
+}
 let lastExport = "";
 export const lastKml = () => lastExport; // для проверки
+// для проверки: следующий «Импорт» берёт этот текст вместо окна выбора файла
+let testText = null;
+export const importNext = (text) => { testText = text; };
 
 // окно истории целиком → узлы для списка поиска ([] — показывать нечего)
 // title — название в шапке; grouped — по странам по умолчанию; lngLat(e) — точка записи; empty — текст пустого
 // списка (нет — пустой список не показывается); fold() — свернуть список, close() — закрыть поиск;
 // остальное — как у historyList. Набирают текст (match) — просто подходящие записи, без шапки
-export function historyPanel({ key, title, id, label: baseLabel, pick, changed, match, rename, lngLat, grouped = false, empty, fold, close }) {
+// fromPlace({ title, sub, lngLat }) → запись: есть — в шапке «Импорт» (KML, GPX)
+export function historyPanel({ key, title, id, label: baseLabel, pick, changed, match, rename, lngLat, grouped = false, empty, fold, close, fromPlace }) {
   const v = view(key);
   const all = loadList(key);
   // группа без записей не живёт
@@ -255,10 +311,10 @@ export function historyPanel({ key, title, id, label: baseLabel, pick, changed, 
     const list = historyList({ key, id, label, pick, changed, match, rename });
     return list.childElementCount ? [list] : [];
   }
-  if (!all.length) return empty ? [head(title), el("div", "search-note", empty)] : [];
-  locate(key, id, lngLat, changed);
 
   const isGrouped = settings.get(`${key}.grouped`) ?? grouped;
+  if (!all.length) return empty || fromPlace ? [head(title), ...(empty ? [el("div", "search-note", empty)] : [])] : [];
+  locate(key, id, lngLat, changed);
   const membersOf = (g) => all.filter((e) => e.group === g.id);
   // группа — в стране своей первой записи (Грегори 2026-11-21: «группа не распадается при группировке по странам»)
   const placeOf = (e) => { const g = groups.find((x) => x.id === e.group); return countryOf(g ? membersOf(g)[0] : e); };
@@ -304,7 +360,7 @@ export function historyPanel({ key, title, id, label: baseLabel, pick, changed, 
   if (v.country) return [inner(v.country, flagIcon(all.find((e) => countryOf(e) === v.country)?.country?.iso) || svg(GLOBE, 22), () => { v.country = null; }), list];
   return [head(title), list];
 
-  // шапка списка: название; «по странам», экспорт, корзина; свернуть, закрыть
+  // шапка списка: название; «по странам», импорт, экспорт, корзина; свернуть, закрыть
   function head(text) {
     const box = el("div", "history-head");
     const name = el("div", "history-title", text);
@@ -321,7 +377,8 @@ export function historyPanel({ key, title, id, label: baseLabel, pick, changed, 
       saveGroups(key, []);
       changed();
     });
-    box.append(name, group, save, trash, ...controls());
+    const load = fromPlace && button("panel-btn history-import", "Импорт (KML, GPX)", svg(OPEN), () => importFile(key, id, fromPlace, changed));
+    box.append(name, group, ...(load ? [load] : []), save, trash, ...controls());
     return box;
   }
   // шапка внутри страны или группы: назад, значок, название; свернуть, закрыть

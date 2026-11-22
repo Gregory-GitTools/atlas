@@ -13,14 +13,14 @@ import { setSearchMode, searchMode, geocode, refreshSearchList, foldSearchList, 
 import { historyList, historyPanel, resetView, remember, loadList, saveList } from "../core/history.js";
 import { WAYS, ARROW, SHARE_ICON, START_ICON, FINISH_ICON as FINISH_BIG } from "../core/route.js";
 import { showPlace } from "../core/place-info.js";
-import { trackIcon } from "../core/icons.js";
 
 const HISTORY = "route.history";
 const ICON = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2 4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/></svg>';
 // сохранённый маршрут («⋯» → «Сохранить маршрут» в окне места) — своя запись, даже к той же точке
 const id = (e) => e.saved || `${e.lngLat[0].toFixed(5)},${e.lngLat[1].toFixed(5)}`;
-// значок сохранённого маршрута в списке (Грегори 2026-11-09: «если это сохранённый маршрут — поставить отметку»)
-const ROUTE_ICON = trackIcon(22);
+// значок «Карточка пути» в окне маршрута — значок «Пути», не «Моих треков» (Грегори 2026-11-22: «путаница со
+// значками… одинаковые»)
+const ROUTE_ICON = ICON.replace('width="24" height="24"', 'width="22" height="22"');
 const BACK = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" d="M15 5l-7 7 7 7"/></svg>';
 const GPX_ICON = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/></svg>';
 // старт и финиш — те же значки, что у кнопок «Старт» и «Финиш» в окне места
@@ -188,13 +188,15 @@ function suggestions(q) {
   // 2026-11-13, «группирую маршруты по странам — с флажками»), свои группы и значки; набирают текст — подходящие
   // из всех стран
   return historyPanel({ key: HISTORY, title: "Куда", id, grouped: true, lngLat: (e) => e.lngLat, fold: closeSearchList, close: hideSearch,
+    fromPlace: ({ title, sub, lngLat }) => ({ lngLat, title, address: sub }),
     match: q ? (e) => `${e.name || ""} ${e.title} ${e.address || ""}`.toLowerCase().includes(q) : null,
     empty: "Наберите место и нажмите Enter — или «Сюда» в окне любого места на карте",
-    // подпись — адрес; координаты — только если название не они же (старые записи)
+    // подпись — адрес; координаты — только если название не они же (старые записи). Маршрут — без своего значка
+    // (Грегори 2026-11-22: был тот же, что у «Моих треков»), его видно по подписи «откуда → куда»
     label: (e) => {
       const c = `${e.lngLat[1].toFixed(5)}, ${e.lngLat[0].toFixed(5)}`;
       const via = e.stops?.length ? `через ${e.stops.map((s) => s.title).join(", ")} · ` : "";
-      if (e.saved) return { title: e.name || e.title, sub: `${e.start ? e.start.title + " → " : ""}${e.stops?.length ? "через " + e.stops.map((s) => s.title).join(", ") + " → " : ""}${e.title}`, icon: ROUTE_ICON };
+      if (e.saved) return { title: e.name || e.title, sub: `${e.start ? e.start.title + " → " : ""}${e.stops?.length ? "через " + e.stops.map((s) => s.title).join(", ") + " → " : ""}${e.title}` };
       return { title: e.title, sub: via + (e.address || (e.title === c ? "" : c)) };
     },
     rename: (e, title) => (e.saved ? { ...e, name: title } : { ...e, title }),
@@ -203,6 +205,7 @@ function suggestions(q) {
 
 // маршрут: шапка (назад к списку, значок, название, «Поделиться», «Сохранить трек») и его точки по порядку —
 // остановки и финиш последним; перетащили или убрали — маршрут пересчитывается (если он сейчас в пути)
+const SAVE_ROUTE = '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>';
 function routeView(entry) {
   const head = h("div", "route-view-head");
   const btn = (cls, title, html, fn) => {
@@ -250,8 +253,23 @@ function routeView(entry) {
     rename: (p, title) => ({ ...p, title }),
     pick: (p) => { activate(); emit("route-focus", p); },
     changed: render });
+  // внизу — способы пути и «Сохранить маршрут» (Грегори 2026-11-22: «даже при выключенной геолокации внизу панели
+  // возможность проложить и сохранить маршрут с выбором транспорта»): путь — по точкам маршрута, без меня
+  const foot = h("div", "route-view-foot");
+  const ways = h("div", "go-ways");
+  for (const w of WAYS) {
+    const b = btn("go-way", `Проложить путь: ${w.title.toLowerCase()}`, w.icon, () => { activate(); emit("route-way", { way: w.id }); });
+    b.classList.toggle("on", active() && (state.route?.way === w.id || state.busy === w.id));
+    ways.append(b);
+  }
+  ways.append(btn("go-way route-view-save", "Сохранить маршрут", SAVE_ROUTE, () => {
+    activate(); emit("route-build"); ctx?.status("Маршрут сохранён — он в списке «Куда»"); setTimeout(() => ctx?.status(""), 3000);
+  }));
+  foot.append(ways);
+  const busy = active() && state.busy, text = active() && (busy ? `${WAYS.find((w) => w.id === busy).title}: ищу путь…` : state.route?.text);
+  if (text) foot.append(h("div", "nav-way", text));
   list.classList.add("route-view");
-  return [head, list];
+  return [head, list, foot];
 }
 
 function openPanel(c) {
@@ -338,7 +356,7 @@ register({
   hint: "Где я, куда идти и как добраться",
   icon: ICON,
   column: {
-    home: (c) => { plain = false; openPanel(c); },
+    home: (c) => { plain = false; openPanel(c); emit("search-list"); },
     // светится, пока навигация включена (Грегори: «нужна для индикации режима навигации»)
     isOpen: () => lit(),
     // крестик кнопки — выключить навигацию, убрать маршрут с карты (он в списке «Куда») и закрыть окно

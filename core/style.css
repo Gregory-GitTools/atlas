@@ -1912,6 +1912,17 @@ body.desk-on .maplibregl-ctrl-bottom-right {
   visibility: hidden !important;
 }
 
+/* подписи барабана — только пока его крутят (и сразу после открытия), через 3 с гаснут (Грегори 2026-11-22: «нет
+   возможности увидеть незакрытое подписями окно»); класс labels-live ставит core/layers-panel.js */
+.wheel-label {
+  transition: opacity 0.4s;
+}
+
+body:not(.labels-live) .wheel-label {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* открыто меню кнопки (карусель) или барабан ниже слоем — подписи барабанов спрятаны */
 body.carousel-on .wheel-label,
 .wheel.behind .wheel-label,
@@ -3076,9 +3087,10 @@ body.has-photo-strip .al-write-ask {
   margin: 4px 6px 6px;
 }
 
+/* плитки не шире окна (Грегори 2026-11-22: на телефоне вылезали за край): колонки сжимаются, длинное — переносом */
 .tk-facts {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
   margin: 0 6px 10px;
 }
@@ -3086,6 +3098,8 @@ body.has-photo-strip .al-write-ask {
 .tk-fact {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
   padding: 6px 8px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--tone-track) 8%, #fff);
@@ -3295,6 +3309,29 @@ body.has-photo-strip .al-write-ask {
   margin-top: 12px;
 }
 
+.rec-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 1px solid var(--line, rgba(0, 0, 0, 0.15));
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.rec-icon-btn:hover {
+  background: color-mix(in srgb, var(--tone-track) 10%, var(--panel));
+}
+
+.rec-icon-btn[data-act="save"] {
+  background: var(--tone-track);
+  border-color: var(--tone-track);
+  color: #fff;
+}
+
 .rec-kinds-cancel {
   display: block;
   margin: 8px 0 0 auto;
@@ -3325,6 +3362,16 @@ body.has-photo-strip .al-write-ask {
   border-radius: 8px;
   background: var(--panel);
   box-shadow: var(--shadow);
+}
+
+/* список видов от долгого нажатия на заголовок открытого трека — сверху окна */
+.tk-kind-head {
+  height: 0;
+  margin: 0 6px;
+}
+
+.tk-kind-head .tk-kind-list {
+  top: 0;
 }
 
 .tk-kind-list[hidden] {
@@ -4111,6 +4158,13 @@ body.go-nav-off .go-menu {
   color: var(--tone-nav);
 }
 
+/* значок записи стоит вместо ручки (Грегори 2026-11-22): тянуть за него так же */
+.search-drag.history-icon {
+  display: grid;
+  margin-right: 0;
+  vertical-align: 0;
+}
+
 .history-rename {
   flex: 1;
   min-width: 0;
@@ -4194,6 +4248,20 @@ body.go-nav-off .go-menu {
 
 /* маршрут в списке «Куда» (Грегори 2026-11-10): шапка — назад, значок и название, «Поделиться», «Сохранить трек»;
    ниже его точки, как история: номер остановки, у финиша флажок */
+/* низ списка точек маршрута: способы пути и «Сохранить маршрут» — и без навигации (Грегори 2026-11-22) */
+.route-view-foot {
+  padding: 6px 8px 4px;
+  border-top: 1px solid var(--panel-hover);
+}
+
+.route-view-foot .go-ways {
+  justify-content: space-between;
+}
+
+.route-view-save {
+  margin-left: auto;
+}
+
 .route-view-head {
   display: flex;
   align-items: center;

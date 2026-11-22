@@ -145,7 +145,7 @@ export function initLayersPanel(ctx) {
   // первой — «Поиск места» (Грегори 2026-11-06: «в верхнем барабане не хватает кнопки Лупа»): выйти из
   // режима раздела в обычный поиск мест
   const SEARCH_ENTRY = { key: "search", title: "Поиск", icon: LUPA, tone: "maps", plain: [],
-    content: { id: "search", column: { home: () => { emit("search-plain"); setSearch(true); },
+    content: { id: "search", column: { home: () => { emit("search-plain"); setSearch(true); emit("search-list"); },
       // светится, пока строка — обычный поиск мест (Грегори 2026-11-11: «кнопка не реагирует на нажатие, другие
       // меняются на инверсию»); крестик — спрятать строку поиска (навигация и разделы работают дальше)
       isOpen: () => searchOn && !mode, close: () => setSearch(false) } } };
@@ -316,7 +316,7 @@ export function initLayersPanel(ctx) {
       wheel.classList.toggle("closed", !open);
       // подпись центральной кнопки — только при прокрутке и наведении, не сама после нажатия кнопок
       // (Грегори 2026-11-06: «убирай после выбора кнопок»)
-      if (open) R.layout(); else { hideTip(); show(null); }
+      if (open) { R.layout(); liveLabels(true); } else { hideTip(); show(null); }
     };
     document.addEventListener("click", (e) => {
       // кнопку, по которой щёлкнули, могли уже перерисовать — это щелчок внутри, а не мимо
@@ -331,8 +331,8 @@ export function initLayersPanel(ctx) {
     const centerY = () => Math.min(drum.clientHeight / 2, R.geom().radius + BTN / 2 + 4);
     const R = rotor(drum, wheel, {
       centerY, shown: () => isOpen,
-      onStart: () => { hideTip(); if (openKey) show(null); },
-      onSettle: () => showTip(),
+      onStart: () => { hideTip(); liveLabels(); if (openKey) show(null); },
+      onSettle: () => { showTip(); liveLabels(true); },
       // на телефоне смахнуть вправо — спрятать барабан (кроме разделов: они с поиском)
       onSwipe: name === "content" ? null : () => setDrum(name, false),
     });
@@ -526,7 +526,8 @@ export function initLayersPanel(ctx) {
               else emit("nav-position", { mode: "arrow" });
               return;
             }
-            if (e.key !== "content/navigation" && e.content.column.isOpen()) { emit("panel-fold-request", { fold: !folded }); return; }
+            // «Поиск» — всегда его история (уже выбран — тоже), чтобы было видно, что выбор сработал
+            if (e.key !== "content/navigation" && e.key !== "search" && e.content.column.isOpen()) { emit("panel-fold-request", { fold: !folded }); return; }
             openHome(e.content);
           };
           // не в центре — докрутить и выполнить сразу, не дожидаясь конца прокрутки (пока карта летит, кадры
@@ -642,6 +643,15 @@ export function initLayersPanel(ctx) {
 // кругу; кнопка, проходя через центр, притормаживает, после прокрутки барабан встаёт ближайшей кнопкой в центр.
 // Один и тот же у барабанов и у карусели меню (Грегори 2026-11-21: «вид и реакция на нажатие — одинаковые»).
 // box — где кнопки (его высота — высота барабана), el — что слушает колёсико и палец; centerY() — где центр,
+// подписи барабанов видны, пока крутят, и 3 с после (Грегори 2026-11-22: «подписи показывать только при вращении
+// карусели и через 3 с гасить»): fade = true — начать отсчёт, иначе — держать
+let liveTimer = 0;
+function liveLabels(fade) {
+  clearTimeout(liveTimer);
+  document.body.classList.add("labels-live");
+  if (fade) liveTimer = setTimeout(() => document.body.classList.remove("labels-live"), 3000);
+}
+
 // shown() — виден ли; onStart — начали крутить, onSettle — встал после прокрутки, onSwipe — смахнули вправо
 function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {}, onSwipe = null }) {
   let cells = [];
