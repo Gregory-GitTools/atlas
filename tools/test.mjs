@@ -846,6 +846,36 @@ try {
   check("поиск: отметка остаётся при смене режима, у лупы её название снова в строке; крестик тихо убирает её без истории",
     keepMark.title && !keepMark.inMode.text && keepMark.inMode.marker && keepMark.back.text === keepMark.title && keepMark.back.clear && keepMark.gone && !keepMark.list && !keepMark.text,
     JSON.stringify(keepMark));
+  // лупа в строке — всегда поиск мест (Грегори 2026-11-22): в режиме «Путь» найденное лупой — в обе истории и
+  // целью (карточка со способами); цель уже есть — окно места (Добавить или Сюда), цель та же, режим тот же
+  const lensNav = await run(`(async () => { const s = await import(new URL("core/search.js", location.href)), ev = await import(new URL("core/events.js", location.href));
+    const wait = (t) => new Promise((r) => setTimeout(r, t)), i = document.querySelector(".search-box input");
+    const nav = atlas.modules().find((m) => m.id === "content/navigation"), got = (k) => JSON.parse(localStorage.getItem(k) || "[]");
+    const keep = ["atlas.search.history", "atlas.route.history"].map((k) => [k, localStorage.getItem(k)]);
+    ev.emit("route-target", null); await wait(200);
+    document.querySelector('.wheel-content .layers-circle[data-key="content/navigation"]').click(); await wait(500);
+    const find = async (q) => {
+      i.value = q; i.dispatchEvent(new Event("input"));
+      document.querySelector(".search-go").click();
+      for (let t = 0; t < 40 && !document.querySelector(".search-results:not([hidden]) .search-scroll > .search-item:not(.search-everywhere)"); t++) await wait(250);
+      const n = document.querySelectorAll(".search-results .search-scroll > .search-item:not(.search-everywhere)").length;
+      document.querySelector(".search-results .search-scroll > .search-item:not(.search-everywhere)")?.click(); await wait(600);
+      return n;
+    };
+    const ph = i.placeholder, n1 = await find("Tallinn");
+    const t1 = atlas.route.state().target?.title;
+    const one = { ph, n1, t1, open: nav.stats().open, card: !!document.querySelector(".nav-card"),
+      route: got("atlas.route.history").some((e) => e.title === t1), search: got("atlas.search.history").some((e) => e.display_name.startsWith(t1 + ",")) };
+    const n2 = await find("Tartu");
+    for (let t = 0; t < 20 && !document.querySelector(".maplibregl-popup .go-here"); t++) await wait(250);
+    const two = { n2, target: atlas.route.state().target?.title, popup: !!document.querySelector(".maplibregl-popup .go-here"), open: nav.stats().open };
+    document.querySelector(".maplibregl-popup-close-button")?.click();
+    ev.emit("route-target", null); s.setSearchMode(null); await wait(300);
+    for (const [k, v] of keep) v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v);
+    return { one, two }; })()`);
+  check("поиск: лупа в строке в режиме «Путь» — поиск мест; выбранное — в обе истории и целью, при цели — окно места, цель та же",
+    lensNav.one.ph === "Куда" && lensNav.one.n1 > 0 && lensNav.one.t1 && lensNav.one.open && lensNav.one.card && lensNav.one.route && lensNav.one.search &&
+    lensNav.two.n2 > 0 && lensNav.two.target === lensNav.one.t1 && lensNav.two.popup && lensNav.two.open, JSON.stringify(lensNav));
   // окно поиска — общепринятое (Грегори 2026-11-05): щелчок по строке — подсказки (история), набор — из уже
   // найденного, второй щелчок — закрыть
   const tapInput = async () => {

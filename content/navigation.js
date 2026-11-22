@@ -40,6 +40,9 @@ const FOLD = '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="none" 
 const MODE = { icon: ICON, title: "Путь", placeholder: "Куда", tone: "nav",
   filter: (text) => { if (!text && results) { results = null; note = ""; } },
   submit: (text) => find(text),
+  // найдено лупой строки (поиск мест, core/search.js) — в «Куда»; цели нет — целью (карточка со способами
+  // пути), маршрут уже есть — окном места (Добавить или Сюда), как найденное здесь: ничего не теряется
+  pick: (t) => { const p = { lngLat: t.lngLat, title: t.title, address: t.address }; remember(HISTORY, p, id); if (state.target) place(t); else choose(p); },
   list: (q) => suggestions(q),
   // щелчок по строке — к началу списка; true — был открыт маршрут
   reset: () => { const was = resetView(HISTORY) || !!openRoute; openRoute = null; return was; },

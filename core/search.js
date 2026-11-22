@@ -12,6 +12,9 @@
 // внутри раздела (filter на каждую букву — своё, не Nominatim); значок режима — на кнопке справа
 // вверху (событие search-mode). Режим со своим списком (навигация): list(text) → узлы подсказок
 // вместо истории, submit(text) — Enter (места он ищет сам через geocode() — тот же Nominatim);
+// Лупа в строке — всегда поиск мест, в любом режиме (Грегори 2026-11-22: «переобозначим лупе в окне поиска
+// функцию супер поиска и только поиска места вне всяких условий»); Enter — по режиму. Выбранное лупой в
+// режиме со своим pick(place) (навигация) — ему: в его историю и целью; без pick — отметкой на карте;
 // Карточка пути (навигация, setSearchCard({ card, icon, title })) — висящий маршрут, работает при
 // любом режиме: отдельная панель под строкой; свёрнута — в строке стрелка, щелчок — карточка снова.
 // Открыто всегда одно окно (Грегори 2026-11-05): подсказки, карточка пути или окно раздела — другое
@@ -167,7 +170,7 @@ export function initSearch({ map, maplibregl }) {
     // открыт список точек маршрута — тоже смотрим на маршрут (карта за мной не ходит)
     const viewing = searchOn && !list.hidden && !!list.querySelector(".route-view");
     if (viewing !== routeViewing) { routeViewing = viewing; emit("route-viewing", { open: viewing }); }
-    if (withList && (!list.hidden || wantList)) suggest();
+    if (withList && !lensList && (!list.hidden || wantList)) suggest();
   };
   // карточку пути открыли — окно раздела уходит в строку
   const showCard = () => { close(); input.blur(); cardOpen = true; if (leftOpen) emit("panel-fold-request", { fold: true }); refresh(false); };
@@ -181,11 +184,12 @@ export function initSearch({ map, maplibregl }) {
   foldCard = () => { cardOpen = false; refresh(); };
 
   let wantList = false; // нажали Enter в разделе — его найденное покажется, когда придёт
+  let lensList = false; // в списке — найденное лупой: раздел его своим списком не перерисовывает
   // подсказки — шаг для «Назад» телефона; закрылись — снова карточка раздела
   let listBack = null;
   const close = () => {
     const was = !list.hidden;
-    list.hidden = true; cursor = null; wantList = false;
+    list.hidden = true; cursor = null; wantList = false; lensList = false;
     if (listBack) { const d = listBack; listBack = null; d(); }
     if (was) refresh(false);
   };
@@ -283,10 +287,12 @@ export function initSearch({ map, maplibregl }) {
     if (!q) return;
     if (!allowed(self())) { note("Поиск мест выключен в настройках: он обращается в интернет"); return; }
     note("Поиск…");
+    lensList = !!mode;
     try {
       const results = await geocode(q);
       if (!results.length) { note("Ничего не найдено"); return; }
       fill(...results.map(item));
+      lensList = !!mode;
     } catch (err) {
       console.warn("Nominatim", err);
       note("Поиск не удался — проверьте интернет и попробуйте ещё раз");
@@ -301,9 +307,10 @@ export function initSearch({ map, maplibregl }) {
     close();
     input.blur();
     remember(r);
-    input.value = title;
-    clearBtn.hidden = false;
     const lngLat = [Number(r.lon), Number(r.lat)];
+    // найдено лупой в режиме навигации — место ей (обе истории: эта и «Куда»); на карте ничего не сбрасывается
+    if (mode?.pick) { input.value = ""; clearBtn.hidden = true; mode.pick({ lngLat, title, address: r.display_name.split(", ").slice(1).join(", "), bbox: r.boundingbox }); return; }
+    if (!mode) { input.value = title; clearBtn.hidden = false; }
     marker?.remove();
     const content = document.createElement("div");
     content.append(Object.assign(document.createElement("div"), { className: "popup-title", textContent: title }),
@@ -337,6 +344,7 @@ export function initSearch({ map, maplibregl }) {
   // набор — подсказки из уже найденного (в разделе — его поиск по буквам)
   input.addEventListener("input", () => {
     clearBtn.hidden = !input.value;
+    lensList = false;
     if (mode && !mode.list) { mode.filter(input.value.trim()); return; }
     mode?.filter(input.value.trim());
     suggest();
@@ -357,7 +365,7 @@ export function initSearch({ map, maplibregl }) {
     else if (!mode || mode.list) { if (leftOpen) emit("panel-fold-request", { fold: true }); suggest(); }
     else if (folded) unfoldPanel();
   });
-  bar.querySelector(".search-go").addEventListener("click", submit);
+  bar.querySelector(".search-go").addEventListener("click", run);
   clearBtn.addEventListener("click", () => {
     input.value = "";
     clearBtn.hidden = true;
