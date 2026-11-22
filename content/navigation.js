@@ -97,7 +97,7 @@ function choose(t) {
   emit("route-target", t);
   emit("route-name", t.saved ? t.name || null : null);
   // маршрут — открывается список его точек, подсказки не закрываются
-  if (t.saved) { openRoute = t.saved; render(); return; }
+  if (t.saved) { openRoute = t.saved; render(); if (t.way) emit("route-way", { way: t.way }); return; }
   // выбрали — подсказки закрываются, карточка цели раскрыта
   foldSearchList();
   // на карте — и я, и точка
@@ -215,7 +215,13 @@ function routeView(entry) {
     return b;
   };
   const active = () => state.saved === entry.saved;
-  const activate = () => { if (!active()) { emit("route-target", entry); emit("route-name", entry.name || null); } };
+  // открыли маршрут — путь прокладывается заново тем же способом (Грегори 2026-11-22: «не показывает км, ч — лучше
+  // пересчитать заново»); way: false — способ сейчас выберут кнопкой
+  const activate = (way = true) => {
+    if (active()) return;
+    emit("route-target", entry); emit("route-name", entry.name || null);
+    if (way && entry.way) emit("route-way", { way: entry.way });
+  };
   const name = h("div", "route-view-title", entry.name || entry.title);
   // справа — значок маршрута: карточка пути (Грегори 2026-11-10: «именно он должен открывать карточку»)
   head.append(
@@ -255,21 +261,26 @@ function routeView(entry) {
     changed: render });
   // внизу — способы пути и «Сохранить маршрут» (Грегори 2026-11-22: «даже при выключенной геолокации внизу панели
   // возможность проложить и сохранить маршрут с выбором транспорта»): путь — по точкам маршрута, без меня
-  const foot = h("div", "route-view-foot");
-  const ways = h("div", "go-ways");
-  for (const w of WAYS) {
-    const b = btn("go-way", `Проложить путь: ${w.title.toLowerCase()}`, w.icon, () => { activate(); emit("route-way", { way: w.id }); });
-    b.classList.toggle("on", active() && (state.route?.way === w.id || state.busy === w.id));
-    ways.append(b);
-  }
-  ways.append(btn("go-way route-view-save", "Сохранить маршрут", SAVE_ROUTE, () => {
-    activate(); emit("route-build"); ctx?.status("Маршрут сохранён — он в списке «Куда»"); setTimeout(() => ctx?.status(""), 3000);
-  }));
-  foot.append(ways);
-  const busy = active() && state.busy, text = active() && (busy ? `${WAYS.find((w) => w.id === busy).title}: ищу путь…` : state.route?.text);
-  if (text) foot.append(h("div", "nav-way", text));
+  // низ — заново при каждом изменении пути (нашёлся — км и время), список точек при этом не перерисовывается
+  const makeFoot = () => {
+    const foot = h("div", "route-view-foot");
+    const ways = h("div", "go-ways");
+    for (const w of WAYS) {
+      const b = btn("go-way", `Проложить путь: ${w.title.toLowerCase()}`, w.icon, () => { activate(false); emit("route-way", { way: w.id }); });
+      b.classList.toggle("on", active() && (state.route?.way === w.id || state.busy === w.id));
+      ways.append(b);
+    }
+    ways.append(btn("go-way route-view-save", "Сохранить маршрут", SAVE_ROUTE, () => {
+      activate(); emit("route-build"); ctx?.status("Маршрут сохранён — он в списке «Куда»"); setTimeout(() => ctx?.status(""), 3000);
+    }));
+    foot.append(ways);
+    const busy = active() && state.busy, text = active() && (busy ? `${WAYS.find((w) => w.id === busy).title}: ищу путь…` : state.route?.text);
+    if (text) foot.append(h("div", "nav-way", text));
+    foot.refresh = () => foot.replaceWith(makeFoot());
+    return foot;
+  };
   list.classList.add("route-view");
-  return [head, list, foot];
+  return [head, list, makeFoot()];
 }
 
 function openPanel(c) {
@@ -286,7 +297,7 @@ function openPanel(c) {
 // кнопка в барабане светится, пока включена навигация или открыт её раздел
 const lit = () => navOn || searchMode() === MODE;
 let litWas = false;
-on("route", (s) => { state = s; render(false); });
+on("route", (s) => { state = s; render(false); document.querySelector(".search-results .route-view-foot")?.refresh?.(); });
 // навигацию включили (кнопкой слева внизу, в барабане или сама при запуске) — строка поиска в режиме
 // навигации (если в ней не другой раздел); выключили — режим снят
 on("nav", ({ on: v }) => {

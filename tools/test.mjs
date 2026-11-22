@@ -392,13 +392,25 @@ try {
     const r = [...document.querySelectorAll(".search-results .search-item")].find((i) => i.textContent.includes("→")); r?.click(); await w(400);
     const f = document.querySelector(".search-results .route-view-foot");
     const out = { foot: !!f, ways: f ? [...f.querySelectorAll(".go-way")].map((b) => b.title) : [], geo: atlas.geo.state().on };
-    f?.querySelector('.go-way[title="Сохранить маршрут"]')?.click(); await w(300);
+    // сервис путей подменён: путь нашёлся — внизу км и время, не «ищу путь…» (Грегори 2026-11-22)
+    const real = window.fetch;
+    window.fetch = (u, o) => String(u).includes("/routed-") ? Promise.resolve(new Response(JSON.stringify({ routes: [{ geometry: { coordinates: [[24.7, 59.4], [24.8, 59.5]] }, distance: 12345, duration: 1800 }] }))) : real(u, o);
+    f?.querySelector(".go-way")?.click(); await w(600);
+    out.found = document.querySelector(".search-results .route-view-foot .nav-way")?.textContent || "";
+    document.querySelector('.search-results .route-view-foot .go-way[title="Сохранить маршрут"]')?.click(); await w(300);
     out.saved = JSON.parse(localStorage.getItem("atlas.route.history") || "[]").filter((e) => e.saved).length;
+    // открыли сохранённый заново — путь прокладывается сам тем же способом
+    document.querySelector(".route-view-back")?.click(); await w(300);
+    [...document.querySelectorAll(".search-results .search-item")].find((i) => i.textContent.includes("→"))?.click(); await w(600);
+    out.again = document.querySelector(".search-results .route-view-foot .nav-way")?.textContent || "";
+    window.fetch = real;
     document.querySelector(".route-view-back")?.click(); await w(200);
     document.querySelector(".search-results .route-view-back")?.click(); await w(200); // из страны — ко всему списку
     return out; })()`);
   check("маршрут: внизу списка точек — способы пути и «Сохранить маршрут» (навигация выключена)",
     foot.foot && foot.ways.length > 2 && foot.ways.some((t) => t.startsWith("Проложить путь")) && foot.ways.at(-1) === "Сохранить маршрут" && foot.saved > 0, JSON.stringify(foot));
+  check("маршрут: путь нашёлся — внизу км и время; сохранённый при открытии прокладывается заново",
+    /км/.test(foot.found) && !/ищу/.test(foot.found) && /км/.test(foot.again), JSON.stringify(foot));
   // назад к одной точке «Проба»
   await run(`atlas.route.setTarget({ lngLat: [24.76, 59.43], title: "Проба", way: "foot" });
     localStorage.setItem("atlas.route.history", JSON.stringify(JSON.parse(localStorage.getItem("atlas.route.history") || "[]").filter((e) => !e.saved))); true`);
@@ -3095,6 +3107,9 @@ try {
     const top = () => ["content", "places", "layers"].filter((n) => open(n) && !behind(n));
     const r = { all: open("content") && open("places") && open("layers"), bands: hi("content") <= lo("places") + 1 && hi("places") <= lo("layers") + 1,
       top: top(), pOpen: P.classList.contains("open"), aOpen: A.classList.contains("open") };
+    // компьютер — вплотную, без пустых полос между барабанами (Грегори 2026-11-22)
+    // (окно проверки низкое — помещаются только два барабана: разделы и места)
+    r.tight = ${PHONE} || lo("places") - hi("content") < 60;
     const pr = P.getBoundingClientRect(), ar = A.getBoundingClientRect();
     r.above = Math.round(ar.top - pr.bottom) === 10 && Math.round(pr.right) === Math.round(ar.right);
     // телефон: «Слои» — наверх, «Места» — наверх, ещё раз — закрыть, ещё раз — открыть сверху;
@@ -3112,7 +3127,7 @@ try {
   check("три барабана: компьютер — полосами (разделы, места, слои), телефон — стопкой, кнопка поднимает свой наверх; «Места» над «Слоями»",
     three.all && three.above && three.after.join() === "layers" && (PHONE
       ? three.top.join() === "places" && three.pOpen && !three.aOpen && three.steps.join("|") === "layers|places|layers|places"
-      : three.bands && three.top.length === 3 && three.pOpen && three.aOpen && three.steps.join("|") === "content,places|content|content,places|content"), JSON.stringify(three));
+      : three.bands && three.tight && three.top.length === 3 && three.pOpen && three.aOpen && three.steps.join("|") === "content,places|content|content,places|content"), JSON.stringify(three));
   await shot("95c-three-drums");
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико
   // крутит его, нажатие по кнопке не в центре докручивает её и открывает столбик

@@ -1914,11 +1914,13 @@ body.desk-on .maplibregl-ctrl-bottom-right {
 
 /* подписи барабана — только пока его крутят (и сразу после открытия), через 3 с гаснут (Грегори 2026-11-22: «нет
    возможности увидеть незакрытое подписями окно»); класс labels-live ставит core/layers-panel.js */
-.wheel-label {
+.wheel-label,
+.carousel .layers-item > span {
   transition: opacity 0.4s;
 }
 
-body:not(.labels-live) .wheel-label {
+body:not(.labels-live) .wheel-label,
+body:not(.labels-live) .carousel .layers-item > span {
   opacity: 0;
   pointer-events: none;
 }

@@ -254,7 +254,8 @@ export function initLayersPanel(ctx) {
     opened[name] = open;
     arrange();
   };
-  // открыто несколько: компьютер — полосами сверху вниз (разделы, места, слои), поровну; телефон — стопкой, верхний ярче
+  // открыто несколько: компьютер — полосами сверху вниз (разделы, места, слои) вплотную, каждая — по своим кнопкам
+  // (Грегори 2026-11-22: «прижми карусели друг к другу»), не помещаются — полосы поровну; телефон — стопкой
   function arrange() {
     for (const d of drums) {
       d.setOpen(opened[d.name]);
@@ -263,11 +264,15 @@ export function initLayersPanel(ctx) {
     }
     const bands = BANDS.filter((n) => opened[n]);
     if (bands.length > 1 && !phone()) {
-      const r = drums[0].wheel.getBoundingClientRect(), h = (r.bottom - r.top) / bands.length;
+      const r = drums[0].wheel.getBoundingClientRect(), need = bands.map((n) => drums.find((d) => d.name === n).need());
+      // не помещаются — поровну, как было: при сжатии по доле у короткого барабана оставалась одна кнопка
+      const fits = need.reduce((a, b) => a + b, 0) <= r.bottom - r.top;
+      let y = r.top;
       bands.forEach((n, k) => {
-        const w = drums.find((d) => d.name === n).wheel;
-        w.style.top = `${Math.round(r.top + k * h + (k ? 4 : 0))}px`;
-        w.style.bottom = `${Math.round(innerHeight - r.top - (k + 1) * h + (k < bands.length - 1 ? 4 : 0))}px`;
+        const w = drums.find((d) => d.name === n).wheel, h = fits ? need[k] : (r.bottom - r.top) / bands.length;
+        w.style.top = `${Math.round(y)}px`;
+        w.style.bottom = `${Math.round(innerHeight - y - h)}px`;
+        y += h;
       });
     }
     for (const d of drums) d.relayout();
@@ -357,8 +362,8 @@ export function initLayersPanel(ctx) {
       L.R = rotor(el, el, {
         shown: () => !el.hidden,
         centerY: cy,
-        onStart: () => closeFrom(k + 1),
-        onSettle: () => chain(k),
+        onStart: () => { liveLabels(); closeFrom(k + 1); },
+        onSettle: () => { liveLabels(true); chain(k); },
       });
       L.cy = cy;
       return (levels[k] = L);
@@ -425,7 +430,7 @@ export function initLayersPanel(ctx) {
     let list = []; // кнопки барабана по порядку: { e, cell, c, x }
     function show(key) {
       openKey = key;
-      if (key) hideTip();
+      if (key) { hideTip(); liveLabels(true); }
       for (const { e, c } of list) c.classList.toggle("open", e.key === key);
       const i = key ? list.findIndex((x) => x.e.key === key) : -1;
       if (i < 0) { closeFrom(0); return; }
@@ -543,7 +548,7 @@ export function initLayersPanel(ctx) {
       if (keep >= 0 && keep !== R.centerIndex()) R.jump(keep);
       if (openKey) show(openKey);
     };
-    return { name, setOpen, render, wheel, relayout: () => { if (isOpen) { R.layout(); if (openKey) show(openKey); } } };
+    return { name, setOpen, render, wheel, need: () => R.need(), relayout: () => { if (isOpen) { R.layout(); if (openKey) show(openKey); } } };
   }
 
   const drums = [makeDrum("layers", layerEntries), makeDrum("places", placeEntries), makeDrum("content", contentEntries)];
@@ -580,9 +585,11 @@ export function initLayersPanel(ctx) {
     for (const el of [...document.querySelectorAll(".wheel:not(.closed):not(.behind), .layers-sub.carousel:not([hidden]):not(.closing)")].reverse()) {
       const box = el.getBoundingClientRect();
       if (y < box.top || y > box.bottom || x > box.right) continue;
+      // по высоте — только где кнопки (Грегори 2026-11-22: карусели ниже первой крутились, когда мышь уже на карте)
       const parts = [...el.querySelectorAll(".wheel-cell:not([hidden]), .wheel-label")].map((c) => c.getBoundingClientRect()).filter((r) => r.width);
+      if (!parts.length || y < Math.min(...parts.map((r) => r.top)) - 8 || y > Math.max(...parts.map((r) => r.bottom)) + 8) continue;
       const left = Math.min(box.left, ...parts.map((r) => r.left));
-      if (x >= left - 8 && parts.length) return el;
+      if (x >= left - 8) return el;
     }
     return null;
   };
@@ -767,6 +774,8 @@ function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {
     set: (list) => { cells = list; box.replaceChildren(...list); layout(); },
     jump: (i) => { cancelAnimationFrame(frame); onArrive = null; raw = target = i; layout(); },
     layout, spinTo, centerIndex, geom,
+    // высота, в которую встают все кнопки без повторов по кругу (как geom() у высокого барабана)
+    need: () => { const step = Math.PI / 2 / (n() / 2 + 0.5); return 2 * Math.min(GAP / Math.sin(step), 400) + BTN + 8; },
     settled: () => Math.abs(raw - target) < 0.01,
     atCenter: (i) => i === centerIndex() && Math.abs(raw - Math.round(raw)) < 0.01,
     dragged: () => !!drag?.moved,
