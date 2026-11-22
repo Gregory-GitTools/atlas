@@ -84,7 +84,7 @@ export function initSearch({ map, maplibregl }) {
   const bar = Object.assign(document.createElement("div"), { className: "search" });
   // слева — логотип Atlas (Грегори, 2026-10-29: строка поиска как у Google, логотип внутри слева)
   bar.innerHTML = `<div class="search-box">
-      <input type="search" placeholder="Поиск места" autocomplete="off" enterkeyhint="search" aria-label="Поиск места">
+      <input type="search" placeholder="Поиск" autocomplete="off" enterkeyhint="search" aria-label="Поиск">
       <button class="search-clear" title="Очистить" hidden>${CLEAR_ICON}</button>
       <button class="search-go" title="Найти">${SEARCH_ICON}</button>
     </div>
@@ -126,7 +126,7 @@ export function initSearch({ map, maplibregl }) {
     clearBtn.hidden = !input.value;
     close();
     cardOpen = true;
-    input.placeholder = m?.placeholder || "Поиск места";
+    input.placeholder = m?.placeholder || "Поиск";
     emit("search-mode", m && { icon: m.icon, title: m.title, tone: m.tone || "lang" });
     old?.filter("");
     refresh();
@@ -159,7 +159,7 @@ export function initSearch({ map, maplibregl }) {
     cardBox.replaceChildren(...(card ? [card, cardGrip] : []));
     // одно окно за раз: открыты подсказки или окно раздела — карточки нет (её стрелка — в столбике под
     // логотипом, core/layers-panel.js); в строке поиска — только лупа (Грегори 2026-11-06)
-    input.placeholder = mode?.hint?.() || mode?.placeholder || "Поиск места";
+    input.placeholder = mode?.hint?.() || mode?.placeholder || "Поиск";
     const shown = !!card && cardOpen && list.hidden && !leftOpen;
     cardBox.hidden = !shown;
     const open = shown && searchOn;
@@ -260,7 +260,7 @@ export function initSearch({ map, maplibregl }) {
     }
     if (mode) { close(); return; }
     // окно истории — как «Куда» (core/history.js): шапка, страны (по умолчанию — без них), группы, значки
-    const nodes = historyPanel({ key: HISTORY_KEY, title: "История", id: (e) => e.display_name, match: q ? (e) => `${e.name || ""} ${e.display_name}`.toLowerCase().includes(q) : null,
+    const nodes = historyPanel({ key: HISTORY_KEY, title: "История поиска", id: (e) => e.display_name, match: q ? (e) => `${e.name || ""} ${e.display_name}`.toLowerCase().includes(q) : null,
       // переименованное — своё название (name), адрес — подписью
       label: (e) => { const [t, ...rest] = e.display_name.split(", "); return e.name ? { title: e.name, sub: e.display_name } : { title: t, sub: rest.join(", ") }; },
       rename: (e, name) => ({ ...e, name }), lngLat: (e) => [Number(e.lon), Number(e.lat)],

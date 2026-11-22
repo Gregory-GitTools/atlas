@@ -29,7 +29,6 @@ async function contourLib(maplibregl) {
 
 const dark = () => !!current("basemap")?.dark;
 const firstSymbol = (map) => map.getStyle().layers.find((l) => l.type === "symbol")?.id;
-const font = (map) => map.getStyle().layers.find((l) => l.type === "symbol" && Array.isArray(l.layout?.["text-font"]))?.layout["text-font"] || ["Noto Sans Regular"];
 const dem = (map, id) => map.getSource(id) || map.addSource(id, {
   type: "raster-dem", tiles: [demSource ? demSource.sharedDemProtocolUrl : DEM_URL], encoding: "terrarium", tileSize: 256, maxzoom: 13, attribution: ATTRIBUTION });
 
@@ -77,7 +76,8 @@ register({
     if (!demSource || map.getLayer("contours")) return;
     if (!map.getSource("contours")) map.addSource("contours", { type: "vector", maxzoom: 15, attribution: ATTRIBUTION, tiles: [demSource.contourProtocolUrl({
       // зум: [шаг линий, шаг толстых линий с подписями], метры
-      thresholds: { 11: [200, 1000], 12: [100, 500], 13: [50, 250], 14: [20, 100], 15: [10, 50] },
+      // подписанные (толстые) — чаще, чтобы по высотам можно было сориентироваться (Грегори 2026-11-22)
+      thresholds: { 11: [200, 1000], 12: [100, 200], 13: [50, 100], 14: [20, 100], 15: [10, 50] },
       contourLayer: "contours", elevationKey: "ele", levelKey: "level" })] });
     const color = dark() ? "#f0d9b5" : "#9c6b3f";
     const before = firstSymbol(map);
@@ -85,8 +85,12 @@ register({
       paint: { "line-color": color, "line-opacity": 0.6, "line-width": ["match", ["get", "level"], 1, 1.4, 0.6] } }, before);
     map.addLayer({ id: "contour-labels", type: "symbol", source: "contours", "source-layer": "contours", minzoom: 11,
       filter: [">", ["get", "level"], 0],
-      layout: { "symbol-placement": "line", "text-field": ["concat", ["number-format", ["get", "ele"], {}], " м"], "text-font": font(map), "text-size": 11 },
-      paint: { "text-color": color, "text-halo-width": 1.2, "text-halo-color": dark() ? "rgba(0,0,0,0.7)" : "rgba(255,255,255,0.85)" } }, before);
+      // подписи — крупно, жирно, тёмным по плотной светлой обводке (Грегори 2026-11-22: «цифры высот видны не
+      // чётко, никак не могу сориентироваться» — 11 px светло-коричневым тонули в снимке со спутника)
+      layout: { "symbol-placement": "line", "text-field": ["concat", ["number-format", ["get", "ele"], {}], " м"], "text-font": ["Noto Sans Bold"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 11, 12, 15, 15], "symbol-spacing": 200, "text-max-angle": 60, "text-padding": 0 },
+      paint: { "text-color": dark() ? "#ffe8c2" : "#5a3412", "text-halo-width": 2.2, "text-halo-blur": 0.3,
+        "text-halo-color": dark() ? "rgba(0,0,0,0.9)" : "rgba(255,255,255,0.95)" } }, before);
   },
   disable({ map }) {
     for (const id of ["contour-labels", "contours"]) if (map.getLayer(id)) map.removeLayer(id);

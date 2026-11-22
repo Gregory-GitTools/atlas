@@ -883,20 +883,42 @@ function skiStats(s) {
 const kmh = (m, ms) => `${dec(m / (ms / 3600000) / 1000, 1)} км/ч`;
 
 // отрезки по 1, 2, 5, 10 км: время, скорость, набор и сброс; from и to — номера точек начала и конца
+// цифры куска профиля с точки from по to — строка таблицы «По отрезкам» и «По кругам»
+function partRow(prof, from, to) {
+  const d = prof[to][0] - prof[from][0], t0 = prof[from][3][3], t1 = prof[to][3][3];
+  const part = prof.slice(from, to + 1), [up, down] = climb(part.map((p) => p[1]));
+  const es = part.map((p) => p[1]).filter((v) => v != null), vs = part.map((p) => p[2]).filter((v) => v != null);
+  return { from, to, dist: d, time: t0 && t1 ? t1 - t0 : 0, up, down,
+    maxV: vs.length ? Math.max(...vs) : null, minE: es.length ? Math.min(...es) : null, maxE: es.length ? Math.max(...es) : null };
+}
 function splits(s, size) {
   const prof = s.profile, rows = [];
   let from = 0;
   for (let i = 1; i < prof.length; i++) {
     const last = i === prof.length - 1;
     if (prof[i][0] - prof[from][0] < size && !last) continue;
-    const d = prof[i][0] - prof[from][0], t0 = prof[from][3][3], t1 = prof[i][3][3];
-    const [up, down] = climb(prof.slice(from, i + 1).map((p) => p[1]));
-    const part = prof.slice(from, i + 1), es = part.map((p) => p[1]).filter((v) => v != null), vs = part.map((p) => p[2]).filter((v) => v != null);
-    if (d > 50 || !rows.length) rows.push({ from, to: i, dist: d, time: t0 && t1 ? t1 - t0 : 0, up, down,
-      maxV: vs.length ? Math.max(...vs) : null, minE: es.length ? Math.min(...es) : null, maxE: es.length ? Math.max(...es) : null });
+    if (prof[i][0] - prof[from][0] > 50 || !rows.length) rows.push(partRow(prof, from, i));
     from = i;
   }
   return rows;
+}
+// круги (Грегори 2026-11-22: «трек закольцевался — круг»): ушёл от начала трека дальше LAP_AWAY и вернулся
+// ближе LAP_NEAR — круг кончается в самой близкой к началу точке этого возвращения. Остаток после последнего
+// круга — не круг, в таблицу не идёт
+const LAP_NEAR = 30, LAP_AWAY = 80; // м; стадион 400 м — от старта до дальнего края около 120 м
+function laps(s) {
+  const prof = s.profile, ends = [];
+  if (prof.length < 10) return [];
+  const start = prof[0][3];
+  let away = false, best = -1, bestD = Infinity;
+  for (let i = 1; i < prof.length; i++) {
+    const d = meters(start, prof[i][3]);
+    if (!away) { away = d > LAP_AWAY; continue; }
+    if (d < LAP_NEAR) { if (d < bestD) { best = i; bestD = d; } continue; }
+    if (best >= 0) { ends.push(best); best = -1; bestD = Infinity; away = d > LAP_AWAY; }
+  }
+  if (best >= 0) ends.push(best);
+  return ends.map((to, k) => partRow(prof, k ? ends[k - 1] : 0, to));
 }
 const mmss = (ms) => {
   const sec = Math.round(ms / 1000), hh = Math.floor(sec / 3600), m = Math.floor(sec / 60) % 60, x = String(sec % 60).padStart(2, "0");
@@ -1440,26 +1462,32 @@ async function openTrack(id, keep = false) {
   nodes.push(more);
   if (drawing?.id === id) nodes.push(h("div", "tk-sel-info tk-draw-hint", "Щёлкайте по карте — каждая точка продолжает трек прямой линией. «Назад» убирает последнюю, «Готово» — закончить"));
 
-  // по отрезкам: 1, 2, 5, 10 км; нажатие — отрезок выбран на графике и на карте
-  if (s.total && s.dist > 1000) {
+  // по отрезкам: 1, 2, 5, 10 км, или по кругам (есть круги — кнопка «Круги»); нажатие — отрезок (круг) выбран
+  // на графике и на карте
+  const lapRows = s.total ? laps(s) : [];
+  if (s.total && (s.dist > 1000 || lapRows.length)) {
+    const byLaps = splitSize === "laps" && lapRows.length > 0, size = typeof splitSize === "number" ? splitSize : 1000;
     const head = h("div", "tk-split-head");
-    head.append(h("span", "", "По отрезкам"));
-    for (const size of [1000, 2000, 5000, 10000]) {
-      const b = h("button", "tk-chip" + (size === splitSize ? " on" : ""), `${size / 1000} км`);
-      b.addEventListener("click", () => { splitSize = size; settings.set("tracks.split", size); openTrack(id, true); });
+    const word = (n) => (n % 10 === 1 && n % 100 !== 11 ? "круг" : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? "круга" : "кругов");
+    head.append(h("span", "", byLaps ? `По кругам · ${lapRows.length} ${word(lapRows.length)}` : "По отрезкам"));
+    const chip = (value, text) => {
+      const b = h("button", "tk-chip" + (value === (byLaps ? "laps" : size) ? " on" : ""), text);
+      b.addEventListener("click", () => { splitSize = value; settings.set("tracks.split", value); openTrack(id, true); });
       head.append(b);
-    }
+    };
+    if (s.dist > 1000) for (const v of [1000, 2000, 5000, 10000]) chip(v, `${v / 1000} км`);
+    if (lapRows.length) chip("laps", "Круги");
     const table = h("table", "tk-splits");
-    table.innerHTML = "<thead><tr><th>км</th><th>время</th><th>средняя, км/ч</th><th>макс., км/ч</th><th>набор, м</th><th>сброс, м</th><th>высота, м</th></tr></thead>";
+    table.innerHTML = `<thead><tr>${byLaps ? "<th>круг</th><th>дистанция, км</th><th>время круга</th>" : "<th>км</th><th>время</th>"}<th>средняя, км/ч</th><th>макс., км/ч</th><th>набор, м</th><th>сброс, м</th><th>высота, м</th></tr></thead>`;
     const body = h("tbody");
-    const rows = splits(s, splitSize).map((r, i) => {
+    const rows = (byLaps ? lapRows : splits(s, size)).map((r, i) => {
       const tr = h("tr");
       // отрезок «от–до» в км: 0–1, 1–2… последний неполный — с десятыми
       const kmv = (v) => { const r = Math.round(v * 10) / 10; return dec(r, Number.isInteger(r) ? 0 : 1); };
       const range = `${kmv(s.profile[r.from][0] / 1000)}–${kmv(s.profile[r.to][0] / 1000)}`;
-      for (const v of [range, r.time ? mmss(r.time) : "", r.time ? dec(r.dist / (r.time / 3600000) / 1000, 1) : "", r.maxV != null ? dec(r.maxV, 1) : "",
+      for (const v of [...(byLaps ? [i + 1, dec(r.dist / 1000, 2)] : [range]), r.time ? mmss(r.time) : "", r.time ? dec(r.dist / (r.time / 3600000) / 1000, 1) : "", r.maxV != null ? dec(r.maxV, 1) : "",
         Math.round(r.up), Math.round(r.down), r.minE != null ? `${Math.round(r.minE)}–${Math.round(r.maxE)}` : ""]) tr.append(h("td", "", String(v)));
-      tr.title = "Выбрать этот отрезок";
+      tr.title = byLaps ? "Выбрать этот круг" : "Выбрать этот отрезок";
       tr.addEventListener("click", () => {
         Object.assign(sel, { a: r.from, b: r.to });
         if (sel.a < sel.v0 || sel.b > sel.v1) { sel.v0 = 0; sel.v1 = last; openTrack(id, true); return; }
@@ -1630,6 +1658,7 @@ register({
   },
   drawAt: (lng, lat) => drawClick({ lngLat: { lng, lat } }),
   statsOf: (text) => { const s = stats(parseFile("x.gpx", text)); delete s.profile; return s; },
+  lapsOf: (text) => laps(stats(parseFile("x.gpx", text))).map((r) => ({ dist: Math.round(r.dist), time: r.time })),
   // запись трека: проверка подставляет свой AtlasTrack и зовёт это
   recInit: () => recInit(window.atlas?.ctx),
   recPoll: () => recPoll(),

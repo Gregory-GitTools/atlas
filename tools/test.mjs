@@ -153,7 +153,7 @@ try {
       + (L.querySelector(".start-logo") ? " (логотип при открытом поиске)" : "");
     L.click(); await new Promise((r) => setTimeout(r, 300)); return m + (L.querySelector(".start-logo") ? "" : " (нет логотипа после закрытия)"); })()`);
   check("старт: всё закрыто, на кнопке справа вверху — логотип; первый щелчок — «Поиск места» в центре барабана",
-    start.logo && start.search && start.wheels && start.panels && start.mid === "Поиск места", JSON.stringify(start));
+    start.logo && start.search && start.wheels && start.panels && start.mid === "Поиск", JSON.stringify(start));
   check("правка: EXIF исходника переносится — поворот 1, новый размер кадра, место съёмки остаётся",
     exifCheck.before.orientation === 6 && exifCheck.after.orientation === 1 && exifCheck.after.width === 1234 && exifCheck.after.height === 567 && exifCheck.after.gps, JSON.stringify(exifCheck));
   const extras = await run(`({ stars: document.querySelector("canvas.stars")?.width > 0, scale: document.querySelector(".maplibregl-ctrl-scale")?.textContent,
@@ -688,7 +688,7 @@ try {
   const plain = await run(`(async () => { const w = () => new Promise((r) => setTimeout(r, 400));
     for (let k = 0; k < 3 && document.querySelector(".wheel-content").classList.contains("closed"); k++) { document.querySelector(".search-toggle").click(); await w(); }
     document.querySelector('.wheel-content .layers-circle[data-key="search"]').click();
-    for (let k = 0; k < 15 && document.querySelector(".search-box input").placeholder !== "Поиск места"; k++) await w();
+    for (let k = 0; k < 15 && document.querySelector(".search-box input").placeholder !== "Поиск"; k++) await w();
     const lupa = () => document.querySelector('.wheel-content .layers-circle[data-key="search"]');
     const r = { placeholder: document.querySelector(".search-box input").placeholder, nav: atlas.geo.state().on, lit: lupa().classList.contains("on"), x: !lupa().nextSibling.hidden };
     document.querySelector('.wheel-content .layers-circle[data-key="content/navigation"]').click();
@@ -696,7 +696,7 @@ try {
     r.mode = document.querySelector(".search-toggle").className;
     r.back = document.querySelector(".search-box input").placeholder; r.litAfter = lupa().classList.contains("on"); return r; })()`);
   check("барабан: «Поиск места» — обычный поиск (навигация работает), кнопка светится, с крестиком; «Навигация» — снова «Куда», лупа гаснет",
-    plain.placeholder === "Поиск места" && plain.nav && plain.lit && plain.x && plain.back === "Куда" && !plain.litAfter, JSON.stringify(plain));
+    plain.placeholder === "Поиск" && plain.nav && plain.lit && plain.x && plain.back === "Куда" && !plain.litAfter, JSON.stringify(plain));
   await run(`document.querySelector(".compass-btn").click(); true`); // снова 2D
   await run(`window.confirm = () => true; document.querySelector(".geo-btn").click(); true`); // слежение → выключить
   await send("Emulation.clearGeolocationOverride");
@@ -931,7 +931,7 @@ try {
     document.querySelector(".search-toggle").click(); true`);
   await sleep(500);
   check("окно истории: шапка (по странам, экспорт, корзина, свернуть, закрыть); подержать ручку — значки и группы; группа — одной строкой и в стране первой записи; экспорт KML",
-    hHead.title === "История" && hHead.btns.join() === "Сгруппировать по странам,Экспорт (KML),Очистить историю,Свернуть,Закрыть"
+    hHead.title === "История поиска" && hHead.btns.join() === "Сгруппировать по странам,Экспорт (KML),Очистить историю,Свернуть,Закрыть"
     && hPick.icons > 15 && hPick.names.join() === "Аэропорт,Аренда авто,Гостиница,Апартаменты" && hPick.acts.join() === "В новую группу"
     && hIcon.icon === "hotel" && hIcon.shown && hGroup.join() === "Группа 1,Tallinn" && /^Греция \(2\),Эстония \(1\)$/.test(hLands.join())
     && hIn.head === "Греция" && hIn.rows.join() === "Группа 1" && hMembers.head === "Группа 1" && hMembers.rows.join() === "Nafplio,Athens International Airport"
@@ -1312,7 +1312,7 @@ try {
     await sleep(300);
     const back = await run(`({ panel: document.querySelector('[data-panel="languages"]').hidden, mode: !document.querySelector(".search-toggle").classList.contains("mode"),
       placeholder: document.querySelector(".search-box input").placeholder })`);
-    check("языки: крестик значка — обратно к поиску мест", back.panel && back.mode && back.placeholder === "Поиск места", JSON.stringify(back));
+    check("языки: крестик значка — обратно к поиску мест", back.panel && back.mode && back.placeholder === "Поиск", JSON.stringify(back));
     await run(closeLayers);
   }
 
@@ -2045,6 +2045,13 @@ try {
     });
     const s3 = await run(`${ts}.statsOf(${JSON.stringify(slope)})`);
     check("треки: расстояние и скорость — с перепадом высот (склон 45°)", Math.abs(s3.dist / 1692 - 1) < 0.01 && Math.abs(s3.maxSpeed / (28.2 * 3.6 / 10) - 1) < 0.02, JSON.stringify(s3));
+    // круги: три круга по 400 м вокруг стадиона (радиус 64 м) и ещё полкруга — три круга, остаток не круг
+    const lap = `<?xml version="1.0"?><gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1"><trk><trkseg>${
+      Array.from({ length: 141 }, (_, i) => { const a = (i / 40) * 2 * Math.PI, lat = 59.47 + (64 / 111320) * (1 - Math.cos(a)), lon = 24.83 + (64 / (111320 * Math.cos((59.47 * Math.PI) / 180))) * Math.sin(a);
+        return `<trkpt lat="${lat.toFixed(7)}" lon="${lon.toFixed(7)}"><ele>10</ele><time>${new Date(Date.UTC(2026, 4, 26, 9, 0, i * 3)).toISOString()}</time></trkpt>`; }).join("")}</trkseg></trk></gpx>`;
+    const lp = await run(`${ts}.lapsOf(${JSON.stringify(lap)})`);
+    check("треки: круги — трек вернулся к началу, круг; три круга по 400 м, по 2 минуты, полкруга в конце — не круг",
+      lp.length === 3 && lp.every((r) => Math.abs(r.dist - 402) < 10 && r.time === 120000), JSON.stringify(lp));
     await run(openLayers("content/tracks"));
     await sleep(500);
     // горные лыжи (выдуманная гора): три раза подъёмник 200 м вверх медленно и спуск 200 м вниз быстро;
@@ -2425,7 +2432,9 @@ try {
     for (let i = 0; i < 20 && !(await run(`atlas.map.getLayer("contours") ? atlas.map.queryRenderedFeatures({ layers: ["contours"] }).length > 0 : false`)); i++) await sleep(1000);
     await idle();
     const n = await run(`atlas.map.getLayer("contours") ? atlas.map.queryRenderedFeatures({ layers: ["contours"] }).length : -1`);
-    check("горизонтали", n > 0, `${n} линий`);
+    // подписи высот — жирным шрифтом карты: шрифта нет — подписи пропали бы
+    const nl = await run(`atlas.map.getLayer("contour-labels") ? atlas.map.queryRenderedFeatures({ layers: ["contour-labels"] }).length : -1`);
+    check("горизонтали и подписи высот", n > 0 && nl > 0, `${n} линий, ${nl} подписей`);
     await shot("87-contours");
     const t3d = await run(`(async () => { await atlas.toggle("layers/terrain", true); atlas.map.jumpTo({ pitch: 60 }); await new Promise((r) => setTimeout(r, 4000)); const on = !!atlas.map.getTerrain(); return on; })()`);
     await shot("88-terrain3d");
@@ -2967,7 +2976,7 @@ try {
     && lens.s2.layers && lens.s2.content && lens.s2.search && (PHONE ? lens.behind && lens.up?.content && lens.up?.layers : lens.apart && !lens.behind)
     && !lens.s4.search && !lens.s4.content && lens.s4.layers && lens.s4.drop && !lens.s5.layers
     && lens.c1.search && lens.c1.content && !lens.c2.search && !lens.c2.content && lens.c2.drop && lens.c3.search && lens.c3.content
-    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои споты", "Мои треки", "Навигация", "Настройки", "Поиск места", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
+    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои споты", "Мои треки", "Настройки", "Поиск", "Путь", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
   // три барабана (Грегори 2026-11-21: «открыть много барабанов и поднимать их по слоям»): компьютер — полосами
   // разделы, места, слои сверху вниз; телефон — стопкой, нажатая кнопка поднимает свой наверх, верхний — закрывает
   const three = await run(`(async () => { const wait = () => new Promise((r) => setTimeout(r, 450));
