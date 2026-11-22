@@ -491,9 +491,7 @@ html, body {
 
 /* выбранный размер кнопок и текста (настройки) */
 .size-btn.on,
-.size-btn.on:hover,
-.tilt-btn.on,
-.tilt-btn.on:hover {
+.size-btn.on:hover {
   border-color: var(--accent);
   background: var(--active);
 }
@@ -1834,6 +1832,44 @@ body.has-photo-strip .status {
   width: calc(var(--button) + 3 * var(--gap));
   touch-action: none;
   transition: transform 0.25s ease, opacity 0.25s ease;
+  /* мышь и палец ловят только кнопки, промежутки и подписи — карта (Грегори 2026-11-22: «бережней к месту») */
+  pointer-events: none;
+}
+
+.wheel:not(.closed) .wheel-cell > .btn {
+  pointer-events: auto;
+}
+
+/* дуги по бокам столбика кнопок — рабочая область барабана или карусели, видны вместе с подписями */
+.wheel-arc {
+  position: absolute;
+  left: calc(50% - var(--button) / 2 - 14px);
+  width: calc(var(--button) + 28px);
+  box-sizing: border-box;
+  border: 2px solid transparent;
+  border-left-color: rgba(60, 64, 67, 0.55);
+  border-right-color: rgba(60, 64, 67, 0.55);
+  border-radius: 50%;
+  filter: drop-shadow(0 0 1px #fff);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+
+.carousel .wheel-arc {
+  left: auto;
+  right: -14px;
+}
+
+body.labels-live .wheel-arc,
+.labels-here .wheel-arc {
+  opacity: 1;
+}
+
+body.carousel-on .wheel .wheel-arc,
+.wheel.behind .wheel-arc,
+.carousel.covered .wheel-arc {
+  visibility: hidden;
 }
 
 .wheel.closed {
@@ -1874,12 +1910,10 @@ body.has-photo-strip .status {
   position: fixed;
   z-index: 21;
   transform: translateY(-50%);
-  padding: 5px 10px;
-  border-radius: 6px;
-  background: var(--panel);
   color: var(--text);
-  box-shadow: var(--shadow);
   font-size: 14px;
+  font-weight: 600;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff;
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
@@ -1902,7 +1936,7 @@ body.has-photo-strip .status {
   font-weight: 600;
   text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff;
   white-space: nowrap;
-  cursor: pointer;
+  pointer-events: none;
 }
 
 /* «Десктоп»: остаются карта (с маршрутами, метками и окном места по щелчку), кнопки слева внизу, сам «Десктоп» и
@@ -4193,7 +4227,8 @@ body.go-nav-off .go-menu {
   background-color: var(--panel-hover);
 }
 
-/* подпись кнопки по долгому нажатию на телефоне и при наведении мыши (core/touch-tip.js); мышь ушла — гаснет */
+/* подпись кнопки по долгому нажатию на телефоне и при наведении мыши (core/touch-tip.js); мышь ушла — гаснет;
+   вид — как подписи карусели: текст с белой каймой, без подложки (Грегори 2026-11-22) */
 .hover-tip {
   opacity: 0;
   transition: opacity 0.25s;
@@ -4208,12 +4243,10 @@ body.go-nav-off .go-menu {
   position: fixed;
   z-index: 100;
   max-width: min(80vw, 320px);
-  padding: 7px 12px;
-  border-radius: 10px;
-  background: var(--panel);
   color: var(--text);
-  box-shadow: var(--shadow);
   font-size: 14px;
+  font-weight: 600;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff;
   line-height: 1.3;
   pointer-events: none;
 }
@@ -4434,7 +4467,7 @@ body.go-nav-off .go-menu {
 }
 
 .layers-sub.carousel.covered {
-  transform: perspective(600px) translateZ(calc(-110px * var(--depth, 1))) rotateX(var(--carousel-tilt, 28deg));
+  transform: perspective(600px) translateZ(calc(-110px * var(--depth, 1))) rotateX(28deg);
   opacity: 0.5;
   filter: blur(1px);
 }
@@ -4442,7 +4475,15 @@ body.go-nav-off .go-menu {
 .carousel .wheel-cell {
   left: auto;
   right: 0;
+}
+
+/* карусель ловит только значки; подпись — не кнопка, под ней карта */
+.carousel:not(.closing) .layers-icon {
   pointer-events: auto;
+}
+
+.carousel .layers-item > span {
+  pointer-events: none !important;
 }
 
 .carousel .layers-item,

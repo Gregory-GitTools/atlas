@@ -37,7 +37,7 @@ let openRoute = null;
 // цель — своя карточка над подсказками
 const CLOSE = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 const FOLD = '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M6 15l6-6 6 6"/></svg>';
-const MODE = { icon: ICON, title: "Путь", placeholder: "Куда", tone: "nav",
+const MODE = { icon: ICON, title: "Трек", placeholder: "Куда", tone: "nav",
   filter: (text) => { if (!text && results) { results = null; note = ""; } },
   submit: (text) => find(text),
   // найдено лупой строки (поиск мест, core/search.js) — в «Куда»; цели нет — целью (карточка со способами
@@ -362,7 +362,7 @@ on("route-open", (t) => {
 register({
   id: "content/navigation",
   kind: "content",
-  title: "Путь", // Грегори 2026-11-22: «Кнопка навигация — Путь. В заголовке панели Путь»
+  title: "Трек", // Грегори 2026-11-22: «Кнопка навигация — Путь», потом — «Пусть будет Трек на английский манер»
   tone: "nav",
   hint: "Где я, куда идти и как добраться",
   icon: ICON,

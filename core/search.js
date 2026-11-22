@@ -116,7 +116,7 @@ export function initSearch({ map, maplibregl }) {
   const unfoldPanel = () => { cardOpen = false; close(); emit("panel-fold-request", { fold: false }); };
   // «Поиск места» в барабане — из режима раздела в обычный поиск: окно раздела закрыть, режим снять
   on("search-plain", () => { closeOpen("left"); setMode(null); input.value = plainText(); clearBtn.hidden = !input.value; }, { replay: false });
-  // выбрали «Поиск» или «Путь» в барабане — сразу их история (Грегори 2026-11-22: «все открывают историю, чтобы
+  // выбрали «Поиск» или «Трек» в барабане — сразу их история (Грегори 2026-11-22: «все открывают историю, чтобы
   // было понятно, что выбор сработал»), как окна других разделов
   on("search-list", () => { if (mode && !mode.list) return; if (leftOpen) emit("panel-fold-request", { fold: true }); suggest(); }, { replay: false });
   // открыт ли поиск (кнопка справа вверху) — карточка пути видна только с ним

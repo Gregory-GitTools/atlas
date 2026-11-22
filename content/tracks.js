@@ -528,7 +528,7 @@ function recGo(kind) {
   settings.set("tracks.rec.place", null);
   // запись включает навигацию (Грегори 2026-11-21: «запись трека без навигации — исправить») и выключает её в
   // конце в любом случае (Грегори 2026-11-22: «Выключаем навигацию в любом случае. Движение остановлено»)
-  emit("nav-switch", { on: true });
+  emit("nav-switch", { on: true, zoomM: 50 });
   recPts = [];
   setTimeout(recPoll, 300);
 }
@@ -673,10 +673,14 @@ function recDraw() {
   if (!map) return;
   const data = fc(recPts.length ? [{ type: "Feature", geometry: { type: "MultiLineString", coordinates: recSegs(recPts).map((s) => s.map((p) => [p[0], p[1]])) }, properties: {} }] : []);
   if (map.getSource("tracks-rec")) { map.getSource("tracks-rec").setData(data); return; }
-  if (!recPts.length || !map.isStyleLoaded()) return;
-  map.addSource("tracks-rec", { type: "geojson", data });
-  map.addLayer({ id: "tracks-rec-casing", type: "line", source: "tracks-rec", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#fff", "line-width": 7 } });
-  map.addLayer({ id: "tracks-rec-line", type: "line", source: "tracks-rec", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": COLOR, "line-width": 4 } });
+  if (!recPts.length) return;
+  // isStyleLoaded() ложно, пока догружаются плитки (после перелёта к 50 м при начале записи — долго), — но слои
+  // добавлять уже можно; стиль ещё не пришёл совсем — линию поставит style.load
+  try {
+    map.addSource("tracks-rec", { type: "geojson", data });
+    map.addLayer({ id: "tracks-rec-casing", type: "line", source: "tracks-rec", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#fff", "line-width": 7 } });
+    map.addLayer({ id: "tracks-rec-line", type: "line", source: "tracks-rec", layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": COLOR, "line-width": 4 } });
+  } catch { /* стиль ещё не загружен */ }
 }
 // кнопка над «Навигацией»: не пишет — запись по подтверждению; пишет — светится, красная точка и время
 function recShow() {

@@ -842,20 +842,12 @@ try {
     await flip("ui.numbers"); r.none = lab();
     await flip("ui.labels"); r.noNumbers = lab();
     r.back = !document.body.classList.contains("labels-off") && document.body.classList.contains("numbers-off");
-    // наклон задних каруселей (Грегори 2026-11-22: «поэкспериментируем с углом»): 28° по умолчанию, выбор сразу на месте
-    const tb = (d) => [...sp.querySelectorAll(".tilt-row button")].find((b) => b.textContent === d + "°");
-    const tv = () => document.documentElement.style.getPropertyValue("--carousel-tilt");
-    r.tilt = [tv(), tb(28)?.classList.contains("on")];
-    tb(60).click(); await wait(100); r.tilt.push(tv(), tb(60).classList.contains("on"));
-    tb(28).click(); await wait(100); r.tilt.push(tv());
     sp.querySelector(".panel-btn[title=Закрыть]").click();
     return r; })()`);
   check("язык подписей переключается — в Настройках", lang.en && lang.label === "Русский", JSON.stringify(lang));
   check("настройки: «Подписи кнопок» и «Номера кнопок» (по умолчанию выкл., галочки справа) — выключены подписи остаётся номер, выключено всё — ничего",
     lang.boxes && lang.right && lang.on.shown && lang.on.size !== "0px" && /^"\d/.test(lang.on.num) && lang.noLabels.body && lang.noLabels.shown && lang.noLabels.size === "0px" && /^"\d/.test(lang.noLabels.num)
     && !lang.none.shown && lang.noNumbers.shown && lang.noNumbers.num === "none" && lang.back, JSON.stringify(lang));
-  check("настройки: «Наклон задних каруселей» — 28° по умолчанию, 60° выбирается сразу",
-    JSON.stringify(lang.tilt) === JSON.stringify(["28deg", true, "60deg", true, "28deg"]), JSON.stringify(lang.tilt));
   // ревизия 2026-11-05/06: шестерёнка — в барабане разделов; 2026-11-21: кнопки языка под логотипом нет; ⓘ при запуске свёрнута; пустая строка состояния не видна
   const misc = await run(`({ lang: !document.querySelector(".lang-btn, .dock") && !!document.querySelector('.wheel-content .layers-circle[data-key="settings"]'), inSearch: !!document.querySelector(".search-box .lang-btn"),
     attrib: document.querySelector(".maplibregl-ctrl-attrib")?.classList.contains("maplibregl-compact-show"),
@@ -930,7 +922,7 @@ try {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); await w(300);
     }
     (await import(new URL("core/search.js", location.href))).setSearchMode(null); return out; })()`);
-  check("барабан: «Поиск» и «Путь» сразу открывают свою историю", drumHist.search.list && drumHist["content/navigation"].list, JSON.stringify(drumHist));
+  check("барабан: «Поиск» и «Трек» сразу открывают свою историю", drumHist.search.list && drumHist["content/navigation"].list, JSON.stringify(drumHist));
   check("поиск: лупа в строке в режиме «Путь» — поиск мест; выбранное — в обе истории и целью, при цели — окно места, цель та же",
     lensNav.one.ph === "Куда" && lensNav.one.n1 > 0 && lensNav.one.t1 && lensNav.one.open && lensNav.one.card && lensNav.one.route && lensNav.one.search &&
     lensNav.two.n2 > 0 && lensNav.two.target === lensNav.one.t1 && lensNav.two.popup && lensNav.two.open, JSON.stringify(lensNav));
@@ -2354,9 +2346,21 @@ try {
         stop: () => { st.on = false; st.pausedAt = 0; }, state: () => JSON.stringify({ ...st, saved: lines.length > 0 }),
         read: (from) => JSON.stringify(lines.slice(from)), clear: () => { if (!st.on) lines.length = 0; } };
       ${ts}.recInit(); return true; })()`);
+    await send("Emulation.setGeolocationOverride", { latitude: 59.47, longitude: 24.83, accuracy: 5 });
+    await run(`atlas.map.jumpTo({ zoom: 12 }); true`);
     await run(`document.querySelector(".rec-btn").click(); window.__recKinds = [...document.querySelectorAll(".rec-kinds .rec-kind")].map((b) => b.textContent);
       document.querySelector(".rec-kinds [data-kind=run]").click(); window.__recNav = atlas.geo.state().on; window.__recT = Date.now(); for (let i = 0; i < 20; i++) __rec.push([24.83 + i * 0.0005, 59.47, 5, Date.now() - (40 - i) * 1000]); true`);
-    await sleep(1500);
+    // запись началась — ко мне со шкалой 50 м, как к найденному месту (Грегори 2026-11-22: «приближение при записи
+    // трека не происходит»)
+    let z50 = {};
+    for (let i = 0; i < 20; i++) {
+      await sleep(300);
+      z50 = await run(`(() => { const lat = atlas.geo.state().position?.[1]; return { zoom: atlas.map.getZoom(), moving: atlas.map.isMoving(),
+        want: lat == null ? null : Math.log2((100 * 40075016.686 * Math.cos((lat * Math.PI) / 180)) / (512 * 50)) }; })()`);
+      if (z50.want != null && !z50.moving && Math.abs(z50.zoom - z50.want) < 0.3) break;
+    }
+    await send("Emulation.clearGeolocationOverride");
+    check("запись трека: при начале — ко мне, шкала 50 м", z50.want != null && Math.abs(z50.zoom - z50.want) < 0.3, JSON.stringify(z50));
     const rc1 = await run(`({ ...${ts}.recState(), row: document.querySelector('[data-panel="tracks"] .tk-rec')?.textContent })`);
     await run(`document.querySelector('[data-panel="tracks"] .tk-rec .pb-btn').click(); true`);
     await sleep(500);
@@ -3065,6 +3069,9 @@ try {
     && !lm.groups.includes("Пляжи и сёрфинг") && !lm.groups.includes("Рельеф") && lm.sub.length === 5
     && lm.sub.includes("Железные дороги") && lm.on.includes("Дороги"), JSON.stringify(lm));
   await shot("95-panel-layers");
+  // компьютер: места барабанов постоянные (Грегори 2026-11-22: «прыгают на освободившееся место») — в окне 800
+  // три барабана делят высоту поровну, по 3 кнопки; проверки ниже считают кнопки — окно повыше, все три по своим кнопкам
+  if (!PHONE) { await send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 1150, deviceScaleFactor: 1, mobile: false }); await sleep(800); }
   // лупа справа вверху: щелчок — строка поиска и барабан разделов (Экскурсии, Языки, Треки, Фото), на месте
   // лупы — логотип (лупа одна — в строке); треугольник — барабан слоёв вместо разделов; второй щелчок по
   // треугольнику прячет слои, по логотипу — поиск и разделы
@@ -3101,7 +3108,7 @@ try {
     && lens.s2.layers && lens.s2.content && lens.s2.search && (PHONE ? lens.behind && lens.up?.content && lens.up?.layers : lens.apart && !lens.behind)
     && !lens.s4.search && !lens.s4.content && lens.s4.layers && lens.s4.drop && !lens.s5.layers
     && lens.c1.search && lens.c1.content && !lens.c2.search && !lens.c2.content && lens.c2.drop && lens.c3.search && lens.c3.content
-    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои споты", "Мои треки", "Настройки", "Поиск", "Путь", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
+    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои споты", "Мои треки", "Настройки", "Поиск", "Трек", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
   // три барабана (Грегори 2026-11-21: «открыть много барабанов и поднимать их по слоям»): компьютер — полосами
   // разделы, места, слои сверху вниз; телефон — стопкой, нажатая кнопка поднимает свой наверх, верхний — закрывает
   const three = await run(`(async () => { const wait = () => new Promise((r) => setTimeout(r, 450));
@@ -3116,7 +3123,6 @@ try {
     const r = { all: open("content") && open("places") && open("layers"), bands: hi("content") <= lo("places") + 1 && hi("places") <= lo("layers") + 1,
       top: top(), pOpen: P.classList.contains("open"), aOpen: A.classList.contains("open") };
     // компьютер — вплотную, без пустых полос между барабанами (Грегори 2026-11-22)
-    // (окно проверки низкое — помещаются только два барабана: разделы и места)
     r.tight = ${PHONE} || lo("places") - hi("content") < 60;
     const pr = P.getBoundingClientRect(), ar = A.getBoundingClientRect();
     r.above = Math.round(ar.top - pr.bottom) === 10 && Math.round(pr.right) === Math.round(ar.right);
@@ -3124,8 +3130,9 @@ try {
     // компьютер: «Слои» — закрыть, «Места» — закрыть, открыть, закрыть
     const steps = [], lt = w("layers").style.top;
     for (const b of [A, P, P, P]) { b.click(); await wait(); steps.push(top().join()); if (!r.stay) r.stay = { was: lt, now: w("layers").style.top }; }
-    // закрытый уезжает со своего места, не прыгает к верху (Грегори 2026-11-22)
+    // закрытый уезжает со своего места, не прыгает к верху; соседи не прыгают на освободившееся (Грегори 2026-11-22)
     r.stay = ${PHONE} || (!!lt && r.stay.now === lt);
+    if (!${PHONE}) { const pt = w("places").style.top; L.click(); await wait(); r.keep = pt === w("places").style.top; L.click(); await wait(); }
     // как было: слои открыты, разделы и места закрыты
     for (let k = 0; k < 6; k++) {
       const t = top();
@@ -3137,7 +3144,7 @@ try {
   check("три барабана: компьютер — полосами (разделы, места, слои), телефон — стопкой, кнопка поднимает свой наверх; «Места» над «Слоями»",
     three.all && three.above && three.after.join() === "layers" && (PHONE
       ? three.top.join() === "places" && three.pOpen && !three.aOpen && three.steps.join("|") === "layers|places|layers|places"
-      : three.bands && three.tight && three.stay && three.top.length === 3 && three.pOpen && three.aOpen && three.steps.join("|") === "content,places|content|content,places|content"), JSON.stringify(three));
+      : three.bands && three.tight && three.stay && three.keep && three.top.length === 3 && three.pOpen && three.aOpen && three.steps.join("|") === "content,places|content|content,places|content"), JSON.stringify(three));
   await shot("95c-three-drums");
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико
   // крутит его, нажатие по кнопке не в центре докручивает её и открывает столбик
@@ -3159,6 +3166,7 @@ try {
   const wl = await run(`[...document.querySelectorAll(".wheel-layers .wheel-cell:not([hidden])")].slice(0, 4).map((cell) => { const l = cell.querySelector(".wheel-label"), c = cell.querySelector(".layers-circle");
     const a = l.getBoundingClientRect(), b = c.getBoundingClientRect(); return { num: l.dataset.num, text: l.textContent, left: a.right <= b.left, level: Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) <= 1, title: c.ariaLabel.startsWith(l.textContent) }; })`);
   check("барабан: у каждой кнопки постоянная подпись с номером 3.N слева, вровень с ней", wl.length === 4 && wl.every((x) => /^3\.\d+$/.test(x.num) && x.left && x.level && x.title), JSON.stringify(wl));
+  if (!PHONE) { await send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 800, deviceScaleFactor: 1, mobile: false }); await sleep(800); }
   // подписи: с мышью — пока она над кнопками барабана, ушла — гаснут; на сенсорном — пока крутят и 2 с после
   // (Грегори 2026-11-22: окно под ними не видно; «включай подписи при наведении мыши на конкретный барабан»)
   if (PHONE) await run(`dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch" })); true`); // тесты жмут мышью — на телефоне последним был палец
@@ -3166,7 +3174,7 @@ try {
   if (!PHONE) {
     const at = await run(`(() => { const c = [...document.querySelectorAll(".wheel-layers .wheel-cell:not([hidden]) .layers-circle")].map((b) => b.getBoundingClientRect())
       .sort((a, b) => Math.abs(a.top + a.bottom - innerHeight) - Math.abs(b.top + b.bottom - innerHeight))[0]; return [Math.round(c.left + c.width / 2), Math.round(c.top + c.height / 2)]; })()`);
-    const op = () => run(`getComputedStyle(document.querySelector(".wheel-layers .wheel-label")).opacity`);
+    const op = () => run(`getComputedStyle(document.querySelector(".wheel-layers .wheel-cell:not([hidden]) .wheel-label")).opacity`);
     const here = () => run(`document.querySelector(".wheel-layers").classList.contains("labels-here")`);
     await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: at[0], y: at[1] }); await sleep(700);
     const over = await here(), shown = await op();
@@ -3263,26 +3271,37 @@ try {
     return r; })()`);
   check("цепочка каруселей: «Горнолыжные спуски» — третья карусель с местами «Спорта» (номера 3.N.5.k), кнопка барабана закрывает всю цепочку",
     chain.nums && chain.open2 && chain.covered && chain.left && chain.ski && chain.closed && chain.titles?.length === 3 && chain.titles.every((t) => /^3\.\d+\.5\.\d /.test(t)) && chain.titles[0].endsWith("Горнолыжные курорты"), JSON.stringify(chain));
-  // полоса каруселей (Грегори 2026-11-21: «запретить зум карты в районе каруселей»): колёсико между подписями —
-  // карта не приближается, карусель крутится; подписи — без подложки
+  // столбик карусели (Грегори 2026-11-21: «запретить зум карты в районе каруселей»): колёсико между значками —
+  // карта не приближается, карусель крутится; над подписями — карта, карусель стоит (Грегори 2026-11-22: «реакция
+  // только на область самих каруселей»); подписи — без подложки; дуги видны вместе с подписями
   if (PHONE) await run(`dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch" })); true`); // тесты жмут мышью — на телефоне последним был палец
   const zone = await run(`(async () => { const tr = document.querySelector('.wheel-layers .layers-circle[data-key="trails/hiking"]');
     if (!tr.classList.contains("open")) tr.click(); await new Promise((r) => setTimeout(r, 1200));
     const s1 = document.querySelector(".sub-layers"), cells = [...s1.querySelectorAll(".wheel-cell:not([hidden])")].map((c) => c.getBoundingClientRect());
-    const sorted = cells.sort((a, b) => a.top - b.top), x = Math.round(Math.min(...cells.map((r) => r.left)) + 15), y = Math.round((sorted[0].bottom + sorted[1].top) / 2);
+    const sorted = cells.sort((a, b) => a.top - b.top), x = Math.round(Math.min(...cells.map((r) => r.left)) + 15), mids = sorted.map((r) => Math.round((r.top + r.bottom) / 2)),
+      y = mids.find((m) => document.elementFromPoint(x, m)?.tagName === "CANVAS") ?? mids[0]; // под подписью — карта, не окно погоды
     const span = s1.querySelector(".layers-item > span");
     const top = () => [...s1.querySelectorAll(".wheel-cell:not([hidden])")].sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0].textContent;
     window.__top = top;
     const ic = s1.querySelector(".wheel-cell:not([hidden]) .layers-icon").getBoundingClientRect();
-    return { x, y, ix: Math.round(ic.left + ic.width / 2), iy: Math.round(ic.top + ic.height / 2), map: document.elementFromPoint(x, y)?.tagName === "CANVAS", zoom: atlas.map.getZoom(), first: top(), bg: getComputedStyle(span).backgroundColor }; })()`);
-  // с мышью подписи — пока она над кнопками: сперва на кнопку, потом между подписями
-  if (!PHONE) { await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: zone.ix, y: zone.iy }); await sleep(300); await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: zone.x, y: zone.y }); await sleep(300); }
+    const ics = [...s1.querySelectorAll(".wheel-cell:not([hidden]) .layers-icon")].map((i) => i.getBoundingClientRect()).sort((a, b) => a.top - b.top);
+    return { x, y, ix: Math.round(ic.left + ic.width / 2), iy: Math.round(ic.top + ic.height / 2), gy: Math.round((ics[0].bottom + ics[1].top) / 2),
+      map: document.elementFromPoint(x, y)?.tagName === "CANVAS", at: document.elementFromPoint(x, y)?.className, zoom: atlas.map.getZoom(), first: top(), bg: getComputedStyle(span).backgroundColor }; })()`);
+  // мышь на значке — подписи и дуги видны
+  if (!PHONE) { await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: zone.ix, y: zone.iy }); await sleep(600); }
+  zone.arc = await run(`getComputedStyle(document.querySelector(".sub-layers .wheel-arc")).opacity`);
+  // над подписью — карта приближается, карусель стоит
   await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: zone.x, y: zone.y, deltaX: 0, deltaY: 300 });
   await sleep(1500);
+  const zoneL = await run(`({ zoom: atlas.map.getZoom(), first: window.__top() })`);
+  // между значками — карусель крутится, карта нет
+  await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: zone.ix, y: zone.gy, deltaX: 0, deltaY: 300 });
+  await sleep(1500);
   const zone2 = await run(`({ zoom: atlas.map.getZoom(), first: window.__top() })`);
+  zone.zoom = zoneL.zoom;
   await run(`(() => { const tr = document.querySelector('.wheel-layers .layers-circle[data-key="trails/hiking"]'); if (tr.classList.contains("open")) tr.click(); return true; })()`);
-  check("полоса каруселей: колёсико между подписями крутит карусель, карта не приближается; подписи без подложки",
-    zone.map && Math.abs(zone2.zoom - zone.zoom) < 0.01 && zone2.first !== zone.first && zone.bg === "rgba(0, 0, 0, 0)", JSON.stringify({ zone, zone2 }));
+  check("карусель: колёсико между значками крутит её, карта стоит; над подписями — карта; подписи без подложки, дуги видны",
+    zone.map && zoneL.first === zone.first && Math.abs(zone2.zoom - zone.zoom) < 0.01 && zone2.first !== zone.first && zone.bg === "rgba(0, 0, 0, 0)" && +zone.arc > 0.9, JSON.stringify({ zone, zoneL, zone2 }));
   // фокус в цепочке (Грегори 2026-11-21: «фокус не переходит на соседнюю карусель, её невозможно крутить»):
   // колёсико над передней каруселью крутит её, над видной кнопкой задней — заднюю (передняя закрывается)
   const focus = await run(`(async () => { const wait = (ms) => new Promise((r) => setTimeout(r, ms));

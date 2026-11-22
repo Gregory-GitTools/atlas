@@ -116,6 +116,8 @@ const POS = ["route", "arrow", "manual"];
 const POS_LABEL = { route: "Путь", arrow: "3D", manual: "Свой" };
 const POS_TITLE = { route: "весь путь, север вверху", arrow: "3D по ходу движения, шкала 200 м", manual: "свой масштаб и наклон" };
 const ARROW_M = 200; // шкала (м на 100 px) у стрелки — видны дома
+// масштаб, при котором шкала — m метров на 100 px
+const zoomFor = (m, lat) => Math.log2((100 * 40075016.686 * Math.cos((lat * Math.PI) / 180)) / (512 * m));
 const POS_ICON = `<svg class="pos-icon" viewBox="0 0 24 24" width="22" height="22"><path d="M12 2l7 18-7-4-7 4z" fill="currentColor"/></svg>`;
 const CHEVRON = `<svg class="geo-chevron" viewBox="0 0 40 40" width="40" height="40"><path d="M20 3l13 32-13-7-13 7z" fill="#1a73e8" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg>`;
 
@@ -141,7 +143,7 @@ export function addGeolocate(map, maplibregl, status) {
   };
   // открыта карточка пути — карта за мной не ходит: на экране весь путь (Грегори 2026-11-06: «не
   // позиционируем моё положение при открытой карточке; закрыли — сразу ко мне, без задержки»)
-  let hold = false, tilting = false, handZoom = false;
+  let hold = false, tilting = false, handZoom = false, wantM = null;
   let pos = POS.includes(settings.get("nav.position")) ? settings.get("nav.position") : "arrow", enter = false, viewSave = false, posEntered = false;
   const manual = () => settings.get("nav.manual", {});
   const setPos = (p) => { pos = p; settings.set("nav.position", p); };
@@ -173,6 +175,16 @@ export function addGeolocate(map, maplibregl, status) {
     // масштаб меняют рукой — замер GPS не перебивает (Грегори 2026-11-22: при записи трека не приближалось до 50 м:
     // easeTo каждую секунду возвращал прежний масштаб); отпустили — moveend снова центрирует
     if (!position || compassTurning || hold || tilting || handZoom) return;
+    // запись трека началась — перелёт ко мне со шкалой wantM, как к найденному месту (Грегори 2026-11-22: «после
+    // начала записи приближения 50 м не даёт… по аналогии с найденным местом»)
+    if (wantM) {
+      const zoom = zoomFor(wantM, position[1]);
+      wantM = null; enter = false; first = false;
+      map.flyTo({ center: position, zoom, offset: [0, low() ? Math.round(innerHeight * NAV_LOW) : 0], duration: 1500 }, { navFollow: true });
+      tilting = true;
+      map.once("moveend", () => { tilting = false; });
+      return;
+    }
     if (enter) { enterPos(); return; }
     // весь путь: карта стоит, пока я на экране; ушёл за край — путь заново (пути нет — за мной, как обычно)
     if (pos === "route" && posEntered) {
@@ -203,7 +215,7 @@ export function addGeolocate(map, maplibregl, status) {
       posEntered = req.done; // пути нет — просто за мной, север вверху
       if (!req.done) map.easeTo({ center: position, bearing: 0, pitch: 0, offset: [0, 0], duration: 800 }, { navFollow: true });
     } else if (pos === "arrow") {
-      const zoom = Math.log2((100 * 40075016.686 * Math.cos((position[1] * Math.PI) / 180)) / (512 * ARROW_M));
+      const zoom = zoomFor(ARROW_M, position[1]);
       map.easeTo({ center: position, zoom, pitch: TILT, bearing: moveHeading ?? map.getBearing(), offset: lowOff(TILT), duration: 1200 }, { navFollow: true });
     } else {
       const pitch = m.pitch ?? map.getPitch();
@@ -384,7 +396,13 @@ export function addGeolocate(map, maplibregl, status) {
     if (follow && position) map.once("moveend", () => follow && setTimeout(center));
   });
   // включить или выключить из раздела «Навигация»
-  on("nav-switch", ({ on: want }) => { if (want && watch === null) start(); else if (!want && watch !== null) stop(); }, { replay: false });
+  // zoomM — ещё и ко мне со шкалой zoomM м (запись трека)
+  on("nav-switch", ({ on: want, zoomM }) => {
+    if (want && zoomM) wantM = zoomM;
+    if (want && watch === null) start();
+    else if (!want && watch !== null) stop();
+    else if (want && zoomM) { clearTimeout(back); back = null; follow = true; update(); center(); }
+  }, { replay: false });
   // при запуске навигация не включается никогда, даже если была включена при закрытии (Грегори 2026-11-05:
   // «загрузка идёт, ничего не происходит, а кнопка включена — дезориентирует»)
   settings.set("geolocate", null);

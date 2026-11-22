@@ -34,7 +34,7 @@
 // Включённые слои, какой барабан открыт и спрятан ли поиск — помнятся. Открылась панель настроек —
 // барабан уступает место, и наоборот
 import { closeOpen, homeList, isOpen as panelOpen, close as closePanel } from "./panel.js";
-import { GEAR_ICON, TILT } from "./settings-panel.js";
+import { GEAR_ICON } from "./settings-panel.js";
 import { ARROW as ROUTE_ARROW } from "./route.js";
 import { backable } from "./back.js";
 import { modules, toggle, available, allowed, onRegister, MODULES } from "./modules.js";
@@ -254,19 +254,19 @@ export function initLayersPanel(ctx) {
     opened[name] = open;
     arrange();
   };
-  // открыто несколько: компьютер — полосами сверху вниз (разделы, места, слои) вплотную, каждая — по своим кнопкам
-  // (Грегори 2026-11-22: «прижми карусели друг к другу»), не помещаются — полосы поровну; телефон — стопкой
+  // компьютер: у каждого барабана своё постоянное место сверху вниз (разделы, места, слои) вплотную, каждое — по
+  // своим кнопкам (Грегори 2026-11-22: «прижми карусели друг к другу»), открыт он или нет: соседи не прыгают на
+  // освободившееся место, закрытый уезжает со своего; не помещаются — места поровну. Телефон — стопкой
   function arrange() {
     for (const d of drums) {
       d.setOpen(opened[d.name]);
       d.wheel.classList.toggle("behind", stacked() && front() !== d.name);
-      // закрытый остаётся, где был, — уезжает с места (Грегори 2026-11-22: «прыгает наверх под нижнюю кнопку»)
-      if (opened[d.name]) d.wheel.style.top = d.wheel.style.bottom = "";
+      d.wheel.style.top = d.wheel.style.bottom = "";
     }
-    const bands = BANDS.filter((n) => opened[n]);
-    if (bands.length > 1 && !phone()) {
+    const bands = BANDS;
+    if (!phone()) {
       const r = drums[0].wheel.getBoundingClientRect(), need = bands.map((n) => drums.find((d) => d.name === n).need());
-      // не помещаются — поровну, как было: при сжатии по доле у короткого барабана оставалась одна кнопка
+      // не помещаются — поровну: при сжатии по доле у короткого барабана оставалась одна кнопка
       const fits = need.reduce((a, b) => a + b, 0) <= r.bottom - r.top;
       let y = r.top;
       bands.forEach((n, k) => {
@@ -489,10 +489,9 @@ export function initLayersPanel(ctx) {
           c.ariaLabel = `Карты: ${currentBasemap().name}`;
         } else c.innerHTML = e.icon;
         const x = Object.assign(document.createElement("button"), { className: "layers-clear", title: "Снять всё", hidden: true, innerHTML: CLEAR_ICON });
-        // постоянная подпись с номером — слева от кнопки, крутится вместе с ней; нажатие — как по кнопке
+        // постоянная подпись с номером — слева от кнопки, крутится вместе с ней; не нажимается — под ней карта
         const label = Object.assign(document.createElement("span"), { className: "wheel-label", textContent: e.title });
         label.dataset.num = `${num}.${idx + 1}`;
-        label.addEventListener("click", (ev) => { ev.stopPropagation(); c.click(); });
         cell.append(label, c, x);
         // у модуля с видами в подсказке — выбранный вид
         const chosen = e.module?.menu.label();
@@ -573,30 +572,25 @@ export function initLayersPanel(ctx) {
     document.body.classList.toggle("labels-off", settings.get("ui.labels") === false);
     // номера — для наладки, по умолчанию выключены (Грегори 2026-11-21)
     document.body.classList.toggle("numbers-off", settings.get("ui.numbers") !== true);
-    // наклон задних каруселей цепочки — подбирается в настройках (Грегори 2026-11-22: «поэкспериментируем»)
-    document.documentElement.style.setProperty("--carousel-tilt", `${settings.get("ui.tilt") ?? TILT}deg`);
   };
   paintLabels();
   on("button-labels", paintLabels, { replay: false });
 
-  // полоса барабанов и каруселей с подписями — карта в ней не приближается (Грегори 2026-11-21: «запретить зум карты
-  // в районе каруселей»): колёсико над ней крутит барабан или карусель, щипок двумя пальцами и двойной щелчок —
-  // ничего. Полоса — от левого края подписей до правого края барабана или карусели
+  // столбик кнопок барабана или карусели — карта в нём не приближается (Грегори 2026-11-21: «запретить зум карты
+  // в районе каруселей»): колёсико над ним крутит барабан или карусель, щипок двумя пальцами и двойной щелчок —
+  // ничего. Над подписями — карта, как везде
   const zoneAt = (x, y) => {
     if (document.body.classList.contains("desk-on")) return null;
     // передняя (открытая последней) карусель — первой (Грегори 2026-11-21: «фокус не переходит на соседнюю карусель»)
     for (const el of [...document.querySelectorAll(".wheel:not(.closed):not(.behind), .layers-sub.carousel:not([hidden]):not(.closing)")].reverse()) {
       const box = el.getBoundingClientRect();
       if (y < box.top || y > box.bottom || x > box.right) continue;
-      // только где кнопки и видимые подписи — и по высоте, и слева (Грегори 2026-11-22: карусели ниже первой
-      // крутились, когда мышь уже на карте: карусель — во всю ширину экрана, левый край брался от неё)
-      const live = document.body.classList.contains("labels-live") || el.classList.contains("labels-here");
-      const sel = el.classList.contains("wheel")
-        ? `.wheel-cell:not([hidden])${live ? ", .wheel-label" : ""}`
-        : `.wheel-cell:not([hidden]) .layers-icon${live ? ", .wheel-cell:not([hidden]) .layers-item > span" : ""}`;
+      // только столбик самих кнопок, подписи — нет (Грегори 2026-11-22: «с чего ты взял, что подписи должны забирать
+      // фокус? Это больше половины экрана на телефоне… реакция только на область самих каруселей»)
+      const sel = el.classList.contains("wheel") ? ".wheel-cell:not([hidden]) .layers-circle" : ".wheel-cell:not([hidden]) .layers-icon";
       const parts = [...el.querySelectorAll(sel)].map((c) => c.getBoundingClientRect()).filter((r) => r.width);
       if (!parts.length || y < Math.min(...parts.map((r) => r.top)) - 8 || y > Math.max(...parts.map((r) => r.bottom)) + 8) continue;
-      if (x >= Math.min(...parts.map((r) => r.left)) - 8) return el;
+      if (x >= Math.min(...parts.map((r) => r.left)) - 8 && x <= Math.max(...parts.map((r) => r.right)) + 8) return el;
     }
     return null;
   };
@@ -701,6 +695,9 @@ function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {
     const step = Math.PI / 2 / half;
     return { step, radius: Math.min(full, GAP / Math.sin(step)) };
   };
+  // дуги по бокам столбика — видна рабочая область, вместе с подписями (Грегори 2026-11-22, рисунок: «показывал бы
+  // эти дуги вместе с подписями кнопок во время вращения… потом раствориться»)
+  const arc = Object.assign(document.createElement("div"), { className: "wheel-arc" });
   const shownAt = (v) => v - (DETENT * Math.sin(2 * Math.PI * v)) / (2 * Math.PI);
   const wrap = (d) => { const k = n(); return ((d % k) + k + k / 2) % k - k / 2; };
   const centerIndex = () => ((Math.round(raw) % n()) + n()) % n();
@@ -708,6 +705,8 @@ function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {
   function layout() {
     if (!n() || !shown()) return;
     const cy = centerY(), { radius, step } = geom();
+    if (!arc.isConnected) box.append(arc);
+    Object.assign(arc.style, { top: `${Math.round(cy - radius - BTN / 2 - 6)}px`, height: `${Math.round(2 * radius + BTN + 12)}px` });
     const off = shownAt(raw);
     cells.forEach((cell, i) => {
       const a = wrap(i - off) * step;

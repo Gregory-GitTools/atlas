@@ -44,7 +44,7 @@ addEventListener("touchend", () => { clearTimeout(timer); start = null; }, { cap
 addEventListener("touchcancel", () => { clearTimeout(timer); start = null; hide(); }, { capture: true });
 
 // компьютер: подпись любой кнопки — сразу при наведении мыши, мышь ушла — сразу гаснет (Грегори 2026-11-22:
-// «универсальное решение для всех кнопок»). Своя вместо title браузера — тот всплывает через секунду и гаснет
+// «универсальное решение для всех кнопок»); вид — как подписи карусели («везде кнопки подписываем как на карусели»). Своя вместо title браузера — тот всплывает через секунду и гаснет
 // не сразу; title на время наведения переезжает в data-tip. Сбоку от кнопки: справа на экране — слева от неё
 let hoverEl = null, hoverTip = null;
 const hoverOff = () => {
@@ -72,6 +72,9 @@ addEventListener("pointerover", (e) => {
   requestAnimationFrame(() => t.classList.add("on"));
 }, { capture: true });
 addEventListener("pointerout", (e) => { if (hoverEl && !hoverEl.contains(e.relatedTarget)) hoverOff(); }, { capture: true });
+// кнопку под мышью убрали или спрятали (перерисовали барабан) — подпись не остаётся висеть
+addEventListener("pointermove", () => { if (hoverEl && (!hoverEl.isConnected || !hoverEl.getClientRects().length)) hoverOff(); }, { capture: true, passive: true });
+addEventListener("wheel", () => hoverOff(), { capture: true, passive: true });
 addEventListener("pointerdown", () => hoverOff(), { capture: true });
 
 // подсказку показали — щелчок от этого же нажатия не нужен, и меню «копировать/открыть» тоже
