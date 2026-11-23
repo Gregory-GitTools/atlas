@@ -10,14 +10,21 @@
         android:id="@+id/stats"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:baselineAligned="true"
         android:orientation="horizontal">
 
+        <!-- три равные колонки, каждая в одну строку: не влезает — шрифт меньше (Грегори 2026-11-22, снимок
+             шторки: «0 км» разваливалось по буквам столбиком) -->
         <Chronometer
             android:id="@+id/time"
             style="@style/TextAppearance.Compat.Notification.Title"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:autoSizeMaxTextSize="26sp"
+            android:autoSizeMinTextSize="12sp"
+            android:autoSizeTextType="uniform"
+            android:gravity="start|center_vertical"
+            android:maxLines="1"
             android:textSize="26sp"
             android:textStyle="bold" />
 
@@ -25,17 +32,26 @@
             android:id="@+id/km"
             style="@style/TextAppearance.Compat.Notification.Title"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="34dp"
             android:layout_weight="1"
-            android:gravity="center_horizontal"
+            android:autoSizeMaxTextSize="26sp"
+            android:autoSizeMinTextSize="12sp"
+            android:autoSizeTextType="uniform"
+            android:gravity="center"
+            android:maxLines="1"
             android:textSize="26sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/max"
             style="@style/TextAppearance.Compat.Notification.Title"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:autoSizeMaxTextSize="26sp"
+            android:autoSizeMinTextSize="12sp"
+            android:autoSizeTextType="uniform"
+            android:gravity="end|center_vertical"
             android:maxLines="1"
             android:textSize="26sp"
             android:textStyle="bold" />

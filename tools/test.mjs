@@ -130,6 +130,8 @@ const settingsToggle = `(async () => { const p = document.querySelector('[data-p
 
 try {
   await run(`new Promise((r) => { const c = () => window.atlas?.map?.loaded() ? r(true) : setTimeout(c, 200); c(); })`);
+  // барабаны в проверках сами не тают — проверки идут дольше 2 с; таяние — своей проверкой
+  await run(`window.__holdDrums = true`);
   await idle();
   check("карта загрузилась", true, await run(`atlas.map.getProjection()?.type`));
   // фоновый модуль карты — со своего адреса: старый WebView (магнитола, Android-приложение) иначе не грузит
@@ -780,8 +782,8 @@ try {
     await new Promise((r) => setTimeout(r, 150));
     return true; })()` : `(async () => {
     const w = document.querySelector(".wheel-${drumOf(key)}");
-    // закрыт — открыть; на телефоне под другим барабаном — поднять
-    for (let t = 0; t < 2 && (w.classList.contains("closed") || w.classList.contains("behind")); t++) {
+    // закрыт — открыть
+    for (let t = 0; t < 2 && w.classList.contains("closed"); t++) {
       document.querySelector("${toggleOf[drumOf(key)]}").click();
       await new Promise((r) => setTimeout(r, 400));
     }
@@ -790,8 +792,8 @@ try {
     for (let t = 0; t < 30 && document.querySelector(".sub-${drumOf(key)}").hidden; t++) await new Promise((r) => setTimeout(r, 100));
     await new Promise((r) => setTimeout(r, 150));
     return true; })()`;
-  // спрятать барабаны мест и слоёв (верхний — щелчком по его кнопке, потом следующий)
-  const closeLayers = `(async () => { for (let k = 0; k < 4; k++) { const w = [".wheel-places", ".wheel-layers"].find((s) => { const x = document.querySelector(s); return !x.classList.contains("closed") && !x.classList.contains("behind"); });
+  // спрятать барабан мест или слоёв — щелчком по его кнопке
+  const closeLayers = `(async () => { for (let k = 0; k < 4; k++) { const w = [".wheel-places", ".wheel-layers"].find((s) => !document.querySelector(s).classList.contains("closed"));
     if (!w) break; document.querySelector(w === ".wheel-places" ? ".places-toggle" : ".wheel-toggle").click(); await new Promise((r) => setTimeout(r, 50)); } return true; })()`;
   // закрыть поиск и раздел — щелчок по значку раздела справа вверху (барабан разделов спрятан — сначала он)
   // выйти из раздела — крестиком его окна (кнопка справа вверху теперь ничего не сбрасывает), потом закрыть поиск
@@ -1044,9 +1046,8 @@ try {
   await clickAt(...miss);
   await sleep(400);
   check("второй щелчок закрывает окно", await run(`!document.querySelector(".maplibregl-popup")`));
-  // город, не закрытый кнопками и подписями барабанов (они видны всегда, Грегори 2026-11-21); на телефоне
-  // барабаны закрывают пол-экрана — их прячет «Десктоп», потом возвращает
-  const deskOff = await run(`(async () => { if (!document.querySelector(".wheel:not(.closed)")) return false; document.querySelector(".desk-toggle").click(); await new Promise((r) => setTimeout(r, 450)); return true; })()`);
+  // город, не закрытый кнопками и подписями барабанов; на телефоне барабан закрывает пол-экрана — на время свернуть
+  const deskOff = await run(`(async () => { const t = document.querySelector(".wheel-toggle.open, .places-toggle.open"); if (!t) return null; t.click(); await new Promise((r) => setTimeout(r, 450)); return "." + t.classList[2]; })()`);
   const city = await run(`(() => { const free = (f) => { const p = atlas.map.project(f.geometry.coordinates); return document.elementFromPoint(p.x, p.y)?.tagName === "CANVAS"; };
     const f = atlas.map.queryRenderedFeatures().find((f) => f.sourceLayer === "place" && f.properties.class === "city" && free(f));
     if (!f) return null; const p = atlas.map.project(f.geometry.coordinates); return { x: p.x, y: p.y, name: f.properties["name:ru"] || f.properties.name }; })()`);
@@ -1070,7 +1071,7 @@ try {
     await sleep(500);
     check("окно закрывается при движении карты, но не от навигации", stays && await run(`!document.querySelector(".maplibregl-popup")`));
   } else check("подпись города на карте", false);
-  if (deskOff) await run(`(async () => { document.querySelector(".desk-toggle").click(); await new Promise((r) => setTimeout(r, 450)); return true; })()`);
+  if (deskOff) await run(`(async () => { document.querySelector("${deskOff}").click(); await new Promise((r) => setTimeout(r, 450)); return true; })()`);
 
 
   // места: в центре Таллина «Рестораны» — флажки; «Музеи» выключают «Рестораны»; щелчок по флажку — окно
@@ -1160,6 +1161,8 @@ try {
       await ${openLayers("places/transport")};
       const x = document.querySelector('.layers-circle[data-key="places/transport"]').parentElement.querySelector(".layers-clear");
       const shown = !x.hidden;
+      // крестик — на барабане: карусель назад (Esc), барабан возвращается
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })); await new Promise((r) => setTimeout(r, 400));
       x.click(); await new Promise((r) => setTimeout(r, 800));
       const res = { shown, off: !atlas.modules().find((m) => m.id === "places/transport").active,
         closed: document.querySelector(".sub-places").hidden };
@@ -2517,8 +2520,9 @@ try {
     for (let i = 0; i < 40 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-mly-images"] }).length > 0`)); i++) await sleep(1000);
     const mly = await run(`atlas.map.queryRenderedFeatures({ layers: ["photo-mly-lines", "photo-mly-images"] }).length`);
     check("снимки улиц: линии и точки Mapillary", mly > 0, `${mly}`);
-    const mp = await run(`(() => { const f = atlas.map.queryRenderedFeatures({ layers: ["photo-mly-images"] })[0];
-      return f && atlas.map.project(f.geometry.coordinates); })()`);
+    // точка, не закрытая кнопками и барабаном — щелчок попадёт в карту
+    const mp = await run(`(() => atlas.map.queryRenderedFeatures({ layers: ["photo-mly-images"] }).map((f) => atlas.map.project(f.geometry.coordinates))
+      .find((q) => document.elementFromPoint(q.x, q.y)?.classList.contains("maplibregl-canvas")))()`);
     check("снимки улиц: точки снимков вблизи", !!mp);
     if (mp) {
       await clickAt(mp.x, mp.y);
@@ -3072,80 +3076,42 @@ try {
   // компьютер: места барабанов постоянные (Грегори 2026-11-22: «прыгают на освободившееся место») — в окне 800
   // три барабана делят высоту поровну, по 3 кнопки; проверки ниже считают кнопки — окно повыше, все три по своим кнопкам
   if (!PHONE) { await send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 1150, deviceScaleFactor: 1, mobile: false }); await sleep(800); }
-  // лупа справа вверху: щелчок — строка поиска и барабан разделов (Экскурсии, Языки, Треки, Фото), на месте
-  // лупы — логотип (лупа одна — в строке); треугольник — барабан слоёв вместо разделов; второй щелчок по
-  // треугольнику прячет слои, по логотипу — поиск и разделы
+  // лупа: закрыто — поиск и барабан разделов (на кнопке лупа, она одна — в строке поиска не дублируется), ещё раз —
+  // свернуть то и другое (на кнопке логотип). Открыт один барабан (Грегори 2026-11-22, «тающие карусели»): выезжает из
+  // своей кнопки вниз, кнопки ниже сдвигаются на его высоту; нажали кнопку другого — открытый сворачивается
   const lens = await run(`(async () => { const wait = () => new Promise((r) => setTimeout(r, 450));
-    const L = document.querySelector(".search-toggle"), A = document.querySelector(".wheel-toggle");
-    const st = () => ({ layers: !document.querySelector(".wheel-layers").classList.contains("closed"), content: !document.querySelector(".wheel-content").classList.contains("closed"),
-      search: getComputedStyle(document.querySelector(".search")).display !== "none", logo: !!L.querySelector("svg path")?.getAttribute("d").startsWith("M15.5 14"), drop: L.classList.contains("drop"),
-      lenses: [L, document.querySelector(".search-go")].filter((b) => b.getClientRects().length && b.querySelector("svg path")?.getAttribute("d").startsWith("M15.5 14")).length });
-    // поиск открыт — щелчок закрывает
-    for (let k = 0; k < 3 && (!document.body.classList.contains("search-hidden") || st().content); k++) { L.click(); await wait(); }
-    if (st().layers) { A.click(); await wait(); }
-    const s0 = st();
-    L.click(); await wait(); const s1 = st();
-    const keys = [...document.querySelectorAll(".wheel-content .wheel-cell:not([hidden]) .layers-circle")].map((c) => c.ariaLabel).sort();
-    // треугольник — слои, разделы остаются (Грегори 2026-11-12: «не прятать один барабан другим»)
-    A.click(); await wait(); const s2 = st();
-    const cells = (w) => [...document.querySelectorAll(".wheel-" + w + " .wheel-cell:not([hidden])")].map((c) => c.getBoundingClientRect());
-    const apart = Math.max(...cells("content").map((r) => r.bottom)) <= Math.min(...cells("layers").map((r) => r.top)) + 1;
-    const behind = document.querySelector(".wheel-content").classList.contains("behind");
-    // телефон: разделы под слоями — лупа поднимает их наверх
-    let up = null;
-    if (behind) { L.click(); await wait(); up = { content: !document.querySelector(".wheel-content").classList.contains("behind"), layers: document.querySelector(".wheel-layers").classList.contains("behind") }; }
-    // лупа (разделы сверху) — свернуть поиск и разделы; слои остаются
-    L.click(); await wait(); const s4 = st();
-    A.click(); await wait(); const s5 = st();
-    // два положения лупы: закрыто → поиск и разделы → закрыто
-    L.click(); await wait(); const c1 = st(); L.click(); await wait(); const c2 = st(); L.click(); await wait(); const c3 = st();
-    L.click(); await wait();
-    const lr = L.getBoundingClientRect();
-    A.click(); await wait();
-    return { s0, s1, s2, apart, behind, up, s4, s5, c1, c2, c3, keys, corner: innerWidth - lr.right >= 18 && innerWidth - lr.right <= 24 && lr.top < 20 }; })()`);
-  check("барабаны: каждый своей кнопкой, один другой не прячет; компьютер — не пересекаются, телефон — нижний поднимается своей кнопкой; лупа сворачивает поиск и разделы",
-    !lens.s0.search && !lens.s0.content && lens.s0.drop && !lens.s0.logo && lens.s1.content && lens.s1.search && lens.s1.logo
-    && lens.s2.layers && lens.s2.content && lens.s2.search && (PHONE ? lens.behind && lens.up?.content && lens.up?.layers : lens.apart && !lens.behind)
-    && !lens.s4.search && !lens.s4.content && lens.s4.layers && lens.s4.drop && !lens.s5.layers
-    && lens.c1.search && lens.c1.content && !lens.c2.search && !lens.c2.content && lens.c2.drop && lens.c3.search && lens.c3.content
-    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои споты", "Мои треки", "Настройки", "Поиск", "Трек", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
-  // три барабана (Грегори 2026-11-21: «открыть много барабанов и поднимать их по слоям»): компьютер — полосами
-  // разделы, места, слои сверху вниз; телефон — стопкой, нажатая кнопка поднимает свой наверх, верхний — закрывает
-  const three = await run(`(async () => { const wait = () => new Promise((r) => setTimeout(r, 450));
     const L = document.querySelector(".search-toggle"), P = document.querySelector(".places-toggle"), A = document.querySelector(".wheel-toggle");
-    const w = (n) => document.querySelector(".wheel-" + n), open = (n) => !w(n).classList.contains("closed"), behind = (n) => w(n).classList.contains("behind");
-    for (let k = 0; k < 3 && !open("content"); k++) { L.click(); await wait(); }
-    if (!open("layers")) { A.click(); await wait(); }
-    if (!open("places")) { P.click(); await wait(); }
-    const cells = (n) => [...document.querySelectorAll(".wheel-" + n + " .wheel-cell:not([hidden])")].map((c) => c.getBoundingClientRect());
-    const lo = (n) => Math.min(...cells(n).map((r) => r.top)), hi = (n) => Math.max(...cells(n).map((r) => r.bottom));
-    const top = () => ["content", "places", "layers"].filter((n) => open(n) && !behind(n));
-    const r = { all: open("content") && open("places") && open("layers"), bands: hi("content") <= lo("places") + 1 && hi("places") <= lo("layers") + 1,
-      top: top(), pOpen: P.classList.contains("open"), aOpen: A.classList.contains("open") };
-    // компьютер — вплотную, без пустых полос между барабанами (Грегори 2026-11-22)
-    r.tight = ${PHONE} || lo("places") - hi("content") < 60;
-    const pr = P.getBoundingClientRect(), ar = A.getBoundingClientRect();
-    r.above = Math.round(ar.top - pr.bottom) === 10 && Math.round(pr.right) === Math.round(ar.right);
-    // телефон: «Слои» — наверх, «Места» — наверх, ещё раз — закрыть, ещё раз — открыть сверху;
-    // компьютер: «Слои» — закрыть, «Места» — закрыть, открыть, закрыть
-    const steps = [], lt = w("layers").style.top;
-    for (const b of [A, P, P, P]) { b.click(); await wait(); steps.push(top().join()); if (!r.stay) r.stay = { was: lt, now: w("layers").style.top }; }
-    // закрытый уезжает со своего места, не прыгает к верху; соседи не прыгают на освободившееся (Грегори 2026-11-22)
-    r.stay = ${PHONE} || (!!lt && r.stay.now === lt);
-    if (!${PHONE}) { const pt = w("places").style.top; L.click(); await wait(); r.keep = pt === w("places").style.top; L.click(); await wait(); }
-    // как было: слои открыты, разделы и места закрыты
-    for (let k = 0; k < 6; k++) {
-      const t = top();
-      if (t.includes("places")) P.click(); else if (t.includes("content")) L.click(); else if (open("places")) P.click(); else if (open("content")) L.click(); else break;
-      await wait();
-    }
-    if (!open("layers")) { A.click(); await wait(); }
-    return { ...r, steps, after: ["content", "places", "layers"].filter(open) }; })()`);
-  check("три барабана: компьютер — полосами (разделы, места, слои), телефон — стопкой, кнопка поднимает свой наверх; «Места» над «Слоями»",
-    three.all && three.above && three.after.join() === "layers" && (PHONE
-      ? three.top.join() === "places" && three.pOpen && !three.aOpen && three.steps.join("|") === "layers|places|layers|places"
-      : three.bands && three.tight && three.stay && three.keep && three.top.length === 3 && three.pOpen && three.aOpen && three.steps.join("|") === "content,places|content|content,places|content"), JSON.stringify(three));
-  await shot("95c-three-drums");
+    const st = () => ({ layers: !document.querySelector(".wheel-layers").classList.contains("closed"), places: !document.querySelector(".wheel-places").classList.contains("closed"),
+      content: !document.querySelector(".wheel-content").classList.contains("closed"),
+      search: getComputedStyle(document.querySelector(".search")).display !== "none", logo: !!L.querySelector("svg path")?.getAttribute("d").startsWith("M15.5 14"), drop: L.classList.contains("drop"),
+      shift: [P, A].map((b) => Math.round(new DOMMatrix(getComputedStyle(b).transform).f)) });
+    // под кнопкой: верх барабана — ниже её на промежуток
+    const under = (n, b) => Math.abs(parseFloat(document.querySelector(".wheel-" + n).style.top) - (b.offsetTop + b.offsetHeight) - 10) <= 1;
+    for (let k = 0; k < 3 && (!document.body.classList.contains("search-hidden") || st().content); k++) { L.click(); await wait(); }
+    for (const t of document.querySelectorAll(".wheel-toggle.open, .places-toggle.open")) { t.click(); await wait(); }
+    const s0 = st();
+    L.click(); await wait(); const s1 = { ...st(), under: under("content", L) };
+    const keys = [...document.querySelectorAll(".wheel-content .wheel-cell:not([hidden]) .layers-circle")].map((c) => c.ariaLabel).sort();
+    const h = Math.round(document.querySelector(".wheel-content").getBoundingClientRect().height);
+    // «Места» — разделы свернулись, строка поиска осталась; «Слои» ниже сдвинуты
+    P.click(); await wait(); const s2 = { ...st(), under: under("places", P) };
+    A.click(); await wait(); const s3 = { ...st(), under: under("layers", A) };
+    A.click(); await wait(); const s4 = st();
+    // лупа: строка открыта, барабан нет — открыть барабан; ещё раз — свернуть всё
+    L.click(); await wait(); const s5 = st();
+    L.click(); await wait(); const s6 = st();
+    const lr = L.getBoundingClientRect();
+    return { s0, s1, h, s2, s3, s4, s5, s6, keys, corner: innerWidth - lr.right >= 18 && innerWidth - lr.right <= 24 && lr.top < 20 }; })()`);
+  check("барабаны: открыт один, выезжает из своей кнопки, кнопки ниже сдвинуты на его высоту; другая кнопка сворачивает открытый; лупа — поиск и разделы",
+    !lens.s0.search && !lens.s0.content && lens.s0.drop && !lens.s0.logo && lens.s1.content && lens.s1.search && lens.s1.logo && lens.s1.under
+    && lens.s1.shift.every((y) => y === lens.h + 10)
+    && lens.s2.places && !lens.s2.content && lens.s2.search && lens.s2.under && lens.s2.shift[0] === 0 && lens.s2.shift[1] > 40
+    && lens.s3.layers && !lens.s3.places && lens.s3.under && lens.s3.shift.join() === "0,0"
+    && !lens.s4.layers && !lens.s4.places && lens.s4.search && lens.s4.shift.join() === "0,0"
+    && lens.s5.content && lens.s5.search && !lens.s6.content && !lens.s6.search && lens.s6.drop
+    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои споты", "Мои треки", "Настройки", "Поиск", "Трек", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
+  await run(`(async () => { document.querySelector(".wheel-toggle").click(); await new Promise((r) => setTimeout(r, 450)); return true; })()`);
+  await shot("95c-drum");
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико
   // крутит его, нажатие по кнопке не в центре докручивает её и открывает столбик
   await run(`document.querySelector(".sub-layers").hidden || document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })); true`);
@@ -3198,7 +3164,7 @@ try {
     check("кнопки: подпись — сразу при наведении мыши, слева от кнопки справа; ушла — гаснет, title на месте",
       !!tip.text && tip.left && !tip.title && !tip.after.tip && tip.after.title, JSON.stringify(tip));
   }
-  check(PHONE ? "барабан: подписи видны, пока его крутят, и гаснут через 2 с" : "барабан: подписи — пока мышь над его кнопками, ушла — гаснут", live.during && !live.after && live.opacity === "0", JSON.stringify(live));
+  check(PHONE ? "барабан: подписи видны, пока его крутят, перестали — гаснут" : "барабан: подписи — пока мышь над его кнопками, ушла — гаснут", live.during && !live.after && live.opacity === "0", JSON.stringify(live));
   // подписи выключены — подпись центральной всплывает
   await run(`(async () => { (await import("./core/settings.js")).set("ui.labels", false); (await import("./core/events.js")).emit("button-labels"); return true; })()`);
   await run(`document.querySelector(".wheel-layers").dispatchEvent(new WheelEvent("wheel", { deltaY: -200, bubbles: true, cancelable: true })); true`);
@@ -3231,8 +3197,11 @@ try {
     const icon = sub.querySelector(".layers-icon"), ir = icon.getBoundingClientRect(), cr = c.getBoundingClientRect();
     const span = sub.querySelector(".layers-item > span").getBoundingClientRect();
     const r = { carousel: sub.classList.contains("carousel"), cells: shown().length, size: Math.round(ir.width) === Math.round(cr.width) && Math.round(ir.height) === Math.round(cr.height),
-      round: getComputedStyle(icon).borderRadius === "50%", label: span.right <= ir.left + 1, off: Math.round(mid(center()) - mid(c)),
-      beside: Math.round(sub.getBoundingClientRect().right) <= Math.round(c.closest(".wheel").getBoundingClientRect().left) + 1,
+      round: getComputedStyle(icon).borderRadius === "50%", label: span.right <= ir.left + 1,
+      // на месте барабана: тот же верх, значки — под кнопкой «Слои» (центральный левее на наклон барабана), барабан ушёл вправо
+      inplace: sub.style.top === c.closest(".wheel").style.top && c.closest(".wheel").classList.contains("away")
+        && Math.abs(Math.min(...shown().map((b) => { const q = b.querySelector(".layers-icon").getBoundingClientRect(); return q.left + q.width / 2; }))
+          - (() => { const q = document.querySelector(".wheel-toggle").getBoundingClientRect(); return q.left + q.width / 2; })() + 16) <= 2,
       arc: new Set(shown().map((b) => Math.round(b.getBoundingClientRect().top))).size === shown().length };
     const first = center().firstChild.textContent, items = shown(), k = items.indexOf(center());
     const next = items[k + 1] || items[k - 1], t = next.firstChild.textContent;
@@ -3242,12 +3211,13 @@ try {
     shown().find((b) => b.firstChild.textContent === first)?.click(); await wait(1200);
     r.back = center()?.firstChild.textContent === first;
     return r; })()`);
-  check("меню кнопки — карусель: значки — круглые кнопки как на барабане, подпись слева, центр вровень с кнопкой, нажатая — в центр",
-    car.carousel && car.cells > 2 && car.size && car.round && car.label && car.beside && car.arc && Math.abs(car.off) <= 3 && car.spun && car.back, JSON.stringify(car));
+  check("меню кнопки — карусель на месте барабана (он уходит вправо): значки — круглые кнопки как на барабане, по дуге, подпись слева, нажатая — в центр",
+    car.carousel && car.cells > 2 && car.size && car.round && car.label && car.inplace && car.arc && car.spun && car.back, JSON.stringify(car));
   await shot("95d-carousel");
   await run(`atlas.toggle("layers/railways", false).then(() => true)`);
-  // цепочка (Грегори 2026-11-21): включённые «Горнолыжные спуски» открывают ниже третью карусель с профильными
-  // местами, вторая уходит вглубь с наклоном, её подписи прячутся; кнопки — те же модули, что в «Спорте»; кнопка барабана закрывает всю цепочку
+  // цепочка (Грегори 2026-11-21): включённые «Горнолыжные спуски» открывают карусель с профильными местами (кнопки — те же
+  // модули, что в «Спорте»); она встаёт на то же место, прежняя уходит вправо, подписи новой видны 2 с (Грегори 2026-11-22);
+  // Esc — шаг назад: новая растворяется, прежняя возвращается; кнопка «Слои» сворачивает всё
   const chain = await run(`(async () => { const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const tr = () => document.querySelector('.wheel-layers .layers-circle[data-key="trails/hiking"]');
     if (!tr().classList.contains("open")) tr().click(); await wait(1200);
@@ -3259,18 +3229,22 @@ try {
     for (let i = 0; i < 150 && !(s2 && !s2.hidden && s2.querySelector(".layers-item")); i++) { await wait(200); s2 = document.querySelector(".sub-layers-2"); }
     if (!s2 || s2.hidden) return { ...r, open2: false };
     await wait(600);
-    r.open2 = true; r.covered = s1.classList.contains("covered") && getComputedStyle(s1.querySelector(".layers-item > span")).visibility === "hidden";
+    r.open2 = true; r.away = s1.classList.contains("away") && !s2.classList.contains("away") && s1.style.top === s2.style.top
+      && s1.getBoundingClientRect().left > s2.getBoundingClientRect().right;
+    r.intro = s2.classList.contains("labels-intro") && getComputedStyle(s2.querySelector(".layers-item > span")).opacity === "1";
     r.titles = [...s2.querySelectorAll(".layers-item > span")].map((s) => s.dataset.num + " " + s.textContent);
-    const c1 = s1.querySelector(".layers-item.on .layers-icon").getBoundingClientRect(), c2 = s2.querySelectorAll(".layers-icon")[0].getBoundingClientRect();
-    r.left = getComputedStyle(s1).transform !== "none" && getComputedStyle(s2).transform === "none" && s1.style.right === s2.style.right && c2.top > c1.top + 20;
     find(s2, "Горнолыжные курорты").click(); await wait(1500);
     r.ski = !!find(document.querySelector(".sub-layers-2"), "Горнолыжные курорты")?.classList.contains("on") && document.querySelector('.wheel-places .layers-circle[data-key="places/sport"]').classList.contains("on");
-    tr().click(); await wait(500);
-    r.closed = [...document.querySelectorAll(".sub-layers, .sub-layers-2")].every((s) => s.hidden) && !document.body.classList.contains("carousel-on");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })); await wait(500);
+    r.back = s2.hidden && !s1.hidden && !s1.classList.contains("away");
+    const A = document.querySelector(".wheel-toggle");
+    A.click(); await wait(500);
+    r.closed = [...document.querySelectorAll(".sub-layers, .sub-layers-2")].every((s) => s.hidden) && document.querySelector(".wheel-layers").classList.contains("closed");
+    A.click(); await wait(500);
     await atlas.toggle("places/sport", false); await atlas.toggle("trails/slopes", false);
     return r; })()`);
-  check("цепочка каруселей: «Горнолыжные спуски» — третья карусель с местами «Спорта» (номера 3.N.5.k), кнопка барабана закрывает всю цепочку",
-    chain.nums && chain.open2 && chain.covered && chain.left && chain.ski && chain.closed && chain.titles?.length === 3 && chain.titles.every((t) => /^3\.\d+\.5\.\d /.test(t)) && chain.titles[0].endsWith("Горнолыжные курорты"), JSON.stringify(chain));
+  check("цепочка каруселей: «Горнолыжные спуски» — карусель с местами «Спорта» (номера 3.N.5.k) на месте прежней, та уходит вправо; Esc — назад, «Слои» сворачивают всё",
+    chain.nums && chain.open2 && chain.away && chain.intro && chain.ski && chain.back && chain.closed && chain.titles?.length === 3 && chain.titles.every((t) => /^3\.\d+\.5\.\d /.test(t)) && chain.titles[0].endsWith("Горнолыжные курорты"), JSON.stringify(chain));
   // столбик карусели (Грегори 2026-11-21: «запретить зум карты в районе каруселей»): колёсико между значками —
   // карта не приближается, карусель крутится; над подписями — карта, карусель стоит (Грегори 2026-11-22: «реакция
   // только на область самих каруселей»); подписи — без подложки; дуги видны вместе с подписями
@@ -3299,44 +3273,31 @@ try {
   await sleep(1500);
   const zone2 = await run(`({ zoom: atlas.map.getZoom(), first: window.__top() })`);
   zone.zoom = zoneL.zoom;
-  await run(`(() => { const tr = document.querySelector('.wheel-layers .layers-circle[data-key="trails/hiking"]'); if (tr.classList.contains("open")) tr.click(); return true; })()`);
+  await run(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })); true`);
   check("карусель: колёсико между значками крутит её, карта стоит; над подписями — карта; подписи без подложки, дуги видны",
     zone.map && zoneL.first === zone.first && Math.abs(zone2.zoom - zone.zoom) < 0.01 && zone2.first !== zone.first && zone.bg === "rgba(0, 0, 0, 0)" && +zone.arc > 0.9, JSON.stringify({ zone, zoneL, zone2 }));
-  // фокус в цепочке (Грегори 2026-11-21: «фокус не переходит на соседнюю карусель, её невозможно крутить»):
-  // колёсико над передней каруселью крутит её, над видной кнопкой задней — заднюю (передняя закрывается)
-  const focus = await run(`(async () => { const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-    const tr = () => document.querySelector('.wheel-layers .layers-circle[data-key="trails/hiking"]');
-    if (!tr().classList.contains("open")) tr().click(); await wait(1200);
-    const s1 = document.querySelector(".sub-layers");
-    [...s1.querySelectorAll(".layers-item")].find((b) => b.firstChild.textContent === "Горнолыжные спуски").click();
-    let s2 = null;
-    for (let i = 0; i < 150 && !(s2 && !s2.hidden && s2.querySelector(".layers-item")); i++) { await wait(200); s2 = document.querySelector(".sub-layers-2"); }
-    if (!s2 || s2.hidden) return { open2: false };
-    await wait(800);
-    const at = (el) => [...el.querySelectorAll(".wheel-cell:not([hidden]) .layers-icon")].map((i) => { const b = i.getBoundingClientRect(); return [Math.round(b.left + b.width / 2), Math.round(b.top + b.height / 2)]; })
-      .find(([x, y]) => el.contains(document.elementFromPoint(x, y)));
-    const top = (el) => [...el.querySelectorAll(".wheel-cell:not([hidden])")].sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top)[0].textContent;
-    window.__tops = () => ({ t1: top(s1), t2: s2.hidden ? null : top(s2) });
-    return { open2: true, front: at(s2), back: at(s1), ...window.__tops() }; })()`);
-  let focus2 = {}, focus3 = {}, focusMap = {};
-  if (focus.front && focus.back) {
-    await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: focus.front[0], y: focus.front[1], deltaX: 0, deltaY: 100 });
-    await sleep(1500);
-    focus2 = await run(`window.__tops()`);
-    // мышь ушла на карту левее (на высоте той же кнопки) — ни одна карусель не крутится (Грегори 2026-11-22)
-    await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: 300, y: focus.front[1], deltaX: 0, deltaY: 300 });
-    await sleep(1500);
-    focusMap = await run(`window.__tops()`);
-    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 750, y: 450 });
-    await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: focus.back[0], y: focus.back[1], deltaX: 0, deltaY: 300 });
-    await sleep(1500);
-    focus3 = await run(`window.__tops()`);
-  }
-  await run(`(async () => { const tr = document.querySelector('.wheel-layers .layers-circle[data-key="trails/hiking"]'); if (tr.classList.contains("open")) tr.click(); await atlas.toggle("trails/slopes", false); return true; })()`);
-  check("цепочка каруселей: колёсико крутит ту карусель, над которой мышь, — переднюю и заднюю",
-    focus.open2 && !!focus.front && !!focus.back && focus2.t2 && focus2.t2 !== focus.t2 && focus2.t1 === focus.t1 && focus3.t1 !== focus.t1, JSON.stringify({ focus, focus2, focus3 }));
-  check("цепочка каруселей: колёсико над картой левее кнопок их не крутит",
-    PHONE || !!focusMap.t2 && focusMap.t1 === focus2.t1 && focusMap.t2 === focus2.t2, JSON.stringify({ focus2, focusMap }));
+  // таяние (Грегори 2026-11-22): нет мыши и пальца — через 2 с шаг назад: карусель растворяется, барабан возвращается
+  // справа; ещё через 2 с тает барабан, кнопки ниже поднимаются на свои места
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 300, y: 450 });
+  await sleep(300);
+  const melt = await run(`(async () => { const wait = (ms) => new Promise((r) => setTimeout(r, ms)), A = document.querySelector(".wheel-toggle"), P = document.querySelector(".places-toggle");
+    const w = document.querySelector(".wheel-places"), sub = () => document.querySelector(".sub-places");
+    for (const t of document.querySelectorAll(".wheel-toggle.open, .places-toggle.open")) t.click();
+    await wait(400);
+    window.__holdDrums = false;
+    P.click(); await wait(300);
+    const r = { shift: A.style.transform };
+    w.querySelector(".wheel-cell:not([hidden]) .layers-circle").click(); await wait(500);
+    r.sub = !!sub() && !sub().hidden && w.classList.contains("away");
+    await wait(2100);
+    r.back = (sub().hidden || sub().classList.contains("melting")) && !w.classList.contains("away") && !w.classList.contains("closed");
+    await wait(2000);
+    r.gone = w.classList.contains("closed") && !P.classList.contains("open") && A.style.transform === "";
+    window.__holdDrums = true;
+    A.click(); await wait(450);
+    return r; })()`);
+  check("таяние: без мыши через 2 с карусель растворяется и возвращается барабан, ещё через 2 с тает он, кнопки поднимаются",
+    !!melt.shift && melt.sub && melt.back && melt.gone, JSON.stringify(melt));
   // «Город · Страна» над шкалой (Грегори 2026-11-21: «названия городов и стран видно на 5 км, вблизи не видно»):
   // центр карты — по подписям самой карты и границам стран; вблизи город помнится
   const caption = await run(`(async () => { const wait = (ms) => new Promise((r) => setTimeout(r, ms)), el = document.querySelector(".place-caption");
@@ -3351,26 +3312,6 @@ try {
     return { out, above: r.bottom <= scale.top + 4 && Math.abs(r.left - scale.left) < 2 }; })()`);
   check("«Город · Страна» над шкалой: центр Таллина — «Таллин · Эстония» и на 11, и вблизи",
     caption.out.every((t) => t === "Таллин · Эстония") && caption.above, JSON.stringify(caption));
-  // «Десктоп» в правом нижнем углу (Грегори 2026-11-21): остаются карта и кнопки слева внизу — строка поиска, кнопки
-  // справа, барабаны прячутся (не закрываясь); ещё раз — всё как было. Телефон: барабан под другим — меньше и размыт
-  const desk = await run(`(async () => { const wait = () => new Promise((r) => setTimeout(r, 450));
-    const D = document.querySelector(".desk-toggle"), P = document.querySelector(".places-toggle"), A = document.querySelector(".wheel-toggle"), L = document.querySelector(".search-toggle");
-    if (document.querySelector(".wheel-layers").classList.contains("closed")) { A.click(); await wait(); }
-    if (document.querySelector(".wheel-places").classList.contains("closed")) { P.click(); await wait(); }
-    const search = !document.body.classList.contains("search-hidden");
-    const shown = (sel) => { const el = document.querySelector(sel); return !!el && getComputedStyle(el).visibility === "visible"; };
-    const ui = () => [".search", ".search-toggle", ".places-toggle", ".wheel-toggle", ".wheel-layers", ".wheel-places"].filter(shown).join();
-    const behind = document.querySelector(".wheel.behind");
-    const r = { search, before: ui(), scale: behind ? new DOMMatrix(getComputedStyle(behind).transform).a : null };
-    const dr = D.getBoundingClientRect(); r.corner = [Math.round(innerWidth - dr.right), Math.round(innerHeight - dr.bottom)];
-    D.click(); await wait();
-    r.hidden = ui(); r.lit = D.classList.contains("open"); r.kept = shown(".desk-toggle") && shown(".geo-btn") && shown("#map canvas");
-    r.stillOpen = !document.querySelector(".wheel-layers").classList.contains("closed");
-    D.click(); await wait(); r.back = ui();
-    return r; })()`);
-  check("«Десктоп»: остаются карта и кнопки слева внизу, остальное прячется, ещё раз — всё как было" + (PHONE ? "; нижний барабан — меньше" : ""),
-    desk.before.includes("wheel-layers") && desk.hidden === "" && desk.lit && desk.kept && desk.stillOpen && desk.back === desk.before
-    && desk.corner[0] >= 18 && desk.corner[0] <= 24 && (!PHONE || (desk.scale !== null && desk.scale < 0.95)), JSON.stringify(desk));
   await run(`(async () => { const L = document.querySelector(".search-toggle"); for (let k = 0; k < 2 && document.querySelector(".wheel-content").classList.contains("closed"); k++) { L.click(); await new Promise((r) => setTimeout(r, 400)); } return true; })()`);
   await tap("settings");
   check("настройки — шестерёнкой в барабане разделов, барабан остаётся открытым", await run(`!document.querySelector(".wheel-content").classList.contains("closed") && !document.querySelector('[data-panel="settings"]').hidden && getComputedStyle(document.querySelector('[data-panel="settings"]')).display !== "none"`));
@@ -3397,16 +3338,15 @@ try {
   await run(openSearch);
   const lay = await run(`(() => { const mid = (el) => { const r = el.getBoundingClientRect(); return Math.round(r.top + r.height / 2); };
     const gear = document.querySelector(".compass-btn");
-    const t = document.querySelector(".desk-toggle").getBoundingClientRect(), w = document.querySelector(".wheel-layers").getBoundingClientRect();
+    const w = document.querySelector(".wheel:not(.closed)"), tg = { content: ".search-toggle", places: ".places-toggle", layers: ".wheel-toggle" }[w?.className.match(/wheel-([a-z]+)/)?.[1]];
     const sb = document.querySelector(".search-box").getBoundingClientRect();
     return { gear: mid(gear), info: mid(document.querySelector(".maplibregl-ctrl-attrib-button")), scale: mid(document.querySelector(".maplibregl-ctrl-scale")),
-      corner: [Math.round(innerWidth - t.right), Math.round(innerHeight - t.bottom)], size: Math.round(t.width),
       logo: (() => { const L = document.querySelector(".search-toggle.open:not(.idle)"), i = L?.querySelector("svg"); if (!i) return false; const a = i.getBoundingClientRect(), b = L.getBoundingClientRect();
-        return a.width >= b.width - 10 && Math.abs((a.left + a.right) / 2 - (b.left + b.right) / 2) <= 1; })(), wheelTop: Math.round(Math.min(...[...document.querySelectorAll(".wheel:not(.closed)")].map((x) => x.getBoundingClientRect().top), w.top)), searchTop: Math.round(sb.top), phone: innerWidth <= 600 }; })()`);
+        return a.width >= b.width - 10 && Math.abs((a.left + a.right) / 2 - (b.left + b.right) / 2) <= 1; })(),
+      wheelTop: w && Math.round(parseFloat(w.style.top)), toggleBottom: tg && (() => { const b = document.querySelector(tg); return b.offsetTop + b.offsetHeight; })(), phone: innerWidth <= 600 }; })()`);
   check("раскладка: ⓘ и шкала в линию с нижней кнопкой слева (компас)", Math.abs(lay.info - lay.gear) <= 2 && Math.abs(lay.scale - lay.gear) <= 2, JSON.stringify(lay));
-  check("раскладка: «Десктоп» в правом нижнем углу, отодвинут от края, размером с кнопки", lay.corner[0] >= 18 && lay.corner[0] <= 24 && lay.corner[1] >= 6 && lay.corner[1] <= 14 && lay.size === 40, JSON.stringify(lay));
   check("раскладка: открыт поиск — на кнопке справа вверху лупа, крупно и по центру", lay.logo);
-  if (!lay.phone) check("раскладка: верх колеса (верхнего из открытых) — под тремя кнопками справа вверху", Math.abs(lay.wheelTop - (lay.searchTop + 150)) <= 2, JSON.stringify(lay));
+  check("раскладка: верх открытого барабана — под его кнопкой", !!lay.wheelTop && Math.abs(lay.wheelTop - lay.toggleBottom - 10) <= 1, JSON.stringify(lay));
 } catch (err) {
   errors.push("проверка прервалась: " + err.message);
 }

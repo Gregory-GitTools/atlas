@@ -11,6 +11,7 @@
 import * as settings from "./settings.js";
 import { countryAt } from "./borders.js";
 import { flagUrl } from "./flags.js";
+import { saveFile } from "./save-file.js";
 
 const CLEAR = `<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
 // долгое нажатие на строку — переименовать, на ручку — значок и группа (полсекунды, палец не сдвинулся)
@@ -232,11 +233,7 @@ function exportKml(name, list, groups, label, lngLat) {
   const parts = [...groups.map((g) => `<Folder><name>${xml(g.name)}</name>${list.filter((e) => e.group === g.id).map(mark).join("")}</Folder>`),
     ...list.filter((e) => !known.has(e.group)).map(mark)];
   const text = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>${xml(name)}</name>\n${parts.join("\n")}\n</Document></kml>\n`;
-  const a = Object.assign(document.createElement("a"), { download: `${name}.kml`, href: URL.createObjectURL(new Blob([text], { type: "application/vnd.google-earth.kml+xml" })) });
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  saveFile(`${name}.kml`, text, "application/vnd.google-earth.kml+xml");
   return text;
 }
 // импорт — обратно из KML (свой экспорт, Google «Мои карты», Organic Maps) или GPX (путевые точки): папки —

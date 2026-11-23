@@ -17,6 +17,7 @@ import { register, modules, allowed } from "./modules.js";
 import { on, emit } from "./events.js";
 import { decoratePopups, closeAll, track } from "./popups.js";
 import * as settings from "./settings.js";
+import { saveFile } from "./save-file.js";
 
 register({
   id: "core/route",
@@ -461,11 +462,7 @@ export function initRoute({ map, maplibregl, status }) {
   const saveGpx = (p) => {
     const t = last() || p, text = gpx(p);
     const file = `${(savedName || t.title).replace(/[\\/:*?"<>|]+/g, " ").trim() || "маршрут"}.gpx`;
-    const a = Object.assign(document.createElement("a"), { download: file, href: URL.createObjectURL(new Blob([text], { type: "application/gpx+xml" })) });
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    saveFile(file, text, "application/gpx+xml");
     lastGpx = text;
   };
   // название маршрута (переименованная запись в списке «Куда») — для файла и ссылки

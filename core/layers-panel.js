@@ -1,13 +1,13 @@
-// Кнопки — колёса-барабаны в боковой панели справа, на одном месте (Грегори, 2026-11-02: «один
-// барабан сменяет другой»):
-//  • барабан слоёв — открывает кнопка «Слои» справа внизу, над лентой фото (открыты — кнопка белая);
-//  • барабан мест (Места, Транспорт, Магазины, Спорт) — кнопка с булавкой над «Слоями» (Грегори 2026-11-21:
-//    «опять поделим Места и Слои на две кнопки»);
-//  • барабан разделов (Экскурсии, Языки, Треки, Фото) — открывает полупрозрачная лупа справа вверху,
-//    вместе со строкой поиска: с ней связаны режимы поиска разделов. Так кнопки сгруппированы по смыслу;
-//  • щелчок по лупе или треугольнику — показать свой барабан вместо другого, второй щелчок — спрятать (у лупы —
-//    вместе со строкой поиска); открыт поиск — на месте лупы логотип, в режиме раздела — значок раздела;
-//    на телефоне барабан можно смахнуть вправо;
+// Кнопки — колёса-барабаны справа вверху, под своими кнопками (Грегори 2026-11-22, «тающие карусели»):
+//  • кнопки столбиком: лупа — барабан разделов (Экскурсии, Языки, Треки, Фото) вместе со строкой поиска,
+//    «Места» (Места, Транспорт, Магазины, Спорт), «Слои»;
+//  • открыт один барабан: выезжает из своей кнопки вниз, кнопки ниже сдвигаются на его высоту; нажали кнопку
+//    другого — открытый сворачивается сразу (с анимацией); второй щелчок по своей — спрятать (у лупы — вместе со
+//    строкой поиска); открыт поиск — на месте лупы логотип; на телефоне барабан можно смахнуть вправо;
+//  • меню кнопки — карусель на том же месте, барабан уходит вправо за край; у карусели своя карусель — так же;
+//  • таяние: нет мыши над барабаном и пальца — через 2 с шаг назад (карусель растворяется, прежняя возвращается
+//    справа), ещё через 2 с — следующий, пока не растает барабан; тогда кнопки поднимаются на места;
+//  • подписи — пока мышь над барабаном или его крутят, ушла — сразу гаснут; новая карусель показывает их 2 с;
 //  • кнопки — на барабане, как в игровом автомате или при выборе даты: размер у всех один, меняются
 //    промежутки — в центре самые большие, к верху и низу всё меньше, кнопки уходят за край барабана
 //    и темнеют. Барабан крутится колёсиком мыши или пальцем, по кругу; кнопка, проходя через центр,
@@ -58,8 +58,6 @@ const groupOf = (m) => (m.group === MAPS_GROUP ? MAPS_GROUP : GROUPS.some((g) =>
 const BLOCKED = "Выключено в настройках: обращается в интернет";
 const CLEAR_ICON = '<svg viewBox="0 0 24 24" width="12" height="12"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>';
 // стопка листов — «Слои карты» (раньше — треугольник)
-// «Десктоп» — спрятать всё, кроме карты (Грегори 2026-11-21)
-const DESK = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>';
 const ARROW = '<svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M12 16l7.36-5.73L21 9l-9-7-9 7 1.63 1.27zm0 2.54l-7.38-5.73L3 14.07l9 7 9-7-1.63-1.27z"/></svg>';
 // поиск места — лупа (Грегори 2026-11-06: «логотип на кнопке не используем, логично — лупа»)
 const LUPA = '<svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>';
@@ -69,6 +67,8 @@ const LOGO = '<img class="start-logo" src="icons/start-logo.png" alt="">';
 // барабан: промежуток между кнопками в центре — GAP (Грегори, 2026-10-30: «расстояние между кнопками
 // поменьше»), притормаживание у центра
 const GAP = 54, DETENT = 0.7, BTN = 40;
+// наклон барабана и отступ дуг от середины кнопок (core/style.css: подписи — дальше дуги)
+const TILT = 16, ARC = BTN / 2 + 9;
 
 export function initLayersPanel(ctx) {
   // ---------- слои ----------
@@ -176,32 +176,26 @@ export function initLayersPanel(ctx) {
     }
   };
 
-  // ---------- какой барабан виден: "layers", "content" или ни один ----------
+  // ---------- какой барабан открыт: "content", "places", "layers" или ни один ----------
   // Грегори, 2026-11-02 («минимализм»): при первом запуске нет ни барабанов, ни строки поиска.
-  // Треугольник: щелчок — барабан слоёв, второй щелчок — спрятать. Лупа справа вверху: щелчок — строка
-  // поиска и барабан разделов, а на месте лупы — логотип (лупа уходит в строку поиска: двух луп быть не
-  // должно); выбран раздел — вместо логотипа его значок; второй щелчок по логотипу или значку — закрыть всё
+  // Лупа справа вверху: щелчок — строка поиска и барабан разделов, а на месте лупы — логотип (лупа уходит в строку
+  // поиска: двух луп быть не должно); выбран раздел — вместо логотипа его значок; второй щелчок — закрыть всё
   const arrowBtn = Object.assign(document.createElement("button"), { className: "btn glass wheel-toggle", innerHTML: ARROW });
   const placesBtn = Object.assign(document.createElement("button"), { className: "btn glass places-toggle", innerHTML: GROUPS.find((g) => g.id === PLACES).icon });
   const lensBtn = Object.assign(document.createElement("button"), { className: "btn glass search-toggle" });
-  const deskBtn = Object.assign(document.createElement("button"), { className: "btn glass desk-toggle", innerHTML: DESK });
-  const controls = [arrowBtn, placesBtn, lensBtn, deskBtn];
-  // барабаны — каждый своей кнопкой, один другой не прячет (Грегори 2026-11-12): разделы — лупой справа вверху
-  // (вместе со строкой поиска), места и слои — кнопками внизу. На компьютере открытые делят высоту и не
-  // пересекаются, на телефоне лежат стопкой: нажатие на кнопку нижнего — поднять его наверх, верхнего — закрыть
-  // (Грегори 2026-11-21: «прикольно, что можно открыть много барабанов и поднимать их по слоям»)
-  const opened = { content: false, places: false, layers: false };
-  const BANDS = ["content", "places", "layers"]; // сверху вниз на компьютере
-  let order = []; // открытые, последний — сверху
+  // тающие карусели (Грегори 2026-11-22): открыт один барабан — он выезжает из своей кнопки вниз и сдвигает кнопки
+  // ниже; нажали кнопку другого — открытый сразу сворачивается. Нет над ним мыши и пальца — через 2 с шаг назад
+  // (карусель растворяется, справа возвращается предыдущая), и так каждые 2 с, пока не растает сам барабан; тогда
+  // кнопки поднимаются на свои места
+  const BANDS = ["content", "places", "layers"]; // кнопки сверху вниз
+  const btnOf = { content: lensBtn, places: placesBtn, layers: arrowBtn };
+  let openName = null;
+  const drumOf = (n) => drums.find((d) => d.name === n);
   let searchOn = false, mode = null, routeNow = null;
-  const front = () => order.at(-1) || null;
-  const phone = () => matchMedia("(max-width: 600px)").matches;
-  const stacked = () => order.length > 1 && phone();
-  // кнопка барабана внизу: открыт и сверху — белая
+  // кнопка барабана: открыт — белая
   const paintToggle = (b, name, title) => {
-    const top = opened[name] && (!stacked() || front() === name);
-    b.classList.toggle("open", top);
-    b.title = !opened[name] ? title : top ? `Спрятать: ${title.toLowerCase()}` : `${title} — наверх`;
+    b.classList.toggle("open", openName === name);
+    b.title = openName === name ? `Спрятать: ${title.toLowerCase()}` : title;
   };
   // «Поиск места» в барабане — светится вместе с обычным поиском (без перерисовки барабана)
   const litSearch = () => {
@@ -227,13 +221,11 @@ export function initLayersPanel(ctx) {
     lensBtn.classList.toggle("open", !mode || !!target);
     // логотип — пока не открыты ни поиск, ни барабан разделов и нет режима (Грегори 2026-11-09: «если ни один
     // барабан не активен — лого»; открыт только барабан слоёв — тоже лого: нажатие откроет поиск)
-    const logo = !mode && !target && !searchOn && !opened.content;
+    const logo = !mode && !target && !searchOn && openName !== "content";
     lensBtn.classList.toggle("drop", logo);
     lensBtn.innerHTML = target ? `<span class="search-card-arrow" style="transform: rotate(${routeNow.me ? routeNow.arrow || 0 : 0}deg)">${ROUTE_ARROW}</span>`
       : mode ? mode.icon : logo ? LOGO : LUPA;
-    lensBtn.title = opened.content && stacked() && front() !== "content" ? "Разделы — наверх" : searchOn || opened.content ? "Свернуть поиск и разделы" : "Поиск и разделы";
-    deskBtn.classList.toggle("open", desk);
-    deskBtn.title = desk ? "Вернуть кнопки и окна" : "Десктоп — только карта";
+    lensBtn.title = openName === "content" ? "Свернуть поиск и разделы" : "Поиск и разделы";
   };
   // открытый поиск — шаг для «Назад» телефона
   let searchBack = null;
@@ -246,62 +238,67 @@ export function initLayersPanel(ctx) {
     settings.set("search.open", searchOn || null);
     paint();
   };
-  // открыть/закрыть барабан; открытый — наверх
+  // открыть барабан (открытый другой — свернуть) или закрыть
   const setDrum = (name, open) => {
-    if (open && desk) setDesk(false);
-    order = order.filter((n) => n !== name);
-    if (open) { order.push(name); closeOpen("right"); }
-    opened[name] = open;
+    if (open) {
+      if (openName && openName !== name) drumOf(openName).setOpen(false);
+      openName = name;
+      closeOpen("right");
+    } else if (openName === name) openName = null;
+    drumOf(name).setOpen(open);
     arrange();
+    melt();
   };
-  // компьютер: у каждого барабана своё постоянное место сверху вниз (разделы, места, слои) вплотную, каждое — по
-  // своим кнопкам (Грегори 2026-11-22: «прижми карусели друг к другу»), открыт он или нет: соседи не прыгают на
-  // освободившееся место, закрытый уезжает со своего; не помещаются — места поровну. Телефон — стопкой
+  // открытый барабан — под своей кнопкой, высотой по своим кнопкам (не помещаются — до низа экрана), кнопки ниже
+  // сдвинуты на его высоту; видна карусель — по её кнопкам
   function arrange() {
-    for (const d of drums) {
-      d.setOpen(opened[d.name]);
-      d.wheel.classList.toggle("behind", stacked() && front() !== d.name);
-      d.wheel.style.top = d.wheel.style.bottom = "";
-    }
-    const bands = BANDS;
-    if (!phone()) {
-      const r = drums[0].wheel.getBoundingClientRect(), need = bands.map((n) => drums.find((d) => d.name === n).need());
-      // не помещаются — поровну: при сжатии по доле у короткого барабана оставалась одна кнопка
-      const fits = need.reduce((a, b) => a + b, 0) <= r.bottom - r.top;
-      let y = r.top;
-      bands.forEach((n, k) => {
-        const w = drums.find((d) => d.name === n).wheel, h = fits ? need[k] : (r.bottom - r.top) / bands.length;
-        w.style.top = `${Math.round(y)}px`;
-        w.style.bottom = `${Math.round(innerHeight - y - h)}px`;
-        y += h;
-      });
-    }
+    const gap = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gap")) || 10;
+    let shift = 0;
+    BANDS.forEach((n, i) => {
+      const b = btnOf[n];
+      b.style.transform = shift ? `translateY(${shift}px)` : "";
+      if (n !== openName) return;
+      // offsetTop — место кнопки без сдвига
+      const top = b.offsetTop + b.offsetHeight + gap, below = BANDS.length - 1 - i;
+      const room = innerHeight - top - below * (b.offsetHeight + gap) - 2 * gap - b.offsetHeight;
+      const d = drumOf(n), h = Math.round(Math.max(BTN + 2 * gap, Math.min(d.need(), room)));
+      d.place(top, h);
+      shift = h + gap;
+    });
     for (const d of drums) d.relayout();
     paint();
   }
-  // кнопка барабана: закрыт — открыть; открыт, но лежит под другим (телефон) — наверх; иначе — закрыть
-  // «Десктоп» (Грегори 2026-11-21: «прячется всё, кроме самой карты, маршрутов на карте и кнопок в левом нижнем
-  // углу; окно поиска — в первую очередь»): класс desk-on у body прячет строку поиска, кнопки справа, барабаны,
-  // карусели и окна, ничего не закрывая; ещё раз — всё как было
-  let desk = false;
-  const setDesk = (on) => { desk = on; document.body.classList.toggle("desk-on", on); paint(); };
-  deskBtn.addEventListener("click", () => setDesk(!desk));
-  const raise = (name) => { order = [...order.filter((n) => n !== name), name]; arrange(); };
-  const toggleDrum = (name) => { if (opened[name] && stacked() && front() !== name) raise(name); else setDrum(name, !opened[name]); };
+  const toggleDrum = (name) => setDrum(name, openName !== name);
   arrowBtn.addEventListener("click", () => toggleDrum("layers"));
   placesBtn.addEventListener("click", () => toggleDrum("places"));
-  // лупа: закрыто — поиск и разделы; разделы под другим барабаном (телефон) — наверх; иначе — свернуть поиск и разделы
+  // лупа: барабан разделов закрыт — поиск и разделы; открыт — свернуть и то, и другое
   lensBtn.addEventListener("click", () => {
-    if (opened.content && stacked() && front() !== "content") { raise("content"); return; }
-    if (searchOn || opened.content) { setSearch(false); setDrum("content", false); } else { setSearch(true); setDrum("content", true); }
+    if (openName === "content") { setSearch(false); setDrum("content", false); } else { setSearch(true); setDrum("content", true); }
   });
   addEventListener("resize", () => arrange());
   on("search-mode", (m) => { mode = m; paint(); });
-  // раздел живёт в самой строке поиска (навигация) — строка нужна. Барабан после выбора не закрывается —
-  // он под рукой, открывает и закрывает его только кнопка справа вверху (Грегори 2026-11-06)
+  // раздел живёт в самой строке поиска (навигация) — строка нужна
   // «Закрыть» в шапке истории поиска — как лупа: поиск и разделы свернуть
   on("search-hide", () => { setSearch(false); setDrum("content", false); }, { replay: false });
-  on("search-show", () => { setDesk(false); setSearch(true); if (!order.length) setDrum("content", true); }, { replay: false });
+  on("search-show", () => { setSearch(true); if (!openName) setDrum("content", true); }, { replay: false });
+
+  // ---------- таяние ----------
+  // новый барабан или карусель — подписи видны 2 с (Грегори 2026-11-22: «с подписью кнопок на 2 с»)
+  const intro = (el) => {
+    el.classList.add("labels-intro");
+    clearTimeout(el.introTimer);
+    el.introTimer = setTimeout(() => el.classList.remove("labels-intro"), 2000);
+  };
+  // мышь над видимым барабаном или каруселью, палец на нём или он ещё крутится — стоит; иначе через 2 с шаг назад.
+  // window.__holdDrums — для проверок: не таять
+  let meltTimer = 0, spin = false, pressed = false, hovered = null;
+  function melt() {
+    clearTimeout(meltTimer);
+    const d = openName && drumOf(openName);
+    if (!d || window.__holdDrums || spin || pressed || hovered === d.top()) return;
+    meltTimer = setTimeout(() => { if (d.depth()) d.back(); else setDrum(d.name, false); }, 2000);
+  }
+  const spinning = (on) => { spin = on; liveLabels(on); melt(); };
 
   // ---------- барабан ----------
   // номер барабана: разделы — 1, места — 2, слои — 3; у кнопки — номер барабана и её место, у кнопки карусели —
@@ -320,139 +317,114 @@ export function initLayersPanel(ctx) {
       if (open === isOpen) return;
       isOpen = open;
       wheel.classList.toggle("closed", !open);
-      // подпись центральной кнопки — только при прокрутке и наведении, не сама после нажатия кнопок
-      // (Грегори 2026-11-06: «убирай после выбора кнопок»)
-      if (open) { R.layout(); liveLabels(true); } else { hideTip(); show(null); }
+      if (open) { wheel.classList.remove("away"); R.layout(); intro(wheel); return; }
+      // сворачивается сразу, вместе с каруселями
+      hideTip();
+      closeFrom(0, false);
+      setTimeout(() => { if (!isOpen) wheel.classList.remove("away"); }, 300);
     };
-    document.addEventListener("click", (e) => {
-      // кнопку, по которой щёлкнули, могли уже перерисовать — это щелчок внутри, а не мимо
-      if (!e.target.isConnected) return;
-      if (openKey && !levels.some((l) => l.el.contains(e.target)) && !wheel.contains(e.target) && !controls.some((c) => c.contains(e.target))) show(null);
-    });
-    // Esc закрывает меню кнопки; сам барабан — нет: он под рукой, Esc («Назад») сначала закрывает окна
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && isOpen && openKey && !e.defaultPrevented) { e.preventDefault(); show(null); } });
+    // Esc — шаг назад по каруселям; сам барабан — нет: Esc («Назад») сначала закрывает окна
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && isOpen && stack.length && !e.defaultPrevented) { e.preventDefault(); back(); } });
 
-    // барабан прижат к верху, к кнопкам справа вверху (Грегори 2026-11-21: «поднимаем карусели наверх»);
-    // хватает кнопок на всю высоту — по середине
+    // хватает кнопок на всю высоту — по середине, иначе прижат к верху, к своей кнопке
     const centerY = () => Math.min(drum.clientHeight / 2, R.geom().radius + BTN / 2 + 4);
     const R = rotor(drum, wheel, {
       centerY, shown: () => isOpen,
-      onStart: () => { hideTip(); liveLabels(); if (openKey) show(null); },
-      onSettle: () => { showTip(); liveLabels(true); },
+      onStart: () => { hideTip(); spinning(true); },
+      onSettle: () => { showTip(); spinning(false); },
       // на телефоне смахнуть вправо — спрятать барабан (кроме разделов: они с поиском)
       onSwipe: name === "content" ? null : () => setDrum(name, false),
     });
 
-    // ---------- меню кнопки — карусели цепочкой вниз ----------
-    // первая — меню кнопки барабана (Грегори 2026-11-21: «значки — кнопками, подписи вращаются вместе с ними; вид
-    // и реакция на нажатие — одинаковые»); у центральной кнопки карусели есть связанные (related) и она включена —
-    // ниже следующая карусель («после выбора горнолыжных спусков — третья карусель с профильными местами»).
-    // Кнопка барабана закрывает всю цепочку. Следующая — в той же колонке, ниже на кнопку, а предыдущие уходят
-    // вглубь с наклоном и без подписей (Грегори 2026-11-21: «один под другим со сдвигом вниз и отдалением нижнего
-    // слоя в глубину… наклон усилит эффект»)
-    const SHIFT = BTN + 12;
-    let openKey = null;
+    // ---------- карусели — на месте барабана ----------
+    // меню кнопки барабана — карусель (Грегори 2026-11-21: «значки — кнопками, подписи вращаются вместе с ними; вид
+    // и реакция на нажатие — одинаковые»); включили кнопку со связанными (related) — их карусель («после выбора
+    // горнолыжных спусков — третья карусель с профильными местами»). Новая встаёт на то же место, прежняя уходит
+    // вправо за край; шаг назад — новая растворяется, прежняя возвращается справа (Грегори 2026-11-22)
+    const stack = []; // открытые карусели по порядку: { key, prefix, build, tone }; видна последняя, нет ни одной — барабан
     const levels = [];
+    const top = () => (stack.length ? levels[stack.length - 1].el : wheel);
     const level = (k) => {
       if (levels[k]) return levels[k];
       const el = Object.assign(document.createElement("div"), { className: `layers-sub carousel sub-${name}${k ? `-${k + 1}` : ""}`, hidden: true });
       document.body.append(el);
-      const L = { el, k, key: null, specs: [], prefix: "", right: 0, cy: () => 0 };
-      // центр первой карусели — вровень с кнопкой барабана, каждой следующей — ниже на SHIFT
-      const cy = () => wheel.getBoundingClientRect().top + centerY() + k * SHIFT - el.getBoundingClientRect().top;
+      const L = { el, k, key: null, specs: [] };
       L.R = rotor(el, el, {
         shown: () => !el.hidden,
-        centerY: cy,
-        onStart: () => { liveLabels(); closeFrom(k + 1); },
-        onSettle: () => { liveLabels(true); chain(k); },
+        centerY: () => Math.min(el.clientHeight / 2, L.R.geom().radius + BTN / 2 + 4),
+        onStart: () => spinning(true),
+        onSettle: () => spinning(false),
+        onSwipe: () => back(),
       });
-      L.cy = cy;
       return (levels[k] = L);
     };
-    // глубина — сколько открытых каруселей перед этой; уходит вглубь вокруг своей центральной кнопки
-    const paintLevels = () => {
-      const shown = levels.filter((L) => !L.el.hidden && !L.closing).length;
-      for (const L of levels) {
-        L.el.classList.toggle("covered", !L.el.hidden && !L.closing && L.k < shown - 1);
-        L.el.style.setProperty("--depth", Math.max(0, shown - 1 - L.k));
-        if (!L.el.hidden) L.el.style.transformOrigin = `calc(100% - ${BTN / 2}px) ${Math.round(L.cy())}px`;
-      }
-      document.body.classList.toggle("carousel-on", !!document.querySelector(".layers-sub.carousel:not([hidden])"));
-    };
-    // закрыть — уехать вверх, под предыдущую, и погаснуть, потом спрятать (Грегори 2026-11-21: «должны закрываться,
-    // а не удаляться»); открыли снова, пока закрывается, — остаётся
-    const closeFrom = (k) => {
+    const paintKeys = () => { for (const { e, c } of list) c.classList.toggle("open", e.key === stack[0]?.key); };
+    // карусели с k-й — раствориться и спрятаться; наверху остаётся предыдущая (или барабан) — приезжает справа
+    const closeFrom = (k, ret = true) => {
       for (const L of levels.slice(k)) {
-        if (L.el.hidden || L.closing) continue;
-        L.el.classList.add("closing");
-        L.closing = setTimeout(() => { L.el.hidden = true; L.el.classList.remove("closing"); L.closing = 0; paintLevels(); }, 250);
+        if (L.el.hidden || L.melting) continue;
+        L.el.classList.add("melting");
+        L.melting = setTimeout(() => { L.el.hidden = true; L.el.classList.remove("melting", "away"); L.melting = 0; }, 300);
       }
-      paintLevels();
+      stack.length = Math.min(stack.length, k);
+      if (ret) top().classList.remove("away");
+      paintKeys();
     };
-    // карусель k: кнопки specs; та же кнопка, что была (и после закрытия) — карусель стоит, где стояла, другая —
+    const push = (frame) => {
+      const k = stack.length;
+      top().classList.add("away");
+      hideTip();
+      stack.push(frame);
+      fill(k, frame);
+      levels[k].el.classList.remove("away");
+      intro(levels[k].el);
+      paintKeys();
+      arrange();
+      melt();
+    };
+    function back() { closeFrom(stack.length - 1); arrange(); melt(); }
+    // карусель k: кнопки build(); та же кнопка, что была (и после закрытия) — карусель стоит, где стояла, другая —
     // в центре первая включённая или выбранная, иначе первая
-    function fill(k, key, prefix, specs, tone, wait = false) {
-      const L = level(k);
+    function fill(k, { key, prefix, build, tone }) {
+      const L = level(k), specs = build();
       L.specs = specs;
-      L.prefix = prefix;
       const buttons = specs.map((spec, j) => {
-        const b = item({ ...spec, num: `${prefix}.${j + 1}` });
+        const b = item({ ...spec, num: `${prefix}.${j + 1}`, click: () => {
+          spec.click();
+          // включили кнопку со связанными — их карусель на место этой
+          const next = !spec.on && spec.related?.();
+          if (next?.length) push({ key: spec.key, prefix: `${prefix}.${j + 1}`, build: spec.related, tone });
+        } });
         // нажатие по кнопке не в центре — докрутить её в центр, действие — сразу (как у барабана)
-        b.addEventListener("click", () => { if (!L.R.atCenter(j)) L.R.spinTo(j, () => chain(k)); });
+        b.addEventListener("click", () => { if (!L.R.atCenter(j)) L.R.spinTo(j, () => {}); });
         return b;
       });
       const cells = buttons.map((b) => { const cell = Object.assign(document.createElement("div"), { className: "wheel-cell" }); cell.append(b); return cell; });
-      if (wait) cells.push(Object.assign(document.createElement("div"), { className: "wheel-cell layers-wait", textContent: "Загрузка…" }));
       // выделенные кнопки — светлой заливкой цвета группы
       L.el.style.setProperty("--tone", `var(--tone-${tone})`);
-      // все — вплотную слева от барабана, одна под другой
-      L.right = innerWidth - wheel.getBoundingClientRect().left;
-      L.el.style.right = `${L.right}px`;
-      clearTimeout(L.closing);
-      L.closing = 0;
-      L.el.classList.remove("closing");
+      clearTimeout(L.melting);
+      L.melting = 0;
+      L.el.classList.remove("melting");
       L.el.hidden = false;
       L.R.set(cells);
       if (L.key !== key) L.R.jump(Math.max(0, specs.findIndex((x) => x.on || x.selected)));
       L.key = key;
-      paintLevels();
-    }
-    // за центральной кнопкой карусели k — её связанные кнопки (если она включена), иначе цепочка кончается
-    function chain(k) {
-      const L = levels[k];
-      if (!L || L.el.hidden || L.closing) return;
-      const i = L.R.centerIndex(), spec = L.specs[i];
-      const next = spec?.on && spec.related?.();
-      if (!next?.length) return closeFrom(k + 1);
-      fill(k + 1, spec.key, `${L.prefix}.${i + 1}`, next, L.el.style.getPropertyValue("--tone").slice(11, -1));
-      chain(k + 1);
     }
 
     let list = []; // кнопки барабана по порядку: { e, cell, c, x }
+    // меню кнопки барабана; null — назад к барабану
     function show(key) {
-      openKey = key;
-      if (key) { hideTip(); liveLabels(true); }
-      for (const { e, c } of list) c.classList.toggle("open", e.key === key);
+      closeFrom(0);
       const i = key ? list.findIndex((x) => x.e.key === key) : -1;
-      if (i < 0) { closeFrom(0); return; }
-      const e = list[i].e, m = e.module;
-      const cur = currentBasemap();
-      const col = e.content?.column;
-      // раздел с панелью: список подгружается при первом открытии меню
-      if (col && !col.loaded) {
-        col.loaded = true;
-        col.load(ctx).catch(() => {}).finally(() => openKey === key && show(key));
-      }
-      const colItems = col ? col.items() : [];
-      fill(0, key, `${num}.${i + 1}`, [
-        ...colItems.map((it) => ({ key: it.id, title: it.title, thumb: it.thumb, icon: it.icon, selected: it.selected, hint: it.hint,
-          click: () => { col.choose(it.id, ctx); show(null); } })),
-        ...(e.maps ? BASEMAPS.map((b) => ({ key: b.id || b.name, title: b.name, thumb: thumbOf(b), selected: b === cur, hint: b.hint,
-          click: () => { setBasemap(b); show(openKey); } })) : []),
-        ...(m ? m.menu.items().map((it) => menuSpec(m, it)) : []),
-        ...e.plain.map(plainSpec),
-      ], e.tone, col && !colItems.length);
-      chain(0);
+      if (i < 0) { arrange(); melt(); return; }
+      push({ key, prefix: `${num}.${i + 1}`, tone: list[i].e.tone, build: () => {
+        const e = list.find((x) => x.e.key === key)?.e, m = e?.module, cur = currentBasemap();
+        return !e ? [] : [
+          ...(e.maps ? BASEMAPS.map((b) => ({ key: b.id || b.name, title: b.name, thumb: thumbOf(b), selected: b === cur, hint: b.hint, click: () => setBasemap(b) })) : []),
+          ...(m ? m.menu.items().map((it) => menuSpec(m, it)) : []),
+          ...e.plain.map(plainSpec),
+        ];
+      } });
     }
 
     // подпись центральной кнопки: встал барабан или навели мышь — видна пару секунд (постоянные подписи выключены)
@@ -461,7 +433,7 @@ export function initLayersPanel(ctx) {
     function showTip() {
       clearTimeout(tipTimer);
       const l = list[R.centerIndex()];
-      if (!isOpen || openKey || !l || R.dragged() || labelsOn()) return hideTip();
+      if (!isOpen || stack.length || !l || R.dragged() || labelsOn()) return hideTip();
       tip.textContent = l.c.ariaLabel;
       const r = l.c.getBoundingClientRect();
       tip.style.right = `${innerWidth - r.left + 8}px`;
@@ -473,7 +445,7 @@ export function initLayersPanel(ctx) {
       clearTimeout(tipTimer);
       tip.classList.remove("show");
     }
-    addEventListener("resize", () => { hideTip(); R.layout(); if (openKey) show(openKey); });
+    addEventListener("resize", hideTip);
 
     // ---------- кнопки барабана ----------
     const render = () => {
@@ -501,26 +473,23 @@ export function initLayersPanel(ctx) {
         const anyOn = !!e.module?.active || e.plain.some((m) => m.active) || !!e.content?.column.isOpen() || (e.key === "content/navigation" && !!routeNow?.target);
         c.classList.toggle("on", anyOn);
         x.hidden = !anyOn;
-        // крестик: выключить всё в кнопке, забыть отмеченные виды и закрыть меню (Грегори, 2026-10-29:
-        // «при нажатии на крестик сброса панель сворачивать»)
+        // крестик: выключить всё в кнопке и забыть отмеченные виды (Грегори, 2026-10-29)
         x.addEventListener("click", async (ev) => {
           ev.stopPropagation();
           x.disabled = true;
-          show(null);
           for (const m of [e.module, ...e.plain]) if (m?.active) await switchTo(m, false);
           e.content?.column.close();
           e.module?.menu.clear?.();
           render();
         });
-        // центральная — открыть или закрыть меню; другая — докрутить в центр и сразу открыть
+        // центральная — открыть её карусель; другая — докрутить в центр и сразу открыть
         c.addEventListener("click", (ev) => {
           ev.stopPropagation();
           const i = list.findIndex((l) => l.e.key === e.key);
-          // раздел — сразу его панель; слой — меню. Окно раздела уже открыто — кнопка его сворачивает и
+          // раздел — сразу его панель; слой — карусель. Окно раздела уже открыто — кнопка его сворачивает и
           // разворачивает; у навигации с целью — карточку пути (как раньше значки в столбике под логотипом)
           const act = () => {
-            if (!e.content) return show(openKey === e.key ? null : e.key);
-            show(null);
+            if (!e.content) return show(e.key);
             // стрелка пути — ко мне: 3D, 200 м, по ходу (Грегори 2026-11-21: «это как начать»); уже так — карточка пути
             if (e.key === "content/navigation" && routeNow?.target) {
               const g = window.atlas?.geo?.state();
@@ -546,9 +515,17 @@ export function initLayersPanel(ctx) {
       // перерисовка не сдвигает барабан: в центре — та же кнопка
       const keep = list.findIndex((l) => l.e.key === centered);
       if (keep >= 0 && keep !== R.centerIndex()) R.jump(keep);
-      if (openKey) show(openKey);
+      // открытые карусели — заново, на своих местах
+      stack.forEach((f, k) => fill(k, f));
+      paintKeys();
     };
-    return { name, setOpen, render, wheel, need: () => R.need(), relayout: () => { if (isOpen) { R.layout(); if (openKey) show(openKey); } } };
+    return {
+      name, setOpen, render, wheel, top, back, depth: () => stack.length,
+      need: () => (stack.length ? levels[stack.length - 1].R : R).need(),
+      // место видимого — барабана или карусели
+      place: (y, h) => { const s = top().style; s.top = `${y}px`; s.bottom = `${innerHeight - y - h}px`; },
+      relayout: () => { if (!isOpen) return; R.layout(); for (const L of levels) if (!L.el.hidden) L.R.layout(); },
+    };
   }
 
   const drums = [makeDrum("layers", layerEntries), makeDrum("places", placeEntries), makeDrum("content", contentEntries)];
@@ -565,7 +542,7 @@ export function initLayersPanel(ctx) {
     if (a) a.style.transform = `rotate(${r.me ? r.arrow || 0 : 0}deg)`; else paint();
     if (!sameTarget) renderAll();
   });
-  document.body.append(arrowBtn, placesBtn, lensBtn, deskBtn);
+  document.body.append(arrowBtn, placesBtn, lensBtn);
 
   // подписи и номера кнопок барабанов и каруселей — в Настройках (Грегори 2026-11-21: «пункты видимости подписей»)
   const paintLabels = () => {
@@ -580,9 +557,8 @@ export function initLayersPanel(ctx) {
   // в районе каруселей»): колёсико над ним крутит барабан или карусель, щипок двумя пальцами и двойной щелчок —
   // ничего. Над подписями — карта, как везде
   const zoneAt = (x, y) => {
-    if (document.body.classList.contains("desk-on")) return null;
-    // передняя (открытая последней) карусель — первой (Грегори 2026-11-21: «фокус не переходит на соседнюю карусель»)
-    for (const el of [...document.querySelectorAll(".wheel:not(.closed):not(.behind), .layers-sub.carousel:not([hidden]):not(.closing)")].reverse()) {
+    // только видимый барабан или карусель: ушедшие вправо и тающие — нет
+    for (const el of document.querySelectorAll(".wheel:not(.closed):not(.away), .layers-sub.carousel:not([hidden]):not(.away):not(.melting)")) {
       const box = el.getBoundingClientRect();
       if (y < box.top || y > box.bottom || x > box.right) continue;
       // только столбик самих кнопок, подписи — нет (Грегори 2026-11-22: «с чего ты взял, что подписи должны забирать
@@ -607,10 +583,12 @@ export function initLayersPanel(ctx) {
   // (Грегори 2026-11-22: «включай подписи при наведении мыши на конкретный барабан и выключай с затуханием
   // сразу после потери фокуса без задержки»)
   let hoverFrame = 0;
+  // мышь над ним — и барабан не тает
   const hoverLabels = (x, y) => {
     const z = x === null ? null : zoneAt(x, y);
     for (const el of document.querySelectorAll(".labels-here")) if (el !== z) el.classList.remove("labels-here");
     z?.classList.add("labels-here");
+    if (z !== hovered) { hovered = z; melt(); }
   };
   addEventListener("pointermove", (e) => {
     if (e.pointerType !== "mouse") return;
@@ -624,6 +602,9 @@ export function initLayersPanel(ctx) {
   };
   addEventListener("touchstart", pinch, { capture: true, passive: false });
   addEventListener("touchmove", pinch, { capture: true, passive: false });
+  // палец на барабане или карусели — не тает, отпустил — отсчёт заново
+  addEventListener("pointerdown", (e) => { if (zoneAt(e.clientX, e.clientY)) { pressed = true; melt(); } }, { capture: true, passive: true });
+  for (const t of ["pointerup", "pointercancel"]) addEventListener(t, () => { if (pressed) { pressed = false; melt(); } }, { capture: true, passive: true });
 
   // слой включился не отсюда (сам по себе, по событию другого модуля) — кнопки обновить
   // включился другим слоем («Горнолыжные спуски» включают «Транспорт») — помнить до следующего запуска;
@@ -667,17 +648,13 @@ export function initLayersPanel(ctx) {
 // кругу; кнопка, проходя через центр, притормаживает, после прокрутки барабан встаёт ближайшей кнопкой в центр.
 // Один и тот же у барабанов и у карусели меню (Грегори 2026-11-21: «вид и реакция на нажатие — одинаковые»).
 // box — где кнопки (его высота — высота барабана), el — что слушает колёсико и палец; centerY() — где центр,
-// подписи барабанов видны, пока крутят, и 2 с после (Грегори 2026-11-22: «подписи показывать только при вращении
-// карусели и через 3 с гасить», потом — «уменьши до 2 с»): fade = true — начать отсчёт, иначе — держать
-// с мышью — нет: там подписи по наведению (labels-here). Мышь или палец — по тому, чем трогали последним
-// (сенсорный экран — пока не тронули — палец)
-let liveTimer = 0, mouseUser = !navigator.maxTouchPoints;
+// подписи барабанов на сенсорном экране видны, только пока крутят: перестали — сразу гаснут (Грегори 2026-11-22:
+// «никаких задержек на подписи — или фокус мыши, или вращение на телефоне»); с мышью — по наведению (labels-here).
+// Мышь или палец — по тому, чем трогали последним (сенсорный экран — пока не тронули — палец)
+let mouseUser = !navigator.maxTouchPoints;
 addEventListener("pointerdown", (e) => { mouseUser = e.pointerType === "mouse"; }, { capture: true, passive: true });
-function liveLabels(fade) {
-  if (mouseUser) return;
-  clearTimeout(liveTimer);
-  document.body.classList.add("labels-live");
-  if (fade) liveTimer = setTimeout(() => document.body.classList.remove("labels-live"), 2000);
+function liveLabels(on) {
+  if (!mouseUser) document.body.classList.toggle("labels-live", on);
 }
 
 // shown() — виден ли; onStart — начали крутить, onSettle — встал после прокрутки, onSwipe — смахнули вправо
@@ -695,25 +672,48 @@ function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {
     const step = Math.PI / 2 / half;
     return { step, radius: Math.min(full, GAP / Math.sin(step)) };
   };
-  // дуги по бокам столбика — видна рабочая область, вместе с подписями (Грегори 2026-11-22, рисунок: «показывал бы
-  // эти дуги вместе с подписями кнопок во время вращения… потом раствориться»)
-  const arc = Object.assign(document.createElement("div"), { className: "wheel-arc" });
+  // барабан чуть повёрнут вбок (Грегори 2026-11-22: «кнопки вписаны в эллипс и идут по дуге»): центральная кнопка
+  // левее всех, к краям — правее, до TILT. Дуги по бокам — видна рабочая область, вместе с подписями («показывал бы
+  // эти дуги вместе с подписями кнопок во время вращения… потом раствориться»): на одном отступе ARC от середины
+  // кнопок по всей длине («дуги будут отступать от кнопок на одинаковое расстояние»), подписи — дальше дуги
+  const arc = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  arc.setAttribute("class", "wheel-arc");
+  arc.innerHTML = "<path/><path/>";
+  let arcAt = "";
+  const drawArcs = (cx, cy, R) => {
+    if (arcAt === `${cx} ${cy} ${R}`) return;
+    arcAt = `${cx} ${cy} ${R}`;
+    // до угла, где эллипс изогнут круче отступа (дальше внутренняя дуга завернулась бы петлёй), не дальше 85°
+    const bend = (a) => (TILT ** 2 * Math.sin(a) ** 2 + R ** 2 * Math.cos(a) ** 2) ** 1.5 / (TILT * R);
+    let end = 0;
+    while (end < 1.48 && bend(end + 0.02) > ARC + 4) end += 0.02;
+    const side = (s) => {
+      const pts = [];
+      for (let i = 0; i <= 32; i++) {
+        const a = -end + (2 * end * i) / 32, l = Math.hypot(TILT * Math.sin(a), R * Math.cos(a));
+        pts.push(`${(cx - TILT * Math.cos(a) - (s * ARC * R * Math.cos(a)) / l).toFixed(1)},${(cy + R * Math.sin(a) + (s * ARC * TILT * Math.sin(a)) / l).toFixed(1)}`);
+      }
+      return `M${pts.join("L")}`;
+    };
+    arc.children[0].setAttribute("d", side(1));
+    arc.children[1].setAttribute("d", side(-1));
+  };
   const shownAt = (v) => v - (DETENT * Math.sin(2 * Math.PI * v)) / (2 * Math.PI);
   const wrap = (d) => { const k = n(); return ((d % k) + k + k / 2) % k - k / 2; };
   const centerIndex = () => ((Math.round(raw) % n()) + n()) % n();
 
   function layout() {
     if (!n() || !shown()) return;
-    const cy = centerY(), { radius, step } = geom();
+    const cy = centerY(), cx = box.clientWidth / 2, { radius, step } = geom();
     if (!arc.isConnected) box.append(arc);
-    Object.assign(arc.style, { top: `${Math.round(cy - radius - BTN / 2 - 6)}px`, height: `${Math.round(2 * radius + BTN + 12)}px` });
+    drawArcs(cx, Math.round(cy), Math.round(radius));
     const off = shownAt(raw);
     cells.forEach((cell, i) => {
       const a = wrap(i - off) * step;
       if (Math.abs(a) >= Math.PI / 2) { cell.hidden = true; return; }
       const k = Math.cos(a);
       cell.hidden = false;
-      cell.style.transform = `translateY(${cy + radius * Math.sin(a) - BTN / 2}px)`;
+      cell.style.transform = `translate(${-TILT * k}px, ${cy + radius * Math.sin(a) - BTN / 2}px)`;
       // к краям барабана — темнее и прозрачнее, центральная — сверху
       cell.style.filter = `brightness(${0.55 + 0.45 * k})`;
       cell.style.opacity = String(Math.min(1, 0.25 + k));
@@ -721,12 +721,15 @@ function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {
     });
   }
 
+  let moving = false;
   const animate = () => {
     cancelAnimationFrame(frame);
+    moving = true;
     const tick = () => {
       const d = target - raw;
       if (Math.abs(d) < 0.002) {
         raw = target;
+        moving = false;
         layout();
         const done = onArrive; onArrive = null;
         // докрутили щелчком — кнопку выбрали; встали после прокрутки — onSettle (подпись)
@@ -772,6 +775,7 @@ function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {
       if (Math.abs(dy) < 6) return;
       drag.moved = true;
       el.setPointerCapture(e.pointerId);
+      onArrive = null;
       onStart();
       cancelAnimationFrame(frame);
     }
@@ -798,7 +802,8 @@ function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {
 
   return {
     set: (list) => { cells = list; box.replaceChildren(...list); layout(); },
-    jump: (i) => { cancelAnimationFrame(frame); onArrive = null; raw = target = i; layout(); },
+    // встать сразу; крутился — он встал (onSettle), иначе барабан так и считался бы крутящимся и не таял
+    jump: (i) => { cancelAnimationFrame(frame); onArrive = null; raw = target = i; layout(); if (moving) { moving = false; onSettle(); } },
     layout, spinTo, centerIndex, geom,
     // высота, в которую встают все кнопки без повторов по кругу (как geom() у высокого барабана)
     need: () => { const step = Math.PI / 2 / (n() / 2 + 0.5); return 2 * Math.min(GAP / Math.sin(step), 400) + BTN + 8; },

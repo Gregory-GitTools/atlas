@@ -25,6 +25,7 @@ import { addMapButton } from "../core/controls.js";
 import { openGalleryWith } from "../core/photo-strip.js";
 import { countryAt } from "../core/borders.js";
 import { flagUrl } from "../core/flags.js";
+import { saveFile } from "../core/save-file.js";
 
 const svg = (d, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor"><path d="${d}"/></svg>`;
 // линия трека между двумя точками
@@ -337,15 +338,10 @@ async function exportAll() {
   if (!all.length) return;
   const trk = all.map((t) => toGpx(t).match(/<trk>[\s\S]*<\/trk>/)[0]).join("\n");
   lastExport = `<?xml version="1.0" encoding="UTF-8"?>\n<gpx xmlns="http://www.topografix.com/GPX/1/1" version="1.1" creator="Atlas"><metadata><name>Atlas — Мои треки</name></metadata>\n${trk}\n</gpx>\n`;
-  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([lastExport], { type: "application/gpx+xml" })), download: "Atlas — Мои треки.gpx" });
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  saveFile("Atlas — Мои треки.gpx", lastExport, "application/gpx+xml");
 }
 function download(t) {
-  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([toGpx(t)], { type: "application/gpx+xml" })),
-    download: `${t.name.replace(/[\\/:*?"<>|]+/g, "_")}.gpx` });
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  saveFile(`${t.name.replace(/[\\/:*?"<>|]+/g, "_")}.gpx`, toGpx(t), "application/gpx+xml");
 }
 
 // выбор файла: на телефоне — системное окно файлов (туда Sports Tracker сохраняет выгрузку)
@@ -1377,8 +1373,9 @@ const askPhotos = (t) => {
       setTimeout(() => reply([]), 60000); // альбомов нет — никто не ответит
     })).then((r) => {
       // тот же снимок и в альбоме, и в галерее телефона — один раз
-      const names = new Set(phone.map((x) => x.name));
+      const names = new Set(phone.map((x) => x.name)), access = r.access;
       r = [...phone, ...r.filter((x) => !names.has(x.name))];
+      if (access) { r.access = access; photoAsk.delete(t.id); } // доступ дадут — спросить заново
       photoRaw.set(t.id, r);
       return r;
     }));
@@ -1542,6 +1539,8 @@ async function openTrack(id, keep = false) {
   if (c) nodes.push(c, selInfo, tools);
   if (trackPhotos.length) nodes.push(...photoStrip(t));
   else if (t.segs.flat().some((p) => p[3])) { const r = phoneAskRow(); if (r) nodes.push(r); }
+  const access = photoRaw.get(t.id)?.access;
+  if (access) nodes.push(albumAskRow(access));
 
   // ещё правка: выбросы, разрезать в отмеченной точке, склеить, дорисовать
   const more = h("div", "tk-edit");
@@ -1700,6 +1699,25 @@ function phoneAskRow() {
   b.append(access === "none" ? "Фото из галереи телефона" : "Выбрать ещё фото из галереи");
   b.title = "Показать на треке снимки и ролики, снятые телефоном за время записи";
   b.addEventListener("click", () => AtlasPhotos.ask());
+  row.append(b);
+  return row;
+}
+
+// папки альбомов есть, но после перезапуска браузер даёт к ним доступ только по нажатию — снимков альбомов на
+// треке не видно (Грегори 2026-11-22: «пропали фотки в треках»)
+function albumAskRow(access) {
+  const row = h("div", "tk-edit");
+  const b = h("button", "text-btn");
+  b.type = "button";
+  b.innerHTML = svg(ALBUM_D, 20);
+  b.append(access.title);
+  b.title = "Показать на треке снимки из альбомов за время трека";
+  b.addEventListener("click", async () => {
+    await access.ask();
+    photoAsk.clear();
+    photoRaw.clear();
+    if (openId) openTrack(openId, true);
+  });
   row.append(b);
   return row;
 }

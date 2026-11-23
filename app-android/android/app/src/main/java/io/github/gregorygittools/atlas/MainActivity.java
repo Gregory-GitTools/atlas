@@ -3,6 +3,7 @@ package io.github.gregorygittools.atlas;
 import android.Manifest;
 import android.os.Build;
 import android.content.pm.PackageManager;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
@@ -13,6 +14,8 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -37,6 +40,10 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import com.getcapacitor.BridgeWebChromeClient;
 import com.getcapacitor.BridgeWebViewClient;
 
@@ -151,6 +158,33 @@ public class MainActivity extends BridgeActivity {
     private class AppJs {
         @JavascriptInterface public String version() {
             try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception e) { return ""; }
+        }
+        // файл сайта (GPX, KML, настройки) — в «Загрузки» телефона (Грегори 2026-11-22: «на телефоне не сработал
+        // экспорт GPX»: ссылка с download в WebView ничего не делает). Ответ: "" — сохранено, "ask" — ждём
+        // разрешения (Android 9 и старше), иначе — текст ошибки
+        @JavascriptInterface public String saveFile(String name, String mime, String text) {
+            try {
+                byte[] data = text.getBytes(StandardCharsets.UTF_8);
+                if (Build.VERSION.SDK_INT >= 29) {
+                    ContentValues v = new ContentValues();
+                    v.put(MediaStore.Downloads.DISPLAY_NAME, name);
+                    v.put(MediaStore.Downloads.MIME_TYPE, mime);
+                    Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                    if (uri == null) return "нет доступа к «Загрузкам»";
+                    try (OutputStream out = getContentResolver().openOutputStream(uri)) { out.write(data); }
+                    return "";
+                }
+                if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                    runOnUiThread(() -> ActivityCompat.requestPermissions(MainActivity.this, new String[] { Manifest.permission.WRITE_EXTERNAL_STORAGE }, 9));
+                    return "ask";
+                }
+                File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                dir.mkdirs();
+                File f = new File(dir, name);
+                for (int i = 2; f.exists(); i++) f = new File(dir, name.replaceFirst("(\\.[^.]+)?$", " (" + i + ")$1"));
+                try (OutputStream out = new FileOutputStream(f)) { out.write(data); }
+                return "";
+            } catch (Exception e) { return String.valueOf(e.getMessage()); }
         }
     }
 

@@ -1380,8 +1380,18 @@ on("track-photos-wanted", async ({ albumId, from, to, ctx: c, reply }) => {
   const a = albumId && albums.get(albumId);
   const top = a?.parent ? groups.get(a.parent) : null;
   const own = a ? photosOf(top || a).map((id) => photos.get(id)).filter(Boolean) : [];
-  for (let i = 0; i < own.length; i += 4) await Promise.all(own.slice(i, i + 4).map(exifOf));
-  const DAY = 864e5, pick = new Map();
+  // и снимки альбомов тех же дней (дата — в начале имени папки, 20261024 …): трек, загруженный файлом, своего
+  // альбома не знает (Грегори 2026-11-22: «пропали фотки в треках», альбом «20261024 (GPX) Neeme»)
+  const DAY = 864e5, day = (T) => Math.floor((T - new Date(T).getTimezoneOffset() * 60000) / DAY);
+  const near = [...albums.values()].filter((x) => {
+    const m = /^(\d{4})(\d\d)(\d\d)(?:-(\d{4})?(\d\d)(\d\d))?/.exec(x.name);
+    if (!m) return x.from && x.from <= to + DAY && x.to >= from - DAY;
+    const f = Date.UTC(+m[1], m[2] - 1, +m[3]) / DAY, t = m[6] ? Date.UTC(+(m[4] || m[1]), m[5] - 1, +m[6]) / DAY : f;
+    return f <= day(to) + 1 && t >= day(from) - 1;
+  }).flatMap((x) => photosOf(x).map((id) => photos.get(id))).filter((p) => p && !own.includes(p));
+  const read = [...own, ...near.slice(0, 600)];
+  for (let i = 0; i < read.length; i += 4) await Promise.all(read.slice(i, i + 4).map(exifOf));
+  const pick = new Map();
   for (const p of [...own, ...photos.values()]) {
     const d = p.rec?.date;
     if (!d || pick.has(p.id) || p.album.title === "Избранное") continue;
@@ -1391,9 +1401,12 @@ on("track-photos-wanted", async ({ albumId, from, to, ctx: c, reply }) => {
     pick.set(p.id, { id: p.id, name: p.name, video: p.video, wall, at, lat: p.rec.lat, lon: p.rec.lon, mine: own.includes(p) });
   }
   const list = [...pick.values()];
-  reply(list.map((x) => ({ ...x,
+  // папки есть, а доступа после перезапуска браузера нет — снимков не видно: «Мои треки» покажут кнопку
+  const out = list.map((x) => ({ ...x,
     thumb: () => thumbOf(photos.get(x.id)),
-    open: (ids) => openGalleryWith(ids.filter((id) => photos.has(id)).map((id) => galleryItem(photos.get(id))), x.id, media) })));
+    open: (ids) => openGalleryWith(ids.filter((id) => photos.has(id)).map((id) => galleryItem(photos.get(id))), x.id, media) }));
+  if (needsAccess && dirs.length) out.access = { title: accessTitle(), ask: () => askAccess() };
+  reply(out);
 }, { replay: false });
 
 // из трека — назад в его альбом

@@ -40,5 +40,7 @@ set JAVA_HOME=C:\Users\Gregory\Android\jdk
 gradlew assembleRelease bundleRelease
 ```
 
+Файлы (GPX, KML, настройки) приложение сохраняет в «Загрузки» телефона.
+
 Перед выпуском новой сборки в Google Play поднимите `versionCode` в `android/app/build.gradle`.
 Иконки и заставка делаются из `icon.png` (логотип Travel Earth): `python make_icons.py`.

@@ -1822,15 +1822,15 @@ body.has-photo-strip .status {
    постоянно над треугольником, при любом размере окна; на телефоне — от строки поиска до ленты фото.
    Спрятанная уезжает вправо */
 /* верх барабана — под лупой справа вверху */
-/* барабаны — наверху, под тремя кнопками справа (Грегори 2026-11-21: «поднимаем карусели наверх»), до «Десктопа» */
+/* барабан — под своей кнопкой справа вверху, кнопки ниже сдвинуты на его высоту (Грегори 2026-11-22: «барабан
+   появляется из нажатой кнопки вниз»); top и bottom ставит core/layers-panel.js */
 .wheel {
   position: fixed;
   right: calc(var(--side-r) - var(--gap) * 1.5);
-  top: calc(var(--top-inset) + 4 * var(--gap) + 3 * var(--button));
-  bottom: calc(2 * var(--gap) + var(--button));
   z-index: 20;
   width: calc(var(--button) + 3 * var(--gap));
   touch-action: none;
+  transform-origin: 50% 0;
   transition: transform 0.25s ease, opacity 0.25s ease;
   /* мышь и палец ловят только кнопки, промежутки и подписи — карта (Грегори 2026-11-22: «бережней к месту») */
   pointer-events: none;
@@ -1840,52 +1840,43 @@ body.has-photo-strip .status {
   pointer-events: auto;
 }
 
-/* дуги по бокам столбика кнопок — рабочая область барабана или карусели, видны вместе с подписями */
+/* дуги по бокам кнопок — рабочая область барабана или карусели, видны вместе с подписями; идут по эллипсу кнопок
+   на одном отступе (рисует core/layers-panel.js) */
 .wheel-arc {
   position: absolute;
-  left: calc(50% - var(--button) / 2 - 14px);
-  width: calc(var(--button) + 28px);
-  box-sizing: border-box;
-  border: 2px solid transparent;
-  border-left-color: rgba(60, 64, 67, 0.55);
-  border-right-color: rgba(60, 64, 67, 0.55);
-  border-radius: 50%;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: none;
+  stroke: rgba(60, 64, 67, 0.55);
+  stroke-width: 2;
+  stroke-linecap: round;
   filter: drop-shadow(0 0 1px #fff);
   pointer-events: none;
   opacity: 0;
   transition: opacity 0.4s;
 }
 
-.carousel .wheel-arc {
-  left: auto;
-  right: -14px;
-}
-
 body.labels-live .wheel-arc,
-.labels-here .wheel-arc {
+.labels-here .wheel-arc,
+.labels-intro .wheel-arc {
   opacity: 1;
 }
 
-body.carousel-on .wheel .wheel-arc,
-.wheel.behind .wheel-arc,
-.carousel.covered .wheel-arc {
-  visibility: hidden;
-}
-
+/* закрыт — свёрнут вверх, в свою кнопку */
 .wheel.closed {
-  transform: translateX(110%);
+  transform: translateY(-12px) scaleY(0.15);
   opacity: 0;
   pointer-events: none;
 }
 
-/* телефон, оба барабана открыты — нижний бледнее, меньше и размыт, будто дальше (Грегори 2026-11-21: «то, что
-   ниже слоем и нельзя нажать, — меньше, с эффектом удаления»), и не нажимается; его кнопка поднимает его наверх */
-.wheel.behind {
-  z-index: 19;
-  opacity: 0.35;
-  transform: scale(0.85);
-  transform-origin: right top;
-  filter: blur(1px);
+/* открыта его карусель — уехал вправо за край; шаг назад — возвращается */
+.wheel.away,
+.layers-sub.carousel.away {
+  transform: translateX(calc(100% + 80px));
+  opacity: 0;
   pointer-events: none;
 }
 
@@ -1929,7 +1920,7 @@ body.carousel-on .wheel .wheel-arc,
 .wheel-label {
   position: absolute;
   top: 50%;
-  right: calc(100% + 6px);
+  right: calc(100% + 16px);
   transform: translateY(-50%);
   color: var(--text);
   font-size: 14px;
@@ -1939,34 +1930,18 @@ body.carousel-on .wheel .wheel-arc,
   pointer-events: none;
 }
 
-/* «Десктоп»: остаются карта (с маршрутами, метками и окном места по щелчку), кнопки слева внизу, сам «Десктоп» и
-   строка состояния */
-body.desk-on > :not(#map):not(.stars):not(.desk-toggle):not(#status),
-body.desk-on .maplibregl-ctrl-top-left,
-body.desk-on .maplibregl-ctrl-top-right,
-body.desk-on .maplibregl-ctrl-bottom-right {
-  visibility: hidden !important;
-}
-
-/* подписи барабана — с мышью: пока она над его кнопками (labels-here), ушла — сразу гаснут; на сенсорном экране —
-   пока крутят (и сразу после открытия), через 2 с гаснут (Грегори 2026-11-22: «нет возможности увидеть незакрытое
-   подписями окно»); классы ставит core/layers-panel.js */
+/* подписи барабана — с мышью: пока она над его кнопками (labels-here), на сенсорном экране — пока крутят
+   (labels-live); перестали — сразу гаснут (Грегори 2026-11-22: «никаких задержек на подписи»); только что открытый —
+   2 с (labels-intro); классы ставит core/layers-panel.js */
 .wheel-label,
 .carousel .layers-item > span {
   transition: opacity 0.4s;
 }
 
-body:not(.labels-live) .wheel:not(.labels-here) .wheel-label,
-body:not(.labels-live) .carousel:not(.labels-here) .layers-item > span {
+body:not(.labels-live) .wheel:not(.labels-here):not(.labels-intro) .wheel-label,
+body:not(.labels-live) .carousel:not(.labels-here):not(.labels-intro) .layers-item > span {
   opacity: 0;
   pointer-events: none;
-}
-
-/* открыто меню кнопки (карусель) или барабан ниже слоем — подписи барабанов спрятаны */
-body.carousel-on .wheel-label,
-.wheel.behind .wheel-label,
-.carousel.covered .layers-item > span {
-  visibility: hidden;
 }
 
 /* номер — перед подписью, приглушённо */
@@ -2003,12 +1978,14 @@ body.labels-off.numbers-off .carousel .layers-item > span {
 }
 
 /* кнопки барабанов — столбиком справа вверху, по номерам барабанов: лупа (разделы), «Места», «Слои» (Грегори
-   2026-11-21: «поднимаем карусели наверх, кнопку языков прячем»); полупрозрачные (glass), барабан открыт — белая */
+   2026-11-21: «поднимаем карусели наверх, кнопку языков прячем»); полупрозрачные (glass), барабан открыт — белая.
+   Открытый барабан сдвигает кнопки ниже вниз, растаял — поднимаются на места */
 .places-toggle {
   position: fixed;
   right: var(--side-r);
   top: calc(var(--top-inset) + 2 * var(--gap) + var(--button));
   z-index: 26;
+  transition: transform 0.25s ease;
 }
 
 .wheel-toggle {
@@ -2016,19 +1993,11 @@ body.labels-off.numbers-off .carousel .layers-item > span {
   right: var(--side-r);
   top: calc(var(--top-inset) + 3 * var(--gap) + 2 * var(--button));
   z-index: 26;
-}
-
-/* «Десктоп» — в правом нижнем углу: только карта, ещё раз — всё обратно (белая, пока спрятано) */
-.desk-toggle {
-  position: fixed;
-  right: var(--side-r);
-  bottom: var(--gap);
-  z-index: 26;
+  transition: transform 0.25s ease;
 }
 
 .wheel-toggle.open,
-.places-toggle.open,
-.desk-toggle.open {
+.places-toggle.open {
   background: var(--panel);
   color: var(--text);
   box-shadow: var(--shadow);
@@ -2036,8 +2005,7 @@ body.labels-off.numbers-off .carousel .layers-item > span {
 }
 
 .wheel-toggle.open:hover,
-.places-toggle.open:hover,
-.desk-toggle.open:hover {
+.places-toggle.open:hover {
   background: var(--panel-hover);
 }
 
@@ -4432,13 +4400,12 @@ body.go-nav-off .go-menu {
   pointer-events: none;
 }
 
-/* меню кнопки барабана — карусель слева от него (Грегори 2026-11-21): во всю высоту экрана, крутится
-   так же; значок — кнопка как на барабане, подпись слева от неё и едет вместе с ней */
+/* меню кнопки барабана — карусель на месте барабана (Грегори 2026-11-22: «заменяет на том же месте первый»), крутится
+   так же; значок — кнопка как на барабане, подпись слева от неё и едет вместе с ней; top и bottom — как у барабана */
 .layers-sub.carousel {
   display: block;
-  left: 8px;
-  top: 0;
-  bottom: 0;
+  right: calc(var(--side-r) - var(--gap) * 1.5);
+  width: calc(var(--button) + 3 * var(--gap));
   max-height: none;
   overflow: visible;
   pointer-events: none;
@@ -4449,36 +4416,33 @@ body.go-nav-off .go-menu {
   display: none;
 }
 
-/* цепочка: открыта следующая (ниже) — эта уходит вглубь и наклоняется назад, бледнее и размыта; глубже — дальше
-   (Грегори 2026-11-21: «отдалением нижнего слоя в глубину… наклон»); нажимается — докрутить другую кнопку */
+/* появляется на месте прежней; шаг назад — растворяется (melting), прежняя возвращается справа */
 .layers-sub.carousel {
-  transition: transform 0.25s, opacity 0.25s, filter 0.25s;
+  transition: transform 0.25s, opacity 0.3s;
+  animation: carousel-in 0.25s ease;
 }
 
-/* закрывается — уезжает вверх, под предыдущую, и гаснет */
-.layers-sub.carousel.closing {
-  transform: translateY(-52px) scale(0.9);
+@keyframes carousel-in {
+  from { opacity: 0; transform: scale(0.92); }
+}
+
+.layers-sub.carousel.melting {
   opacity: 0;
   pointer-events: none;
 }
 
-.layers-sub.carousel.closing .wheel-cell {
+.layers-sub.carousel.melting .wheel-cell {
   pointer-events: none;
 }
 
-.layers-sub.carousel.covered {
-  transform: perspective(600px) translateZ(calc(-110px * var(--depth, 1))) rotateX(28deg);
-  opacity: 0.5;
-  filter: blur(1px);
-}
-
+/* значок — посередине, как кнопка барабана */
 .carousel .wheel-cell {
   left: auto;
-  right: 0;
+  right: calc(50% - var(--button) / 2);
 }
 
 /* карусель ловит только значки; подпись — не кнопка, под ней карта */
-.carousel:not(.closing) .layers-icon {
+.carousel:not(.melting):not(.away) .layers-icon {
   pointer-events: auto;
 }
 
@@ -4490,6 +4454,8 @@ body.go-nav-off .go-menu {
 .carousel .layers-item:hover,
 .carousel .layers-item.on {
   height: var(--button);
+  /* подпись — дальше дуги */
+  gap: 16px;
   padding: 0;
   background: none;
   box-shadow: none;

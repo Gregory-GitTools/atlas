@@ -1,5 +1,7 @@
 // Настройки — одно хранилище на устройстве (localStorage, ключи "atlas.<имя>"). Ничего не уходит
 // наружу; перенос на другое устройство — выгрузка в файл и загрузка из файла
+import { saveFile } from "./save-file.js";
+
 const PREFIX = "atlas.";
 
 export function get(key, fallback = null) {
@@ -28,8 +30,5 @@ export function importAll(file) {
 }
 
 export function downloadSettings() {
-  const blob = new Blob([JSON.stringify(exportAll(), null, 2)], { type: "application/json" });
-  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: "atlas-настройки.json" });
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  saveFile("atlas-настройки.json", JSON.stringify(exportAll(), null, 2), "application/json");
 }
