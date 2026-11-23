@@ -115,7 +115,7 @@ public class MainActivity extends BridgeActivity {
     }
 
     // ── запись трека (TrackService): сайт зовёт AtlasTrack.start/pause/resume/stop, state() — что сейчас,
-    // read(from) — точки с этого номера, clear() — трек забран в «Мои треки», файл больше не нужен
+    // read(from) — точки с этого номера, clear() — трек забран в «Мои треки» (или «✕» в шторке), файл больше не нужен
     private class Track {
         // нет разрешения на точное место — спросить; "ask" — сайт скажет, что нажать ещё раз
         @JavascriptInterface public String start() {
@@ -138,12 +138,15 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface public String state() {
             android.content.SharedPreferences p = TrackService.prefs(MainActivity.this);
             return "{\"on\":" + p.getBoolean("on", false) + ",\"start\":" + p.getLong("start", 0) + ",\"pausedAt\":" + p.getLong("pausedAt", 0)
-                + ",\"pausedTotal\":" + p.getLong("pausedTotal", 0) + ",\"dist\":" + p.getFloat("dist", 0) + ",\"saved\":" + (TrackService.file(MainActivity.this).length() > 0) + ",\"off\":" + p.getFloat("off", 0) + ",\"max\":" + p.getFloat("max", 0) + "}";
+                + ",\"pausedTotal\":" + p.getLong("pausedTotal", 0) + ",\"dist\":" + p.getFloat("dist", 0) + ",\"saved\":" + (TrackService.file(MainActivity.this).length() > 0) + ",\"off\":" + p.getFloat("off", 0) + ",\"max\":" + p.getFloat("max", 0) + ",\"dropped\":" + p.getBoolean("dropped", false) + "}";
         }
         // трассы вокруг — для «вне трассы» (TrackService.saveSlopes)
         @JavascriptInterface public void setSlopes(String json) { TrackService.saveSlopes(MainActivity.this, json); }
         @JavascriptInterface public String read(int from) { return TrackService.read(MainActivity.this, from); }
-        @JavascriptInterface public void clear() { if (!TrackService.prefs(MainActivity.this).getBoolean("on", false)) TrackService.file(MainActivity.this).delete(); }
+        @JavascriptInterface public void clear() {
+            android.content.SharedPreferences p = TrackService.prefs(MainActivity.this);
+            if (!p.getBoolean("on", false)) { TrackService.file(MainActivity.this).delete(); p.edit().putBoolean("dropped", false).apply(); }
+        }
     }
 
     // ── снимки галереи телефона на треке (Photos): access() — "all" | "some" | "none", ask() — спросить

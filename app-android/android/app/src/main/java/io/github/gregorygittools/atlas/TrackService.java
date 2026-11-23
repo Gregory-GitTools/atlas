@@ -18,7 +18,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Looper;
-import android.os.SystemClock;
 import android.view.View;
 import android.widget.RemoteViews;
 import androidx.core.app.NotificationCompat;
@@ -45,7 +44,7 @@ import org.json.JSONObject;
 // «Вне трассы» (Грегори 2026-11-20, горные лыжи): сайт кладёт рядом трассы и подъёмники (slopes.json), служба
 // на каждом замере меряет расстояние до ближайшей — уехал с трасс, звук и вибрация, без сети и при погасшем экране
 public class TrackService extends Service {
-    static final String START = "start", PAUSE = "pause", RESUME = "resume", STOP = "stop", MUTE = "mute", ASK = "ask", NO = "no";
+    static final String START = "start", PAUSE = "pause", RESUME = "resume", STOP = "stop", MUTE = "mute", ASK = "ask", NO = "no", DROP = "drop";
     private static final String CHANNEL = "track", OFF_CHANNEL = "offpiste";
     private static final int ID = 1, OFF_ID = 2;
     private static final float MAX_ERROR = 40; // м — замеры грубее не пишем (в доме, под мостом)
@@ -99,7 +98,7 @@ public class TrackService extends Service {
                 if (!p.getBoolean("on", false)) {
                     file(this).delete();
                     slopesFile(this).delete();
-                    p.edit().putBoolean("on", true).putLong("start", now).putLong("pausedAt", 0).putLong("pausedTotal", 0).putFloat("dist", 0)
+                    p.edit().putBoolean("on", true).putBoolean("dropped", false).putLong("start", now).putLong("pausedAt", 0).putLong("pausedTotal", 0).putFloat("dist", 0)
                         .putBoolean("mute", false).putFloat("off", 0).putFloat("max", 0).apply();
                     armed = false;
                 }
@@ -127,6 +126,10 @@ public class TrackService extends Service {
                 p.edit().putBoolean("mute", true).apply();
                 onPiste();
                 return p.getBoolean("on", false) ? START_STICKY : START_NOT_STICKY;
+            case DROP: // «✕» в вопросе — остановить и не сохранять: файл стёрт, сайт только уберёт запись с карты
+                file(this).delete();
+                p.edit().putBoolean("dropped", true).apply();
+                // дальше — как STOP
             default: // STOP — файл остаётся: его заберёт сайт
                 p.edit().putBoolean("on", false).putLong("pausedAt", 0).apply();
                 listen(false);
@@ -345,10 +348,11 @@ public class TrackService extends Service {
         return s.append(']').toString();
     }
 
-    // в шторке (Грегори 2026-11-20: «строка „Atlas пишет трек“ лишняя. Из-за неё кнопки сворачиваются. В верхней
-    // строке время, километры, максимальная скорость должны быть крупнее. Во второй строке кнопки… После нажатия
-    // стоп должен быть вопрос: сохранить?»): своя разметка — свёрнуто одна строка с кнопками-значками
-    // (note_small), развёрнуто — крупные цифры и под ними кнопки (note_big); «Стоп» — сперва вопрос, запись идёт
+    // в шторке (Грегори 2026-11-20: «время, километры, максимальная скорость крупнее… после нажатия стоп — вопрос:
+    // сохранить?»; 2026-11-23: «окно фиксированное, без стрелки развернуть — 9 из 10 попадёшь на остановить; общее
+    // время мелко рядом с Atlas в шапку, макс скорость видеть никуда не кликая; после Стоп — вернуться назад»):
+    // одна разметка без развёрнутой (note.xml) — км и наибольшая скорость, кнопки-значки; время — в шапке.
+    // «Стоп» — «Сохранить?» и три кнопки: ‹ — назад, запись идёт; ✕ — не сохранять; ✓ — сохранить
     private Notification note() {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null) {
@@ -360,44 +364,42 @@ public class TrackService extends Service {
         boolean paused = p.getLong("pausedAt", 0) > 0, ask = p.getBoolean("ask", false);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
         PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), flags);
-        PendingIntent toggle = PendingIntent.getService(this, 1, new Intent(this, TrackService.class).setAction(ask ? NO : paused ? RESUME : PAUSE), flags);
+        PendingIntent toggle = PendingIntent.getService(this, 1, new Intent(this, TrackService.class).setAction(ask ? DROP : paused ? RESUME : PAUSE), flags);
         PendingIntent stop = PendingIntent.getService(this, 2, new Intent(this, TrackService.class).setAction(ask ? STOP : ASK), flags);
-        RemoteViews small = new RemoteViews(getPackageName(), R.layout.note_small), big = new RemoteViews(getPackageName(), R.layout.note_big);
+        PendingIntent back = PendingIntent.getService(this, 3, new Intent(this, TrackService.class).setAction(NO), flags);
+        RemoteViews v = new RemoteViews(getPackageName(), R.layout.note);
         Locale ru = new Locale("ru");
-        // время в пути без пауз — часы идут сами (на паузе стоят)
-        long ran = (paused ? p.getLong("pausedAt", 0) : System.currentTimeMillis()) - p.getLong("start", 0) - p.getLong("pausedTotal", 0);
-        long base = SystemClock.elapsedRealtime() - Math.max(0, ran);
+        // время в пути без пауз — часы в шапке идут сами; на паузе стоят: «пауза 0:23»
+        long ran = Math.max(0, (paused ? p.getLong("pausedAt", 0) : System.currentTimeMillis()) - p.getLong("start", 0) - p.getLong("pausedTotal", 0));
         String km = String.format(ru, "%.1f км", p.getFloat("dist", 0) / 1000), max = String.format(ru, "%d км/ч", Math.round(p.getFloat("max", 0) * 3.6f));
-        int toggleIcon = ask ? R.drawable.ic_note_no : paused ? R.drawable.ic_note_play : R.drawable.ic_note_pause;
-        int stopIcon = ask ? R.drawable.ic_note_save : R.drawable.ic_note_stop;
-        for (RemoteViews v : new RemoteViews[] { small, big }) {
-            v.setChronometer(R.id.time, base, null, !paused);
-            v.setTextViewText(R.id.km, km);
-            v.setTextViewText(R.id.max, "макс " + max);
-            v.setViewVisibility(R.id.stats, ask ? View.GONE : View.VISIBLE);
-            v.setViewVisibility(R.id.ask, ask ? View.VISIBLE : View.GONE);
-            v.setImageViewResource(R.id.toggleIcon, toggleIcon);
-            v.setImageViewResource(R.id.stopIcon, stopIcon);
-        }
-        small.setTextViewText(R.id.max, max);
-        small.setOnClickPendingIntent(R.id.toggleIcon, toggle);
-        small.setOnClickPendingIntent(R.id.stopIcon, stop);
-        big.setTextViewText(R.id.toggleText, ask ? "Нет" : paused ? "Продолжить" : "Пауза");
-        big.setTextViewText(R.id.stopText, ask ? "Сохранить" : "Стоп");
-        big.setOnClickPendingIntent(R.id.toggle, toggle);
-        big.setOnClickPendingIntent(R.id.stop, stop);
+        v.setTextViewText(R.id.km, km);
+        v.setTextViewText(R.id.max, "макс " + max);
+        v.setViewVisibility(R.id.stats, ask ? View.GONE : View.VISIBLE);
+        v.setViewVisibility(R.id.ask, ask ? View.VISIBLE : View.GONE);
+        v.setViewVisibility(R.id.backIcon, ask ? View.VISIBLE : View.GONE);
+        v.setImageViewResource(R.id.toggleIcon, ask ? R.drawable.ic_note_no : paused ? R.drawable.ic_note_play : R.drawable.ic_note_pause);
+        v.setImageViewResource(R.id.stopIcon, ask ? R.drawable.ic_note_save : R.drawable.ic_note_stop);
+        v.setContentDescription(R.id.toggleIcon, ask ? "Не сохранять" : paused ? "Продолжить" : "Пауза");
+        v.setContentDescription(R.id.stopIcon, ask ? "Сохранить" : "Стоп");
+        v.setOnClickPendingIntent(R.id.backIcon, back);
+        v.setOnClickPendingIntent(R.id.toggleIcon, toggle);
+        v.setOnClickPendingIntent(R.id.stopIcon, stop);
+        long s = ran / 1000;
+        String clock = s >= 3600 ? String.format(ru, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String.format(ru, "%d:%02d", s / 60, s % 60);
         return new NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_track)
             .setContentTitle(paused ? "Запись трека — пауза" : "Запись трека") // для чтения с экрана; на виду — своя разметка
             .setContentText(km + " · макс " + max)
             .setStyle(new NotificationCompat.DecoratedCustomViewStyle())
-            .setCustomContentView(small)
-            .setCustomBigContentView(big)
+            .setCustomContentView(v)
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
-            .setShowWhen(false)
+            .setShowWhen(!paused)
+            .setUsesChronometer(!paused)
+            .setWhen(System.currentTimeMillis() - ran)
+            .setSubText(paused ? "пауза " + clock : null)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build();

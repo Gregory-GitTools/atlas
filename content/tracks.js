@@ -600,7 +600,9 @@ function recPoll() {
   // остановили (и в шторке) — итог; запись без единой точки — тоже: окно скажет, а навигацию выключит «Закрыть»
   // (Грегори 2026-11-22: «после выключения трека навигация не выключается… записанные треки не появляются» —
   // пустая запись раньше пропадала молча)
-  } else if ((recState.saved || settings.get("tracks.rec.kind")) && !recReviewing && !recFinishing) recReview(false, true);
+  // в шторке «✕» — не сохранять (Грегори 2026-11-23): трек уже стёрт — убрать запись с карты и выключить навигацию
+  } else if (recState.dropped && !recFinishing) recEnd(null);
+  else if ((recState.saved || settings.get("tracks.rec.kind")) && !recReviewing && !recFinishing) recReview(false, true);
   else if (recPts.length) { recPts = []; recDraw(); }
   recShow();
 }
@@ -1363,13 +1365,26 @@ let splitSize = settings.get("tracks.split", 1000);
 // В приложении — ещё и снимки галереи телефона (Грегори 2026-11-20: «делаем фото из галереи»): их даёт
 // AtlasPhotos (app-android, Photos.java) сразу, не дожидаясь альбомов; время у них настоящее (UTC)
 const photoAsk = new Map(), photoRaw = new Map(); // id трека → обещание списка снимков / готовый список
+// трек без времени (нарисован в Mapy.cz и т. п.; Грегори 2026-11-23: «фото в 2026.10.24 Jägala Jõesuu_mapy нет»):
+// день — из названия (2026.10.24, 2026-10-24, 20261024) или даты трека, снимки встают на трек по месту
+const timed = (t) => t.segs.flat().some((p) => p[3]);
+const photoPts = (t) => (timed(t) ? t.segs.flat().filter((p) => p[3]) : t.segs.flat());
+function photoSpan(t) {
+  const all = t.segs.flat().filter((p) => p[3]);
+  if (all.length) return [all[0][3], all[all.length - 1][3]];
+  const m = /(20\d\d)[.\-_ ]?(\d\d)[.\-_ ]?(\d\d)/.exec(t.name || "");
+  const d = m ? new Date(+m[1], m[2] - 1, +m[3]) : t.date ? new Date(t.date) : null;
+  if (!d || isNaN(d)) return null;
+  d.setHours(0, 0, 0, 0);
+  return [+d, +d + 864e5 - 1];
+}
 const askPhotos = (t) => {
   if (!photoAsk.has(t.id)) {
-    const all = t.segs.flat().filter((p) => p[3]);
-    const phone = all.length ? phonePhotos(all[0][3], all[all.length - 1][3]) : [];
+    const span = photoSpan(t);
+    const phone = span ? phonePhotos(...span) : [];
     if (phone.length) photoRaw.set(t.id, phone);
-    photoAsk.set(t.id, (!all.length ? Promise.resolve([]) : new Promise((reply) => {
-      emit("track-photos-wanted", { albumId: t.album?.albumId || null, from: all[0][3], to: all[all.length - 1][3], ctx, reply });
+    photoAsk.set(t.id, (!span ? Promise.resolve([]) : new Promise((reply) => {
+      emit("track-photos-wanted", { albumId: t.album?.albumId || null, from: span[0], to: span[1], ctx, reply });
       setTimeout(() => reply([]), 60000); // альбомов нет — никто не ответит
     })).then((r) => {
       // тот же снимок и в альбоме, и в галерее телефона — один раз
@@ -1406,6 +1421,7 @@ window.atlasPhotosChanged = () => {
   if (openId) openTrack(openId, true);
 };
 export function placePhotos(t, raw) {
+  if (!timed(t)) return placeByPlace(t, raw);
   const pts = t.segs.flat().filter((p) => p[3]);
   if (pts.length < 2 || !raw.length) return [];
   const T0 = pts[0][3], T1 = pts[pts.length - 1][3], GAP = 120000;
@@ -1437,6 +1453,18 @@ export function placePhotos(t, raw) {
   }
   return list.sort((a, b) => a.t - b.t);
 }
+// трек без времени: снимок с местом не дальше 300 м от трека — на ближайшую точку; без места поставить некуда
+function placeByPlace(t, raw) {
+  const pts = t.segs.flat(), list = [];
+  if (pts.length < 2) return list;
+  for (const x of raw) {
+    if (!Number.isFinite(x.lat) || !Number.isFinite(x.lon)) continue;
+    let best = Infinity, bi = -1;
+    pts.forEach((p, i) => { const d = meters(p, [x.lon, x.lat]); if (d < best) { best = d; bi = i; } });
+    if (best <= 300) list.push({ ...x, t: x.at ?? x.wall, pt: [pts[bi][0], pts[bi][1]], i: bi });
+  }
+  return list.sort((a, b) => a.i - b.i || a.t - b.t);
+}
 
 async function openTrack(id, keep = false) {
   const t = await getTrack(id);
@@ -1453,7 +1481,7 @@ async function openTrack(id, keep = false) {
   const raw = photoRaw.get(id);
   if (!again) photoPick = null;
   trackPhotos = raw ? placePhotos(t, raw) : [];
-  { const flat = t.segs.flat().filter((p) => p[3]); s.photoMarks = trackPhotos.map((x) => s.profile.find((r) => r[3] === flat[x.i])?.[0]).filter((d) => d != null); }
+  { const flat = photoPts(t); s.photoMarks = trackPhotos.map((x) => s.profile.find((r) => r[3] === flat[x.i])?.[0]).filter((d) => d != null); }
   if (!again || !sel || sel.b > last) sel = { a: 0, b: last, v0: 0, v1: last, pin: null };
   if (sel.pin > last) sel.pin = null;
   const bad = spikes(t);

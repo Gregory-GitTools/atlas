@@ -4,9 +4,9 @@
 //  • открыт один барабан: выезжает из своей кнопки вниз, кнопки ниже сдвигаются на его высоту; нажали кнопку
 //    другого — открытый сворачивается сразу (с анимацией); второй щелчок по своей — спрятать (у лупы — вместе со
 //    строкой поиска); открыт поиск — на месте лупы логотип; на телефоне барабан можно смахнуть вправо;
-//  • меню кнопки — карусель на том же месте, барабан уходит вправо за край; у карусели своя карусель — так же;
-//  • таяние: нет мыши над барабаном и пальца — через 2 с шаг назад (карусель растворяется, прежняя возвращается
-//    справа), ещё через 2 с — следующий, пока не растает барабан; тогда кнопки поднимаются на места;
+//  • меню кнопки — карусель на том же месте, барабан уходит вглубь и вправо, но виден; у карусели своя — так же;
+//  • таяние: нет мыши над барабаном и пальца — через 5 с шаг назад (карусель растворяется, прежняя возвращается
+//    справа), ещё через 5 с — следующий, пока не растает барабан; тогда кнопки поднимаются на места;
 //  • подписи — пока мышь над барабаном или его крутят, ушла — сразу гаснут; новая карусель показывает их 2 с;
 //  • кнопки — на барабане, как в игровом автомате или при выборе даты: размер у всех один, меняются
 //    промежутки — в центре самые большие, к верху и низу всё меньше, кнопки уходят за край барабана
@@ -68,7 +68,6 @@ const LOGO = '<img class="start-logo" src="icons/start-logo.png" alt="">';
 // поменьше»), притормаживание у центра
 const GAP = 54, DETENT = 0.7, BTN = 40;
 // наклон барабана и отступ дуг от середины кнопок (core/style.css: подписи — дальше дуги)
-const TILT = 16, ARC = BTN / 2 + 9;
 
 export function initLayersPanel(ctx) {
   // ---------- слои ----------
@@ -184,7 +183,7 @@ export function initLayersPanel(ctx) {
   const placesBtn = Object.assign(document.createElement("button"), { className: "btn glass places-toggle", innerHTML: GROUPS.find((g) => g.id === PLACES).icon });
   const lensBtn = Object.assign(document.createElement("button"), { className: "btn glass search-toggle" });
   // тающие карусели (Грегори 2026-11-22): открыт один барабан — он выезжает из своей кнопки вниз и сдвигает кнопки
-  // ниже; нажали кнопку другого — открытый сразу сворачивается. Нет над ним мыши и пальца — через 2 с шаг назад
+  // ниже; нажали кнопку другого — открытый сразу сворачивается. Нет над ним мыши и пальца — через 5 с шаг назад
   // (карусель растворяется, справа возвращается предыдущая), и так каждые 2 с, пока не растает сам барабан; тогда
   // кнопки поднимаются на свои места
   const BANDS = ["content", "places", "layers"]; // кнопки сверху вниз
@@ -289,14 +288,14 @@ export function initLayersPanel(ctx) {
     clearTimeout(el.introTimer);
     el.introTimer = setTimeout(() => el.classList.remove("labels-intro"), 2000);
   };
-  // мышь над видимым барабаном или каруселью, палец на нём или он ещё крутится — стоит; иначе через 2 с шаг назад.
+  // мышь над видимым барабаном или каруселью, палец на нём или он ещё крутится — стоит; иначе через 5 с шаг назад.
   // window.__holdDrums — для проверок: не таять
   let meltTimer = 0, spin = false, pressed = false, hovered = null;
   function melt() {
     clearTimeout(meltTimer);
     const d = openName && drumOf(openName);
     if (!d || window.__holdDrums || spin || pressed || hovered === d.top()) return;
-    meltTimer = setTimeout(() => { if (d.depth()) d.back(); else setDrum(d.name, false); }, 2000);
+    meltTimer = setTimeout(() => { if (d.depth()) d.back(); else setDrum(d.name, false); }, 5000);
   }
   const spinning = (on) => { spin = on; liveLabels(on); melt(); };
 
@@ -340,7 +339,7 @@ export function initLayersPanel(ctx) {
     // меню кнопки барабана — карусель (Грегори 2026-11-21: «значки — кнопками, подписи вращаются вместе с ними; вид
     // и реакция на нажатие — одинаковые»); включили кнопку со связанными (related) — их карусель («после выбора
     // горнолыжных спусков — третья карусель с профильными местами»). Новая встаёт на то же место, прежняя уходит
-    // вправо за край; шаг назад — новая растворяется, прежняя возвращается справа (Грегори 2026-11-22)
+    // вглубь и вправо, но видна (2026-11-23); шаг назад — новая растворяется, прежняя возвращается (Грегори 2026-11-22)
     const stack = []; // открытые карусели по порядку: { key, prefix, build, tone }; видна последняя, нет ни одной — барабан
     const levels = [];
     const top = () => (stack.length ? levels[stack.length - 1].el : wheel);
@@ -358,7 +357,12 @@ export function initLayersPanel(ctx) {
       });
       return (levels[k] = L);
     };
-    const paintKeys = () => { for (const { e, c } of list) c.classList.toggle("open", e.key === stack[0]?.key); };
+    // и глубина ушедших: барабан и каждая карусель — на сколько шагов позади текущей
+    const paintKeys = () => {
+      for (const { e, c } of list) c.classList.toggle("open", e.key === stack[0]?.key);
+      wheel.style.setProperty("--depth", stack.length);
+      stack.forEach((f, k) => levels[k]?.el.style.setProperty("--depth", stack.length - 1 - k));
+    };
     // карусели с k-й — раствориться и спрятаться; наверху остаётся предыдущая (или барабан) — приезжает справа
     const closeFrom = (k, ret = true) => {
       for (const L of levels.slice(k)) {
@@ -672,48 +676,20 @@ function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {
     const step = Math.PI / 2 / half;
     return { step, radius: Math.min(full, GAP / Math.sin(step)) };
   };
-  // барабан чуть повёрнут вбок (Грегори 2026-11-22: «кнопки вписаны в эллипс и идут по дуге»): центральная кнопка
-  // левее всех, к краям — правее, до TILT. Дуги по бокам — видна рабочая область, вместе с подписями («показывал бы
-  // эти дуги вместе с подписями кнопок во время вращения… потом раствориться»): на одном отступе ARC от середины
-  // кнопок по всей длине («дуги будут отступать от кнопок на одинаковое расстояние»), подписи — дальше дуги
-  const arc = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  arc.setAttribute("class", "wheel-arc");
-  arc.innerHTML = "<path/><path/>";
-  let arcAt = "";
-  const drawArcs = (cx, cy, R) => {
-    if (arcAt === `${cx} ${cy} ${R}`) return;
-    arcAt = `${cx} ${cy} ${R}`;
-    // до угла, где эллипс изогнут круче отступа (дальше внутренняя дуга завернулась бы петлёй), не дальше 85°
-    const bend = (a) => (TILT ** 2 * Math.sin(a) ** 2 + R ** 2 * Math.cos(a) ** 2) ** 1.5 / (TILT * R);
-    let end = 0;
-    while (end < 1.48 && bend(end + 0.02) > ARC + 4) end += 0.02;
-    const side = (s) => {
-      const pts = [];
-      for (let i = 0; i <= 32; i++) {
-        const a = -end + (2 * end * i) / 32, l = Math.hypot(TILT * Math.sin(a), R * Math.cos(a));
-        pts.push(`${(cx - TILT * Math.cos(a) - (s * ARC * R * Math.cos(a)) / l).toFixed(1)},${(cy + R * Math.sin(a) + (s * ARC * TILT * Math.sin(a)) / l).toFixed(1)}`);
-      }
-      return `M${pts.join("L")}`;
-    };
-    arc.children[0].setAttribute("d", side(1));
-    arc.children[1].setAttribute("d", side(-1));
-  };
   const shownAt = (v) => v - (DETENT * Math.sin(2 * Math.PI * v)) / (2 * Math.PI);
   const wrap = (d) => { const k = n(); return ((d % k) + k + k / 2) % k - k / 2; };
   const centerIndex = () => ((Math.round(raw) % n()) + n()) % n();
 
   function layout() {
     if (!n() || !shown()) return;
-    const cy = centerY(), cx = box.clientWidth / 2, { radius, step } = geom();
-    if (!arc.isConnected) box.append(arc);
-    drawArcs(cx, Math.round(cy), Math.round(radius));
+    const cy = centerY(), { radius, step } = geom();
     const off = shownAt(raw);
     cells.forEach((cell, i) => {
       const a = wrap(i - off) * step;
       if (Math.abs(a) >= Math.PI / 2) { cell.hidden = true; return; }
       const k = Math.cos(a);
       cell.hidden = false;
-      cell.style.transform = `translate(${-TILT * k}px, ${cy + radius * Math.sin(a) - BTN / 2}px)`;
+      cell.style.transform = `translateY(${cy + radius * Math.sin(a) - BTN / 2}px)`;
       // к краям барабана — темнее и прозрачнее, центральная — сверху
       cell.style.filter = `brightness(${0.55 + 0.45 * k})`;
       cell.style.opacity = String(Math.min(1, 0.25 + k));

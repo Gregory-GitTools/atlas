@@ -1380,13 +1380,13 @@ on("track-photos-wanted", async ({ albumId, from, to, ctx: c, reply }) => {
   const a = albumId && albums.get(albumId);
   const top = a?.parent ? groups.get(a.parent) : null;
   const own = a ? photosOf(top || a).map((id) => photos.get(id)).filter(Boolean) : [];
-  // и снимки альбомов тех же дней (дата — в начале имени папки, 20261024 …): трек, загруженный файлом, своего
+  // и снимки альбомов тех же дней (дата — в начале имени папки: 20261024 …, 2026.10.24 …, 2026-10-24 …): трек, загруженный файлом, своего
   // альбома не знает (Грегори 2026-11-22: «пропали фотки в треках», альбом «20261024 (GPX) Neeme»)
   const DAY = 864e5, day = (T) => Math.floor((T - new Date(T).getTimezoneOffset() * 60000) / DAY);
   const near = [...albums.values()].filter((x) => {
-    const m = /^(\d{4})(\d\d)(\d\d)(?:-(\d{4})?(\d\d)(\d\d))?/.exec(x.name);
+    const m = /^(\d{4})[._]?(\d\d)[._]?(\d\d)(?:-(\d{4}[._]?)?(\d\d)[._]?(\d\d))?/.exec(x.name.replace(/^(\d{4})-(\d\d)-(\d\d)/, "$1$2$3"));
     if (!m) return x.from && x.from <= to + DAY && x.to >= from - DAY;
-    const f = Date.UTC(+m[1], m[2] - 1, +m[3]) / DAY, t = m[6] ? Date.UTC(+(m[4] || m[1]), m[5] - 1, +m[6]) / DAY : f;
+    const f = Date.UTC(+m[1], m[2] - 1, +m[3]) / DAY, t = m[6] ? Date.UTC(+(m[4]?.slice(0, 4) || m[1]), m[5] - 1, +m[6]) / DAY : f;
     return f <= day(to) + 1 && t >= day(from) - 1;
   }).flatMap((x) => photosOf(x).map((id) => photos.get(id))).filter((p) => p && !own.includes(p));
   const read = [...own, ...near.slice(0, 600)];

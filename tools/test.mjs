@@ -3194,14 +3194,14 @@ try {
     // смена карты перерисовывает барабан — кнопку «Карты» искать заново
     const btn = () => document.querySelector('.layers-circle[data-key="maps"]');
     const center = () => shown().sort((a, b) => Math.abs(mid(a) - mid(btn())) - Math.abs(mid(b) - mid(btn())))[0];
-    const icon = sub.querySelector(".layers-icon"), ir = icon.getBoundingClientRect(), cr = c.getBoundingClientRect();
+    const icon = sub.querySelector(".layers-icon"), ir = icon.getBoundingClientRect(), cr = { width: c.offsetWidth, height: c.offsetHeight }; // барабан ушёл вглубь — сравнить без уменьшения
     const span = sub.querySelector(".layers-item > span").getBoundingClientRect();
     const r = { carousel: sub.classList.contains("carousel"), cells: shown().length, size: Math.round(ir.width) === Math.round(cr.width) && Math.round(ir.height) === Math.round(cr.height),
       round: getComputedStyle(icon).borderRadius === "50%", label: span.right <= ir.left + 1,
-      // на месте барабана: тот же верх, значки — под кнопкой «Слои» (центральный левее на наклон барабана), барабан ушёл вправо
+      // на месте барабана: тот же верх, значки — под кнопкой «Слои», барабан ушёл вглубь
       inplace: sub.style.top === c.closest(".wheel").style.top && c.closest(".wheel").classList.contains("away")
         && Math.abs(Math.min(...shown().map((b) => { const q = b.querySelector(".layers-icon").getBoundingClientRect(); return q.left + q.width / 2; }))
-          - (() => { const q = document.querySelector(".wheel-toggle").getBoundingClientRect(); return q.left + q.width / 2; })() + 16) <= 2,
+          - (() => { const q = document.querySelector(".wheel-toggle").getBoundingClientRect(); return q.left + q.width / 2; })()) <= 2,
       arc: new Set(shown().map((b) => Math.round(b.getBoundingClientRect().top))).size === shown().length };
     const first = center().firstChild.textContent, items = shown(), k = items.indexOf(center());
     const next = items[k + 1] || items[k - 1], t = next.firstChild.textContent;
@@ -3229,8 +3229,12 @@ try {
     for (let i = 0; i < 150 && !(s2 && !s2.hidden && s2.querySelector(".layers-item")); i++) { await wait(200); s2 = document.querySelector(".sub-layers-2"); }
     if (!s2 || s2.hidden) return { ...r, open2: false };
     await wait(600);
-    r.open2 = true; r.away = s1.classList.contains("away") && !s2.classList.contains("away") && s1.style.top === s2.style.top
-      && s1.getBoundingClientRect().left > s2.getBoundingClientRect().right;
+    // прежняя — вглубь и вправо, но видна (Грегори 2026-11-23), барабан — ещё глубже
+    await wait(400);
+    r.open2 = true;
+    const b1 = s1.getBoundingClientRect(), b2 = s2.getBoundingClientRect(), wb = document.querySelector(".wheel-layers").getBoundingClientRect();
+    r.away = s1.classList.contains("away") && !s2.classList.contains("away") && s1.style.top === s2.style.top
+      && b1.right > b2.right && b1.width < b2.width && +getComputedStyle(s1).opacity > 0.3 && wb.width < b1.width && +getComputedStyle(document.querySelector(".wheel-layers")).opacity > 0.15;
     r.intro = s2.classList.contains("labels-intro") && getComputedStyle(s2.querySelector(".layers-item > span")).opacity === "1";
     r.titles = [...s2.querySelectorAll(".layers-item > span")].map((s) => s.dataset.num + " " + s.textContent);
     find(s2, "Горнолыжные курорты").click(); await wait(1500);
@@ -3250,6 +3254,9 @@ try {
   // только на область самих каруселей»); подписи — без подложки; дуги видны вместе с подписями
   if (PHONE) await run(`dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch" })); true`); // тесты жмут мышью — на телефоне последним был палец
   const zone = await run(`(async () => { const tr = document.querySelector('.wheel-layers .layers-circle[data-key="trails/hiking"]');
+    // справа от кнопки до края экрана — тоже кнопка (Грегори 2026-11-23: «иначе часто промахиваешься»)
+    const side = (b) => { const q = b.getBoundingClientRect(); return document.elementFromPoint(Math.round(q.right + 8), Math.round(q.top + q.height / 2)) === b; };
+    const wside = side(tr);
     if (!tr.classList.contains("open")) tr.click(); await new Promise((r) => setTimeout(r, 1200));
     const s1 = document.querySelector(".sub-layers"), cells = [...s1.querySelectorAll(".wheel-cell:not([hidden])")].map((c) => c.getBoundingClientRect());
     const sorted = cells.sort((a, b) => a.top - b.top), x = Math.round(Math.min(...cells.map((r) => r.left)) + 15), mids = sorted.map((r) => Math.round((r.top + r.bottom) / 2)),
@@ -3260,10 +3267,7 @@ try {
     const ic = s1.querySelector(".wheel-cell:not([hidden]) .layers-icon").getBoundingClientRect();
     const ics = [...s1.querySelectorAll(".wheel-cell:not([hidden]) .layers-icon")].map((i) => i.getBoundingClientRect()).sort((a, b) => a.top - b.top);
     return { x, y, ix: Math.round(ic.left + ic.width / 2), iy: Math.round(ic.top + ic.height / 2), gy: Math.round((ics[0].bottom + ics[1].top) / 2),
-      map: document.elementFromPoint(x, y)?.tagName === "CANVAS", at: document.elementFromPoint(x, y)?.className, zoom: atlas.map.getZoom(), first: top(), bg: getComputedStyle(span).backgroundColor }; })()`);
-  // мышь на значке — подписи и дуги видны
-  if (!PHONE) { await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: zone.ix, y: zone.iy }); await sleep(600); }
-  zone.arc = await run(`getComputedStyle(document.querySelector(".sub-layers .wheel-arc")).opacity`);
+      side: wside && side(s1.querySelector(".wheel-cell:not([hidden]) .layers-icon")), map: document.elementFromPoint(x, y)?.tagName === "CANVAS", at: document.elementFromPoint(x, y)?.className, zoom: atlas.map.getZoom(), first: top(), bg: getComputedStyle(span).backgroundColor }; })()`);
   // над подписью — карта приближается, карусель стоит
   await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: zone.x, y: zone.y, deltaX: 0, deltaY: 300 });
   await sleep(1500);
@@ -3274,10 +3278,10 @@ try {
   const zone2 = await run(`({ zoom: atlas.map.getZoom(), first: window.__top() })`);
   zone.zoom = zoneL.zoom;
   await run(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })); true`);
-  check("карусель: колёсико между значками крутит её, карта стоит; над подписями — карта; подписи без подложки, дуги видны",
-    zone.map && zoneL.first === zone.first && Math.abs(zone2.zoom - zone.zoom) < 0.01 && zone2.first !== zone.first && zone.bg === "rgba(0, 0, 0, 0)" && +zone.arc > 0.9, JSON.stringify({ zone, zoneL, zone2 }));
-  // таяние (Грегори 2026-11-22): нет мыши и пальца — через 2 с шаг назад: карусель растворяется, барабан возвращается
-  // справа; ещё через 2 с тает барабан, кнопки ниже поднимаются на свои места
+  check("карусель: колёсико между значками крутит её, карта стоит; над подписями — карта; подписи без подложки; справа от кнопки — тоже кнопка",
+    zone.map && zoneL.first === zone.first && Math.abs(zone2.zoom - zone.zoom) < 0.01 && zone2.first !== zone.first && zone.bg === "rgba(0, 0, 0, 0)" && zone.side, JSON.stringify({ zone, zoneL, zone2 }));
+  // таяние (Грегори 2026-11-22, 2026-11-23 — 5 с): нет мыши и пальца — через 5 с шаг назад: карусель растворяется,
+  // барабан возвращается; ещё через 5 с тает барабан, кнопки ниже поднимаются на свои места
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 300, y: 450 });
   await sleep(300);
   const melt = await run(`(async () => { const wait = (ms) => new Promise((r) => setTimeout(r, ms)), A = document.querySelector(".wheel-toggle"), P = document.querySelector(".places-toggle");
@@ -3289,14 +3293,14 @@ try {
     const r = { shift: A.style.transform };
     w.querySelector(".wheel-cell:not([hidden]) .layers-circle").click(); await wait(500);
     r.sub = !!sub() && !sub().hidden && w.classList.contains("away");
-    await wait(2100);
+    await wait(5100);
     r.back = (sub().hidden || sub().classList.contains("melting")) && !w.classList.contains("away") && !w.classList.contains("closed");
-    await wait(2000);
+    await wait(5000);
     r.gone = w.classList.contains("closed") && !P.classList.contains("open") && A.style.transform === "";
     window.__holdDrums = true;
     A.click(); await wait(450);
     return r; })()`);
-  check("таяние: без мыши через 2 с карусель растворяется и возвращается барабан, ещё через 2 с тает он, кнопки поднимаются",
+  check("таяние: без мыши через 5 с карусель растворяется и возвращается барабан, ещё через 5 с тает он, кнопки поднимаются",
     !!melt.shift && melt.sub && melt.back && melt.gone, JSON.stringify(melt));
   // «Город · Страна» над шкалой (Грегори 2026-11-21: «названия городов и стран видно на 5 км, вблизи не видно»):
   // центр карты — по подписям самой карты и границам стран; вблизи город помнится
