@@ -46,7 +46,7 @@ import org.json.JSONObject;
 // на каждом замере меряет расстояние до ближайшей — уехал с трасс, звук и вибрация, без сети и при погасшем экране
 public class TrackService extends Service {
     static final String START = "start", PAUSE = "pause", RESUME = "resume", STOP = "stop", MUTE = "mute", ASK = "ask", NO = "no", DROP = "drop";
-    private static final String CHANNEL = "track", OFF_CHANNEL = "offpiste";
+    private static final String CHANNEL = "track2", OFF_CHANNEL = "offpiste";
     private static final int ID = 1, OFF_ID = 2;
     private static final float MAX_ERROR = 40; // м — замеры грубее не пишем (в доме, под мостом)
     // «вне трассы»: ближе ON_PISTE к трассе или подъёмнику — катается, следим; дальше OFF_PISTE на ходу (быстрее
@@ -350,16 +350,19 @@ public class TrackService extends Service {
     }
 
     // в шторке (Грегори 2026-11-20: «время, километры, максимальная скорость крупнее… после нажатия стоп — вопрос:
-    // сохранить?»; 2026-11-23: «окно фиксированное, без стрелки развернуть — 9 из 10 попадёшь на остановить; общее
-    // время мелко рядом с Atlas в шапку, макс скорость видеть никуда не кликая; после Стоп — вернуться назад»):
-    // одна разметка без развёрнутой (note.xml) — км и наибольшая скорость, кнопки-значки; время — в шапке.
-    // «Стоп» — «Сохранить?» и три кнопки: ‹ — назад, запись идёт; ✕ — не сохранять; ✓ — сохранить
+    // сохранить?»; 2026-11-24: «посмотри, как шторка сделана bergfex… у bergfex нет свернуть»): как у bergfex —
+    // заголовок с часами, три столбика с подписями (note.xml) и системные кнопки текстом: Пауза · Стоп, после
+    // «Стоп» — Назад (запись идёт) · Не сохранять · Сохранить. Канал обычной важности, но без звука: «тихие»
+    // (IMPORTANCE_LOW) Android показывает свёрнутыми — таблеткой со стрелкой; прежний канал "track" удаляется
     private Notification note() {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null) {
-            NotificationChannel ch = new NotificationChannel(CHANNEL, "Запись трека", NotificationManager.IMPORTANCE_LOW);
+            NotificationChannel ch = new NotificationChannel(CHANNEL, "Запись трека", NotificationManager.IMPORTANCE_DEFAULT);
+            ch.setSound(null, null);
+            ch.enableVibration(false);
             ch.setShowBadge(false);
             nm.createNotificationChannel(ch);
+            nm.deleteNotificationChannel("track");
         }
         SharedPreferences p = prefs(this);
         boolean paused = p.getLong("pausedAt", 0) > 0, ask = p.getBoolean("ask", false);
@@ -370,39 +373,35 @@ public class TrackService extends Service {
         PendingIntent back = PendingIntent.getService(this, 3, new Intent(this, TrackService.class).setAction(NO), flags);
         RemoteViews v = new RemoteViews(getPackageName(), R.layout.note);
         Locale ru = new Locale("ru");
-        // время в пути без пауз — часы в строке идут сами, на паузе стоят
+        // время в пути без пауз — часы в столбике идут сами, на паузе стоят
         long ran = Math.max(0, (paused ? p.getLong("pausedAt", 0) : System.currentTimeMillis()) - p.getLong("start", 0) - p.getLong("pausedTotal", 0));
         String km = String.format(ru, "%.1f км", p.getFloat("dist", 0) / 1000), max = String.format(ru, "%d км/ч", Math.round(p.getFloat("max", 0) * 3.6f));
         v.setTextViewText(R.id.km, km);
-        v.setTextViewText(R.id.max, "макс " + max);
+        v.setTextViewText(R.id.max, max);
         v.setChronometer(R.id.time, SystemClock.elapsedRealtime() - ran, null, !paused);
         v.setViewVisibility(R.id.stats, ask ? View.GONE : View.VISIBLE);
         v.setViewVisibility(R.id.ask, ask ? View.VISIBLE : View.GONE);
-        v.setViewVisibility(R.id.backIcon, ask ? View.VISIBLE : View.GONE);
-        v.setImageViewResource(R.id.toggleIcon, ask ? R.drawable.ic_note_no : paused ? R.drawable.ic_note_play : R.drawable.ic_note_pause);
-        v.setImageViewResource(R.id.stopIcon, ask ? R.drawable.ic_note_save : R.drawable.ic_note_stop);
-        v.setContentDescription(R.id.toggleIcon, ask ? "Не сохранять" : paused ? "Продолжить" : "Пауза");
-        v.setContentDescription(R.id.stopIcon, ask ? "Сохранить" : "Стоп");
-        v.setOnClickPendingIntent(R.id.backIcon, back);
-        v.setOnClickPendingIntent(R.id.toggleIcon, toggle);
-        v.setOnClickPendingIntent(R.id.stopIcon, stop);
-        return new NotificationCompat.Builder(this, CHANNEL)
+        NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_track)
-            .setContentTitle(paused ? "Запись трека — пауза" : "Запись трека") // для чтения с экрана; на виду — своя разметка
+            .setContentTitle(ask ? "Запись трека — стоп" : paused ? "Запись трека — пауза" : "Запись трека")
             .setContentText(km + " · макс " + max)
             .setStyle(new NotificationCompat.DecoratedCustomViewStyle())
-            // свёрнутая и развёрнутая — одинаковые: стрелку Android рисует сам, но жать её незачем (Грегори 2026-11-24:
-            // «убрать свернуть/развернуть, попасть по ней нереально — пусть всегда будет развёрнута»)
             .setCustomContentView(v)
             .setCustomBigContentView(v)
+            // часы в заголовке, как у bergfex; на паузе и при вопросе — без них
+            .setWhen(System.currentTimeMillis() - ran)
+            .setUsesChronometer(!paused && !ask)
+            .setShowWhen(!paused && !ask)
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
-            .setShowWhen(false)
-            .setSubText(paused ? "пауза" : null)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_WORKOUT)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
+        if (ask) b.addAction(0, "Назад", back).addAction(0, "Не сохранять", toggle).addAction(0, "Сохранить", stop);
+        else b.addAction(0, paused ? "Продолжить" : "Пауза", toggle).addAction(0, "Стоп", stop);
+        return b
             .build();
     }
 }

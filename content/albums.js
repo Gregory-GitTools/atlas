@@ -125,7 +125,11 @@ async function walk(handle, path, token, root) {
       else if (TEXT_RE.test(name)) texts.push({ name, handle: h });
       else if (/^GL\d{6}\.LRV$/i.test(name)) proxies.set(name.slice(2, 8), h);
     }
-  } catch { return; }
+  } catch (e) {
+    // корень своей папки не читается — сказать в списке, а не молчать «Альбомов пока нет»
+    if (handle === root) scanErr = `Папка «${handle.name}» не читается (${e?.name || e}) — повторить`;
+    return;
+  }
   if (token !== scan) return;
   // GoPro: рядом с роликом GX011479.MP4 (4K, сотни МБ) — его уменьшенная копия GL011479.LRV (640×480);
   // кадр для клетки берётся из неё — быстро; играет в галерее сам ролик
@@ -231,8 +235,11 @@ function tally(g) {
 }
 
 // ---------- EXIF: координаты и дата, помнятся на устройстве ----------
-let exifrLoad = null;
+// unpkg не ответил — та же версия с jsdelivr (Грегори 2026-11-24: «альбом не загружается» — без программы
+// обход стоял, список пустой)
+let exifrLoad = null, noExif = false, scanErr = ""; // scanErr — почему обход своей папки не удался (строкой в списке)
 const exifr = () => (exifrLoad ??= import("https://unpkg.com/exifr@7.1.3/dist/full.esm.mjs")
+  .catch(() => import("https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.esm.mjs"))
   .then((m) => m.default || m).catch((err) => { exifrLoad = null; throw err; }));
 const OPTS = { tiff: true, exif: true, gps: true, xmp: false, icc: false, iptc: false, jfif: false, ihdr: false, translateValues: false };
 
@@ -251,9 +258,10 @@ async function exifOf(p) {
     }
     // у снимка из репозитория EXIF — в начале файла: хватает первых 128 КБ
     const src = file || await fetch(p.url, { headers: { Range: "bytes=0-131071" } }).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.status))));
+    const lib = await (noExif ? Promise.reject(new Error("exifr")) : exifr()); // не загрузилась — снимок без места, но в память не пишем: прочитается при «Повторить»
     const rec = {};
     try {
-      const e = await (await exifr()).parse(src, OPTS);
+      const e = await lib.parse(src, OPTS);
       if (Number.isFinite(e?.latitude) && Number.isFinite(e?.longitude) && (e.latitude || e.longitude)) Object.assign(rec, { lat: e.latitude, lon: e.longitude });
       // у уменьшенных копий в «Альбомах» остаётся только дата сохранения (DateTime) — тоже годится
       const d = [e?.DateTimeOriginal, e?.CreateDate, e?.ModifyDate].find((x) => x instanceof Date);
@@ -345,7 +353,12 @@ async function finish(a) {
   a.done = true;
 }
 
+// ошибка обхода — строкой в списке «… — повторить» (Грегори 2026-11-24: «после добавления папки она просто не сканируется»)
 async function rescan() {
+  scanErr = "";
+  try { await scanAll(); } catch (e) { busy = false; scanErr = `Альбомы не прочитались (${e?.message || e}) — повторить`; refresh(); }
+}
+async function scanAll() {
   const token = ++scan;
   albums.clear();
   groups.clear();
@@ -353,7 +366,9 @@ async function rescan() {
   checked = 0;
   busy = true;
   refresh();
-  try { await exifr(); } catch { busy = false; ctx?.status("Не загрузилась программа чтения снимков — проверьте интернет"); return; }
+  // программа чтения снимков не загрузилась — альбомы всё равно в списке («Без страны»), строкой «Повторить»
+  noExif = await exifr().then(() => false, () => true);
+  if (noExif) ctx?.status("Не загрузилась программа чтения снимков — места и даты не прочитаны");
   await listRepo().catch(() => {});
   nest("Альбомы");
   if (!needsAccess) for (const d of dirs) { await walk(d, d.name, token, d); if (token !== scan) return; }
@@ -1349,11 +1364,14 @@ function countryItems() {
         && forgetFolder(d, () => isOpen("albums") && !currentCountry && renderList(null)) } })))];
   const list = countries().map(([name, n]) => ({ id: name, title: `${name} (${n})`, thumb: flagUrl(isoOf(name)) || "",
     icon: isoOf(name) ? "" : ICON, selected: currentCountry === name && isOpen("albums") }));
-  return [...folder, ...(list.length || !loading ? list : [{ id: "", title: busy ? "Читаю альбомы…" : "Альбомов пока нет", icon: ICON }])];
+  const retry = scanErr ? [{ id: "#retry", icon: ICON, title: scanErr }]
+    : noExif ? [{ id: "#retry", icon: ICON, title: "Места и даты не прочитаны — повторить", hint: "Не загрузилась программа чтения снимков — проверьте интернет" }] : [];
+  return [...folder, ...retry, ...(list.length || !loading ? list : [{ id: "", title: busy ? "Читаю альбомы…" : "Альбомов пока нет", icon: ICON }])];
 }
 // окно выбора папки — прямо по нажатию (иначе браузер его не откроет); после выбора — снова список стран
 function chooseItem(country) {
   if (country?.startsWith("#dir:")) return; // строка своей папки — только крестик «Убрать»
+  if (country === "#retry") { rescan(); return; }
   if (country === "#folder") { (dirs.length && needsAccess ? askAccess() : pickFolder()).then(() => isOpen("albums") && !currentCountry && renderList(null)); return; }
   if (country) openCountry(country);
 }

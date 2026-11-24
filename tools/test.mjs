@@ -278,10 +278,11 @@ try {
   await run(`${navPanel}.querySelector(".go-way").click(); true`);
   for (let i = 0; i < 20 && !(await run(`!!atlas.route.state().route`)); i++) await sleep(500);
   await sleep(300);
-  const walk = await run(`({ ...atlas.route.state(), way: ${navPanel}.querySelector(".nav-way").textContent })`);
+  const walk = await run(`({ ...atlas.route.state(), way: ${navPanel}.querySelector(".nav-way").textContent, hud: ${navStats}.hud, hudRight: (() => { const r = document.querySelector(".hud-nav")?.getBoundingClientRect(); return r && r.right > innerWidth / 2 && r.bottom > innerHeight * 0.6; })() })`);
   // путь — ярко-синий и поверх всех слоёв (даже включённых после него)
   const top = await run(`(() => { const ids = atlas.map.getStyle().layers.map((l) => l.id); return { last: ids.slice(-3), color: atlas.map.getPaintProperty("go-route", "line-color") }; })()`);
-  check("куда идти: путь пешком — линия, длина и время в окне; синяя, поверх всего", walk.route?.way === "foot" && walk.route.points > 10 && /Пешком: .* · \d+ мин/.test(walk.way)
+  check("куда идти: путь пешком — линия, длина и время в окне; синяя, поверх всего; внизу справа крупно — сколько осталось и за сколько", walk.route?.way === "foot" && walk.route.points > 10 && /Пешком: .* · \d+ мин/.test(walk.way)
+    && /^\d[\d,]* (м|км)\n\d+ (мин|ч)/.test(walk.hud) && walk.hudRight
     && top.last.join() === "go-route-casing,go-route,go-line" && top.color === "#0a5cff", JSON.stringify({ walk, top }));
   await shot("00-route");
   // окно места при навигации (Грегори 2026-11-09): стрелка, «Добавить», «Поделиться», «Отметить»; «⋯» — «Сохранить маршрут»
@@ -2386,7 +2387,7 @@ try {
       && rc1.btn && rc1.on && /^0:01:0\d$/.test(rc1.time) && rc1.pts === 20 && rc1.line && /^Идёт запись0:01:0\d · 850 м · макс 45 км\/ч$/.test(rc1.row)
       && /^0:01:0\d\n850 м\nмакс 45 км\/ч$/.test(rc1.pill)
       && rc2.paused && /^Запись — пауза/.test(rc2.row) && !rc3.on && rc3.time === "" && rc3.tracks === 1 && /^\d{4}\.\d\d\.\d\d \d\d:\d\d:\d\d — бег/.test(rc3.open) && rc3.left === 0 && rc3.segs === 0
-      && /^Трек: \d{4}\.\d\d\.\d\d \d\d:\d\d:\d\d — бег/.test(rs.title) && rs.acts === "Отмена,Пауза,Остановить" && rs.paused && /^Трек: /.test(rs.review)
+      && /^Трек: \d{4}\.\d\d\.\d\d \d\d:\d\d:\d\d — бег/.test(rs.title) && rs.acts === "Назад,Пауза,Остановить" && rs.paused && /^Трек: /.test(rs.review)
       && rs.facts > 2 && rs.racts === "Назад,Выйти не сохраняя,Сохранить"
       && /кусков записи: 2/.test(rc3.hint), JSON.stringify({ rs, rc1, rc2, rc3 }));
     // приложение: снимки галереи телефона на треке (AtlasPhotos). Нет разрешения — кнопка «Фото из галереи
@@ -2447,14 +2448,14 @@ try {
     await run(`AtlasTrack.__st.on = false; __rec.length = 0; true`);
     await sleep(1500);
     const se = await run(`({ nav: atlas.geo.state().on, acts: [...document.querySelectorAll(".rec-review [data-act]")].map((b) => b.title).join(),
-      empty: /ни одной точки/.test(document.querySelector(".rec-review")?.textContent) })`);
+      empty: /ни одной точки/.test(document.querySelector(".rec-review")?.textContent), off: document.querySelector(".rec-review [data-act=save]")?.disabled })`);
     await run(`document.querySelector(".rec-review [data-act=discard]")?.click(); true`);
     await sleep(1000);
     Object.assign(se, { navOff: !(await run(`atlas.geo.state().on`)), gone: !(await run(`!!document.querySelector(".rec-kinds")`)) });
     check("вне трассы: приложению — трассы и подъёмник вокруг места записи (без «вне трассы», ски-тура), уехал — кнопка оранжевая",
       sl.calls === 1 && sl.lines === 2 && sl.areas === 1 && sl.flat === 4 && sl.at?.[1] === 46.99 && sl.off && !(await run(`${ts}.recState().on`)), JSON.stringify(sl));
-    check("запись без единой точки: остановили в шторке — окно «ни одной точки», «Закрыть» — навигация выключилась",
-      se.acts === "Закрыть" && se.empty && se.navOff && se.gone, JSON.stringify(se));
+    check("запись без единой точки: остановили в шторке — окно «ни одной точки», «Сохранить» видна, но неактивна, «Закрыть» — навигация выключилась",
+      se.acts === "Закрыть,Сохранить — нет ни одной точки" && se.off && se.empty && se.navOff && se.gone, JSON.stringify(se));
     check("треки: закрыть — линии с карты убраны",await run(`document.querySelector('[data-panel="tracks"]').hidden && !atlas.map.getLayer("tracks-line")`));
     await run(closeLayers);
   }

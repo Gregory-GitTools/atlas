@@ -149,7 +149,21 @@ export function initRoute({ map, maplibregl, status }) {
     const nx = me && next(), d = nx ? distance(me, nx) : null, b = nx ? bearing(me, nx) : null;
     const way = route && WAYS.find((w) => w.id === route.way);
     const pts = all();
+    // осталось (крупные цифры внизу справа, Грегори 2026-11-24): по пути — от меня до его непройденной части и
+    // её длина, время — та же доля от времени пути; без пути — прямыми через оставшиеся точки
+    let restM = null, restS = null;
+    const rp = me && restPath();
+    if (rp?.length) {
+      restM = distance(me, rp[0]);
+      for (let i = 1; i < rp.length; i++) restM += distance(rp[i - 1], rp[i]);
+      restS = route.distance ? route.duration * Math.min(1, restM / route.distance) : null;
+    } else if (me && ahead().length) {
+      const chain = [me, ...ahead().map((p) => p.lngLat)];
+      restM = 0;
+      for (let i = 1; i < chain.length; i++) restM += distance(chain[i - 1], chain[i]);
+    }
     emit("route", {
+      rest: restM === null ? null : { m: restM, s: restS, text: km(restM), time: restS === null ? "" : time(restS) },
       target: last(), start, finish: target, saved: savedId, me: !!me, busy, stops: stops.map((s) => s.title),
       points: pts.map((p, i) => ({ title: p.title, address: p.address || "", role: p === start ? "start" : p === target ? "finish" : "stop", n: stops.indexOf(p) + 1, done: i < done })),
       canRoute: allowed(self()) && (pts.length > 1 || (!!me && pts.length > 0)),

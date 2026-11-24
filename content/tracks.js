@@ -472,7 +472,7 @@ const REC_D = "M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5a10 10 0 1 0 0 20 10 10 0
 const PAUSE_D = "M6 19h4V5H6v14zm8-14v14h4V5h-4z";
 const PLAY_D = "M8 5v14l11-7z";
 const STOP_D = "M6 6h12v12H6z";
-let recState = null, recPts = [], recTimer = 0, recTick = 0, recBtn = null, recFinishing = false;
+let recState = null, recPts = [], recTimer = 0, recTick = 0, recBtn = null, recHud = null, recFinishing = false;
 const recWhen = (s) => { const ms = Math.max(0, (s.pausedAt || Date.now()) - s.start - s.pausedTotal), sec = Math.floor(ms / 1000);
   return `${Math.floor(sec / 3600)}:${String(Math.floor(sec / 60) % 60).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`; };
 const recSpeed = (s) => `макс ${Math.round(s.max * 3.6)} км/ч`;
@@ -547,7 +547,8 @@ function recButtons(box, list) {
     Object.assign(b, { type: "button", title: text, innerHTML: svg(d, 26) });
     b.setAttribute("aria-label", text);
     b.dataset.act = act;
-    b.addEventListener("click", () => { box.remove(); fn(); });
+    // без действия — видна, но неактивна (Грегори 2026-11-24: «на втором где записать?» — при пустой записи)
+    if (fn) b.addEventListener("click", () => { box.remove(); fn(); }); else b.disabled = true;
     row.append(b);
   }
   return row;
@@ -558,7 +559,8 @@ function recStop() {
   box.addEventListener("click", (e) => { if (e.target === box) box.remove(); });
   card.append(h("div", "rec-kinds-title", `Трек: ${recName(recState.start, settings.get("tracks.rec.kind"))}`),
     h("div", "rec-kinds-sub", [recWhen(recState), km(recState.dist), recState.max != null && recSpeed(recState)].filter(Boolean).join(" · ")),
-    recButtons(box, [["cancel", "Отмена", () => {}, CLOSE_D],
+    // «‹» — окно закрыть, запись идёт (Грегори 2026-11-24: «крестик это что? Назад <»)
+    recButtons(box, [["cancel", "Назад", () => {}, BACK_D],
       ["pause", paused ? "Продолжить" : "Пауза", () => { if (paused) rec().resume(); else rec().pause(); setTimeout(recPoll, 300); }, paused ? PLAY_D : PAUSE_D],
       ["stop", "Остановить", () => { if (!paused) rec().pause(); recReview(!paused); }, STOP_D]]));
 }
@@ -584,7 +586,7 @@ function recReview(resume, stopped = false) {
     const acts = [];
     if (!stopped) acts.push(["back", "Назад", () => { recReviewing = false; if (resume) { rec().resume(); setTimeout(recPoll, 300); } }, BACK_D]);
     acts.push(["discard", segs.length ? "Выйти не сохраняя" : "Закрыть", () => recEnd(null), segs.length ? DELETE_D : CLOSE_D]);
-    if (segs.length) acts.push(["save", "Сохранить", () => { t.name = recName(start, t.kind); recEnd(t); }, SAVE_D]);
+    acts.push(segs.length ? ["save", "Сохранить", () => { t.name = recName(start, t.kind); recEnd(t); }, SAVE_D] : ["save", "Сохранить — нет ни одной точки", null, SAVE_D]);
     card.replaceChildren(...nodes, recButtons(box, acts));
   };
   render();
@@ -688,16 +690,18 @@ function recShow() {
     recBtn.classList.toggle("paused", paused);
     recBtn.title = !on ? "Записать трек" : paused ? "Запись трека — пауза. Щелчок — продолжить или остановить" : "Идёт запись трека. Щелчок — пауза или остановить";
     recBtn.classList.toggle("off-piste", on && !paused && recState.off > 0);
-    // справа от кнопки — время, км и наибольшая скорость (Грегори 2026-11-20: «в три строки»)
-    const pill = recBtn.querySelector(".rec-time");
-    pill.replaceChildren(...(on ? [h("b", "", recWhen(recState)), h("span", "", km(recState.dist)), ...(recState.max != null ? [h("span", "", recSpeed(recState))] : [])] : []));
+    // время, км и наибольшая скорость в три строки (Грегори 2026-11-20) — внизу слева крупно, без подложки
+    // (2026-11-24: «большие прозрачные цифры… при записи левее»; была белая плашка у кнопки)
+    recHud.classList.toggle("off-piste", on && !paused && recState.off > 0);
+    recHud.replaceChildren(...(on ? [h("b", "", recWhen(recState)), h("span", "", km(recState.dist)), ...(recState.max != null ? [h("span", "", recSpeed(recState))] : [])] : []));
   }
   if (isOpen("tracks") && !openId && panel.body.querySelector(".tk-rec")) panel.body.querySelector(".tk-rec").replaceWith(...recRows());
 }
 function recInit(c) {
   if (recBtn || !rec() || !c?.map) return;
   ctx ||= c;
-  recBtn = addMapButton(c.map, { title: "Записать трек", className: "rec-btn", html: `${mdi(REC_D, 32)}<span class="rec-time"></span>` });
+  recBtn = addMapButton(c.map, { title: "Записать трек", className: "rec-btn", html: mdi(REC_D, 32) });
+  recHud = document.body.appendChild(h("div", "hud hud-rec"));
   recBtn.addEventListener("click", () => (recState?.on ? recStop() : recStart()));
   c.map.on("style.load", () => { if (c.map.getSource("tracks-rec")) return; const pts = recPts; recPts = []; recDraw(); recPts = pts; recDraw(); });
   if (isOpen("tracks") && !openId) renderList(); // список уже открыт — первой строкой запись
@@ -1846,7 +1850,7 @@ register({
   recInit: () => recInit(window.atlas?.ctx),
   recPoll: () => recPoll(),
   recKind: () => index.at(-1)?.kind || null,
-  recState: () => ({ btn: !!recBtn, on: recBtn?.classList.contains("on"), time: recBtn?.querySelector(".rec-time b")?.textContent || "", pill: recBtn?.querySelector(".rec-time").innerText, pts: recPts.length,
+  recState: () => ({ btn: !!recBtn, on: recBtn?.classList.contains("on"), time: recHud?.querySelector("b")?.textContent || "", pill: recHud?.innerText, pts: recPts.length,
     line: !!ctx?.map.getLayer("tracks-rec-line"), finishing: recFinishing, review: document.querySelector(".rec-review .rec-kinds-title")?.textContent || "", slopesAt, offPiste: recBtn?.classList.contains("off-piste"),
     sub: panel.body.querySelector(".tk-rec .tr-row-sub")?.textContent }),
 });

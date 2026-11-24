@@ -1024,41 +1024,46 @@ html, body {
   50% { opacity: 0.35; }
 }
 
-.rec-time {
-  position: absolute;
-  left: calc(100% + 8px);
-  top: 50%;
-  transform: translateY(-50%);
-  padding: 3px 9px;
-  border-radius: 12px;
-  background: var(--panel);
+/* крупные цифры внизу без подложки (Грегори 2026-11-24: «в обоих режимах большие прозрачные цифры… при
+   навигации правее, при записи левее»): слева, правее кнопок, — запись (время, путь, макс), справа, левее
+   треугольника слоёв, — навигация (осталось, время); над масштабом и названием места; карту не ловят */
+.hud {
+  position: fixed;
+  bottom: 84px;
+  z-index: 1;
   color: var(--text);
-  box-shadow: var(--shadow);
-  font: 600 13px var(--font);
+  font: 700 26px/1.15 var(--font);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  text-shadow: 0 0 3px var(--panel), 0 0 3px var(--panel), 0 0 6px var(--panel);
   pointer-events: none;
 }
 
-.rec-time:empty {
+.hud:empty {
   display: none;
 }
 
-/* время, км, скорость — три строки, время крупнее */
-.rec-time > b,
-.rec-time > span {
+.hud > b,
+.hud > span {
   display: block;
-  text-align: center;
 }
 
-.rec-time > b {
-  font-size: 15px;
+.hud > b {
+  font-size: 32px;
 }
 
-/* уехал с трасс — время на оранжевом, цвета «вне трассы» на «Спусках» */
-.rec-btn.off-piste .rec-time {
-  background: #ef6c00;
-  color: #fff;
+.hud-rec {
+  left: calc(var(--side-l) + var(--button) + var(--gap) + 8px);
+}
+
+.hud-nav {
+  right: calc(var(--side-r) + var(--button) + var(--gap) + 8px);
+  text-align: right;
+}
+
+/* уехал с трасс — цифры записи оранжевые, цвета «вне трассы» на «Спусках» */
+.hud-rec.off-piste {
+  color: #ef6c00;
 }
 
 .tk-rec {
@@ -3358,7 +3363,12 @@ body.has-photo-strip .al-write-ask {
   cursor: pointer;
 }
 
-.rec-icon-btn:hover {
+.rec-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.rec-icon-btn:not(:disabled):hover {
   background: color-mix(in srgb, var(--tone-track) 10%, var(--panel));
 }
 
@@ -4502,13 +4512,17 @@ body.go-nav-off .go-menu {
   color: color-mix(in srgb, var(--tone) 75%, #000);
 }
 
-/* значок — как кнопка барабана: выключено — заливка цвета группы, включено — светлая, кольцо и галочка */
+/* значки карусели — один вид (Грегори 2026-11-24: «разное оформление кнопок… приведём к одному виду»):
+   белый кружок в кольце — цвета слоя на карте, иначе цвета группы; включено — светлая заливка и галочка.
+   Отличается от заливных кнопок барабана позади — карусель не сливается с ним */
 .carousel .layers-icon {
   position: relative;
   width: var(--button);
   height: var(--button);
-  background: var(--tone);
-  color: #fff;
+  border-width: 3px;
+  border-color: var(--tone);
+  background: var(--panel);
+  color: var(--text);
   box-shadow: var(--shadow);
 }
 
@@ -4518,17 +4532,15 @@ body.go-nav-off .go-menu {
 }
 
 .carousel .layers-item:hover .layers-icon {
-  background: color-mix(in srgb, var(--tone) 85%, #000);
+  background: var(--panel-hover);
 }
 
 .carousel .layers-item.on .layers-icon {
-  background: color-mix(in srgb, var(--tone) 20%, #fff);
-  color: var(--tone);
-  box-shadow: var(--shadow), inset 0 0 0 2.5px var(--tone);
+  background: color-mix(in srgb, var(--tone) 22%, var(--panel));
 }
 
 .carousel .layers-item.on:hover .layers-icon {
-  background: color-mix(in srgb, var(--tone) 32%, #fff);
+  background: color-mix(in srgb, var(--tone) 32%, var(--panel));
 }
 
 .carousel .layers-item.on .layers-icon::after {
@@ -4544,17 +4556,9 @@ body.go-nav-off .go-menu {
   background: var(--tone) no-repeat center / 11px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='4' stroke-linecap='round' stroke-linejoin='round' d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
 }
 
-/* цвет на карте что-то значит — кольцо этого цвета на белом */
-.carousel .layers-icon.ring {
-  border-width: 3px;
-  background: var(--panel);
-  color: var(--text);
-}
-
 /* «Карты» — миниатюра в кольце, выбранная — в кольце цвета группы */
 .carousel .layers-icon.thumb {
-  border-width: 3px;
-  background: var(--panel);
+  border-color: var(--panel-hover);
 }
 
 .carousel .layers-item.selected .layers-icon.thumb {
@@ -4565,7 +4569,6 @@ body.go-nav-off .go-menu {
   white-space: nowrap;
 }
 
-.carousel .layers-item:hover .layers-icon.ring,
 .carousel .layers-item:hover .layers-icon.thumb {
   background: var(--panel-hover);
 }

@@ -297,12 +297,21 @@ function openPanel(c) {
 // кнопка в барабане светится, пока включена навигация или открыт её раздел
 const lit = () => navOn || searchMode() === MODE;
 let litWas = false;
-on("route", (s) => { state = s; render(false); document.querySelector(".search-results .route-view-foot")?.refresh?.(); });
+// внизу справа крупно, без подложки — сколько осталось и за сколько (Грегори 2026-11-24: «в обоих режимах
+// иметь в нижней части окна большие прозрачные цифры… при навигации правее, при записи левее»)
+let hud = null;
+function showHud() {
+  hud ??= document.body.appendChild(h("div", "hud hud-nav"));
+  const r = navOn && state.rest;
+  hud.replaceChildren(...(r ? [h("b", "", r.text), ...(r.time ? [h("span", "", r.time)] : [])] : []));
+}
+on("route", (s) => { state = s; render(false); document.querySelector(".search-results .route-view-foot")?.refresh?.(); showHud(); });
 // навигацию включили (кнопкой слева внизу, в барабане или сама при запуске) — строка поиска в режиме
 // навигации (если в ней не другой раздел); выключили — режим снят
 on("nav", ({ on: v }) => {
   if (navOn === v) return;
   navOn = v;
+  showHud();
   if (v && (!searchMode() || searchMode() === MODE)) setSearchMode(MODE);
   // навигацию выключили — точка «Сюда» снимается (Грегори 2026-11-05: «сбросил маршрут — обязательно сбросить
   // точку»); маршрут из нескольких точек остаётся — его составляют и без навигации (2026-11-13)
@@ -374,5 +383,5 @@ register({
     close: () => { emit("nav-switch", { on: false }); emit("route-target", null); if (searchMode() === MODE) setSearchMode(null); },
   },
   // для проверки
-  stats: () => ({ navOn, open: searchMode() === MODE, target: state.target?.title || null, results: results?.length ?? null }),
+  stats: () => ({ navOn, hud: hud?.innerText || "", open: searchMode() === MODE, target: state.target?.title || null, results: results?.length ?? null }),
 });
