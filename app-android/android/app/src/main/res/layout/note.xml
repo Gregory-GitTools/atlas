@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- запись трека в шторке — одна строка, без развёрнутой (TrackService.note): км и наибольшая скорость крупно,
-     кнопки-значки с промежутками; «Стоп» — «Сохранить?» и ‹ ✕ ✓. Не влезает — шрифт меньше, в одну строку -->
+<!-- запись трека в шторке (TrackService.note) — одна и та же свёрнутой и развёрнутой: км и время в пути крупно,
+     под ними наибольшая скорость (Грегори 2026-11-24: «шапка с временем очень мелкая, макс. скорости вообще не
+     видно»); кнопки-значки с промежутками; «Стоп» — «Сохранить?» и ‹ ✕ ✓ -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -12,28 +13,38 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/km"
-            style="@style/TextAppearance.Compat.Notification.Title"
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:maxLines="1"
-            android:textSize="22sp"
-            android:textStyle="bold" />
+            android:gravity="bottom"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/km"
+                style="@style/TextAppearance.Compat.Notification.Title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <Chronometer
+                android:id="@+id/time"
+                style="@style/TextAppearance.Compat.Notification.Title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:maxLines="1"
+                android:textSize="20sp" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/max"
             style="@style/TextAppearance.Compat.Notification.Title"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:layout_weight="1"
-            android:autoSizeMaxTextSize="18sp"
-            android:autoSizeMinTextSize="11sp"
-            android:autoSizeTextType="uniform"
             android:maxLines="1"
             android:textSize="18sp"
             android:textStyle="bold" />

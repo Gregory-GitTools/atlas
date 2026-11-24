@@ -250,7 +250,7 @@ try {
   const pOff = await posNav();
   const pBack = await posClick();
   check("«Позиция»: по кругу — весь путь (2D, север, я в центре) → 3D 200 м → свой (масштаб рукой); сдвинул — гаснет, щелчок — снова свой",
-    pR.pos === "route" && pR.label === "Путь" && pR.lit && pR.mode === "north" && pR.pitch === 0 && pR.bearing === 0 && pR.zoom === 12 && Math.abs(pR.me.x) <= 3 && Math.abs(pR.me.y) <= 3
+    pR.pos === "route" && pR.label === "Трек" && pR.lit && pR.mode === "north" && pR.pitch === 0 && pR.bearing === 0 && pR.zoom === 12 && Math.abs(pR.me.x) <= 3 && Math.abs(pR.me.y) <= 3
     && pA.pos === "arrow" && pA.label === "3D" && pA.pitch >= 55 && Math.abs(pA.zoom - arrowZoom) < 0.1 && Math.abs(pA.me.y - VH / 4) <= 8
     && pM.pos === "manual" && pM.follow && pM.label === "Свой" && pR2.pos === "route" && pR2.pitch === 0 && pA2.pos === "arrow"
     && pM2.pos === "manual" && pM2.zoom === 15.5 && pM2.pitch >= 55 && !pOff.follow && !pOff.lit && pBack.pos === "manual" && pBack.follow && pBack.lit && Math.abs(pBack.me.x) <= 3,
@@ -889,7 +889,7 @@ try {
   check("поиск: отметка остаётся при смене режима, у лупы её название снова в строке; крестик тихо убирает её без истории",
     keepMark.title && !keepMark.inMode.text && keepMark.inMode.marker && keepMark.back.text === keepMark.title && keepMark.back.clear && keepMark.gone && !keepMark.list && !keepMark.text,
     JSON.stringify(keepMark));
-  // лупа в строке — всегда поиск мест (Грегори 2026-11-22): в режиме «Путь» найденное лупой — в обе истории и
+  // лупа в строке — всегда поиск мест (Грегори 2026-11-22): в режиме «Трек» найденное лупой — в обе истории и
   // целью (карточка со способами); цель уже есть — окно места (Добавить или Сюда), цель та же, режим тот же
   const lensNav = await run(`(async () => { const s = await import(new URL("core/search.js", location.href)), ev = await import(new URL("core/events.js", location.href));
     const wait = (t) => new Promise((r) => setTimeout(r, t)), i = document.querySelector(".search-box input");
@@ -916,7 +916,7 @@ try {
     ev.emit("route-target", null); s.setSearchMode(null); await wait(300);
     for (const [k, v] of keep) v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v);
     return { one, two }; })()`);
-  // «Поиск» и «Путь» в барабане — сразу их история, как окна других разделов (Грегори 2026-11-22)
+  // «Поиск» и «Трек» в барабане — сразу их история, как окна других разделов (Грегори 2026-11-22)
   const drumHist = await run(`(async () => { const w = (t) => new Promise((r) => setTimeout(r, t)), out = {};
     for (const k of ["search", "content/navigation"]) {
       document.querySelector('.wheel-content .layers-circle[data-key="' + k + '"]').click(); await w(800);
@@ -925,7 +925,7 @@ try {
     }
     (await import(new URL("core/search.js", location.href))).setSearchMode(null); return out; })()`);
   check("барабан: «Поиск» и «Трек» сразу открывают свою историю", drumHist.search.list && drumHist["content/navigation"].list, JSON.stringify(drumHist));
-  check("поиск: лупа в строке в режиме «Путь» — поиск мест; выбранное — в обе истории и целью, при цели — окно места, цель та же",
+  check("поиск: лупа в строке в режиме «Трек» — поиск мест; выбранное — в обе истории и целью, при цели — окно места, цель та же",
     lensNav.one.ph === "Куда" && lensNav.one.n1 > 0 && lensNav.one.t1 && lensNav.one.open && lensNav.one.card && lensNav.one.route && lensNav.one.search &&
     lensNav.two.n2 > 0 && lensNav.two.target === lensNav.one.t1 && lensNav.two.popup && lensNav.two.open, JSON.stringify(lensNav));
   // окно поиска — общепринятое (Грегори 2026-11-05): щелчок по строке — подсказки (история), набор — из уже
@@ -3276,6 +3276,26 @@ try {
   await send("Input.dispatchMouseEvent", { type: "mouseWheel", x: zone.ix, y: zone.gy, deltaX: 0, deltaY: 300 });
   await sleep(1500);
   const zone2 = await run(`({ zoom: atlas.map.getZoom(), first: window.__top() })`);
+  // полоса справа сверху донизу — карусели (Грегори 2026-11-24: «скролишь с размахом — в половине случаев не
+  // попадаешь»): тянуть в ней вне кнопок — карусель крутится, карта стоит; первый же щелчок после — по кнопке
+  const sp = await run(`(() => { const s = document.querySelector(".wheel-strip"), q = s.getBoundingClientRect(), x = Math.round(q.right - 4);
+    let y = innerHeight - 40; while (y > 60 && document.elementFromPoint(x, y) !== s) y -= 10;
+    return { x, y, ok: document.elementFromPoint(x, y) === s, c: atlas.map.getCenter().toArray().map((v) => v.toFixed(5)).join(), first: window.__top() }; })()`);
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", x: sp.x, y: sp.y, button: "left", buttons: 1, clickCount: 1 });
+  // недалеко: с разгоном — пара кнопок, а не полный круг
+  for (let k = 1; k <= 3; k++) { await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: sp.x, y: sp.y - k * 15, button: "left", buttons: 1 }); await sleep(60); }
+  await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: sp.x, y: sp.y - 45, button: "left", clickCount: 1 });
+  await sleep(1500);
+  const sp2 = await run(`(() => { const s1 = document.querySelector(".sub-layers"), mid = (e) => { const r = e.getBoundingClientRect(); return r.top + r.height / 2; };
+    const c = [...s1.querySelectorAll(".wheel-cell:not([hidden]) .layers-item")].sort((a, b) => Math.abs(mid(a) - mid(s1)) - Math.abs(mid(b) - mid(s1)))[0], q = c.querySelector(".layers-icon").getBoundingClientRect();
+    return { c: atlas.map.getCenter().toArray().map((v) => v.toFixed(5)).join(), first: window.__top(), on: c.classList.contains("on"), x: Math.round(q.left + q.width / 2), y: Math.round(q.top + q.height / 2), name: c.firstChild.textContent }; })()`);
+  for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: sp2.x, y: sp2.y, button: "left", clickCount: 1 });
+  await sleep(600);
+  const sp3 = await run(`[...document.querySelectorAll(".sub-layers .layers-item")].find((b) => b.firstChild.textContent === ${JSON.stringify(sp2.name)})?.classList.contains("on")`);
+  if (sp3 !== sp2.on) for (const type of ["mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: sp2.x, y: sp2.y, button: "left", clickCount: 1 });
+  await sleep(400);
+  check("карусель: полоса справа сверху донизу — тянуть в ней крутит карусель, карта стоит; первый щелчок после — срабатывает",
+    sp.ok && sp2.first !== sp.first && sp2.c === sp.c && sp3 !== sp2.on, JSON.stringify({ sp, sp2, sp3 }));
   zone.zoom = zoneL.zoom;
   await run(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })); true`);
   check("карусель: колёсико между значками крутит её, карта стоит; над подписями — карта; подписи без подложки; справа от кнопки — тоже кнопка",

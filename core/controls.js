@@ -113,7 +113,7 @@ const NAV_ICON = `<svg viewBox="0 0 24 24" width="22" height="22"><circle cx="12
 // карту — позиционирование теряется (кнопка гаснет), нажатие — снова в тот же режим. Поменял масштаб или наклон
 // рукой — запоминается, кнопка переходит в «свой». Режим и «свой» помнятся (nav.position, nav.manual)
 const POS = ["route", "arrow", "manual"];
-const POS_LABEL = { route: "Путь", arrow: "3D", manual: "Свой" };
+const POS_LABEL = { route: "Трек", arrow: "3D", manual: "Свой" };
 const POS_TITLE = { route: "весь путь, север вверху", arrow: "3D по ходу движения, шкала 200 м", manual: "свой масштаб и наклон" };
 const ARROW_M = 200; // шкала (м на 100 px) у стрелки — видны дома
 // масштаб, при котором шкала — m метров на 100 px

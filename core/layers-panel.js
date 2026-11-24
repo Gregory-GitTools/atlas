@@ -189,6 +189,7 @@ export function initLayersPanel(ctx) {
   const BANDS = ["content", "places", "layers"]; // кнопки сверху вниз
   const btnOf = { content: lensBtn, places: placesBtn, layers: arrowBtn };
   let openName = null;
+  let placeStrip = () => {}; // полоса справа — ставится ниже, у столбика барабанов
   const drumOf = (n) => drums.find((d) => d.name === n);
   let searchOn = false, mode = null, routeNow = null;
   // кнопка барабана: открыт — белая
@@ -265,6 +266,7 @@ export function initLayersPanel(ctx) {
       shift = h + gap;
     });
     for (const d of drums) d.relayout();
+    placeStrip();
     paint();
   }
   const toggleDrum = (name) => setDrum(name, openName !== name);
@@ -560,7 +562,21 @@ export function initLayersPanel(ctx) {
   // столбик кнопок барабана или карусели — карта в нём не приближается (Грегори 2026-11-21: «запретить зум карты
   // в районе каруселей»): колёсико над ним крутит барабан или карусель, щипок двумя пальцами и двойной щелчок —
   // ничего. Над подписями — карта, как везде
-  const zoneAt = (x, y) => {
+  // пока открыт барабан, вся полоса справа сверху донизу — его (Грегори 2026-11-24: «на телефоне скролишь с
+  // размахом, в половине случаев не попадаешь»): под кнопками, над картой; палец и колёсико в ней крутят видимый
+  // барабан или карусель
+  const front = () => document.querySelector(".wheel:not(.closed):not(.away), .layers-sub.carousel:not([hidden]):not(.away):not(.melting)");
+  const strip = Object.assign(document.createElement("div"), { className: "wheel-strip", hidden: true });
+  document.body.append(strip);
+  strip.addEventListener("pointerdown", (e) => { const f = front(); if (f) rotorOf.get(f)?.down(e); });
+  strip.addEventListener("pointermove", (e) => { const f = front(); if (f) rotorOf.get(f)?.move(e); });
+  for (const t of ["pointerup", "pointercancel"]) strip.addEventListener(t, (e) => { const f = front(); if (f) rotorOf.get(f)?.up(e); });
+  placeStrip = () => {
+    strip.hidden = !openName;
+    if (openName) strip.style.left = `${btnOf[openName].getBoundingClientRect().left - 8}px`;
+  };
+  const zoneAt = (x, y, target) => {
+    if (!strip.hidden && x >= strip.getBoundingClientRect().left && (target || document.elementFromPoint(x, y)) === strip) return front();
     // только видимый барабан или карусель: ушедшие вправо и тающие — нет
     for (const el of document.querySelectorAll(".wheel:not(.closed):not(.away), .layers-sub.carousel:not([hidden]):not(.away):not(.melting)")) {
       const box = el.getBoundingClientRect();
@@ -575,7 +591,7 @@ export function initLayersPanel(ctx) {
     return null;
   };
   addEventListener("wheel", (e) => {
-    const zone = e.isTrusted && zoneAt(e.clientX, e.clientY);
+    const zone = e.isTrusted && zoneAt(e.clientX, e.clientY, e.target);
     // над кнопкой любой карусели или барабана — крутится она сама
     if (!zone || e.target.closest?.(".wheel, .layers-sub.carousel")) return;
     e.preventDefault();
@@ -661,6 +677,7 @@ function liveLabels(on) {
   if (!mouseUser) document.body.classList.toggle("labels-live", on);
 }
 
+const rotorOf = new WeakMap(); // элемент, что слушает палец, → его барабан
 // shown() — виден ли; onStart — начали крутить, onSettle — встал после прокрутки, onSwipe — смахнули вправо
 function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {}, onSwipe = null }) {
   let cells = [];
@@ -739,11 +756,14 @@ function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {
 
   // палец и мышь: тянуть вверх-вниз, с разгоном
   let drag = null, suppressClick = false;
-  el.addEventListener("pointerdown", (e) => {
+  // новое касание — новый жест: после прокрутки пальцем щелчка может и не быть, и запрет щелчка оставался на
+  // следующее нажатие (Грегори 2026-11-24: «после остановки барабана кнопки на первый клик не реагируют»)
+  const down = (e) => {
     if (e.button !== 0) return;
+    suppressClick = false;
     drag = { x: e.clientX, y: e.clientY, raw, t: performance.now(), v: 0, moved: false, id: e.pointerId };
-  });
-  el.addEventListener("pointermove", (e) => {
+  };
+  const move = (e) => {
     if (!drag || e.pointerId !== drag.id) return;
     const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     if (!drag.moved) {
@@ -761,7 +781,7 @@ function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {
     drag.t = now;
     raw = target = next;
     layout();
-  });
+  };
   const endDrag = (e) => {
     if (!drag || e.pointerId !== drag.id) return;
     if (drag.moved) {
@@ -772,11 +792,15 @@ function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {
     }
     drag = null;
   };
+  el.addEventListener("pointerdown", down);
+  el.addEventListener("pointermove", move);
   el.addEventListener("pointerup", endDrag);
   el.addEventListener("pointercancel", endDrag);
   el.addEventListener("click", (e) => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); suppressClick = false; } }, true);
 
-  return {
+  const api = {
+    // полоса справа (wheel-strip) передаёт сюда палец и мышь
+    down, move, up: endDrag,
     set: (list) => { cells = list; box.replaceChildren(...list); layout(); },
     // встать сразу; крутился — он встал (onSettle), иначе барабан так и считался бы крутящимся и не таял
     jump: (i) => { cancelAnimationFrame(frame); onArrive = null; raw = target = i; layout(); if (moving) { moving = false; onSettle(); } },
@@ -787,4 +811,6 @@ function rotor(box, el, { centerY, shown, onStart = () => {}, onSettle = () => {
     atCenter: (i) => i === centerIndex() && Math.abs(raw - Math.round(raw)) < 0.01,
     dragged: () => !!drag?.moved,
   };
+  rotorOf.set(el, api);
+  return api;
 }

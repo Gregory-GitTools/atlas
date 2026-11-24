@@ -154,7 +154,15 @@ public class MainActivity extends BridgeActivity {
     private class PhotosJs {
         @JavascriptInterface public String access() { return Photos.access(MainActivity.this); }
         @JavascriptInterface public void ask() { runOnUiThread(() -> ActivityCompat.requestPermissions(MainActivity.this, Photos.wanted(), 8)); }
-        @JavascriptInterface public String list(double from, double to) { return Photos.list(MainActivity.this, (long) from, (long) to); }
+        // фото уже разрешены, а место в них — нет (разрешение появилось в 1.7): спросить один раз, ответ — atlasPhotosChanged
+        private boolean placeAsked = false;
+        @JavascriptInterface public String list(double from, double to) {
+            if (!placeAsked && Build.VERSION.SDK_INT >= 29 && !Photos.access(MainActivity.this).equals("none") && !Photos.placeAllowed(MainActivity.this)) {
+                placeAsked = true;
+                runOnUiThread(() -> ActivityCompat.requestPermissions(MainActivity.this, new String[] { Manifest.permission.ACCESS_MEDIA_LOCATION }, 8));
+            }
+            return Photos.list(MainActivity.this, (long) from, (long) to);
+        }
     }
 
     // ── номер приложения для ⓘ и «Настроек» сайта (core/version.js)

@@ -1840,6 +1840,20 @@ body.has-photo-strip .status {
   pointer-events: auto;
 }
 
+/* открыт барабан — вся полоса справа его (core/layers-panel.js): под кнопками, над картой */
+.wheel-strip {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  z-index: 2;
+  touch-action: none;
+}
+
+.wheel-strip[hidden] {
+  display: none;
+}
+
 /* закрыт — свёрнут вверх, в свою кнопку */
 .wheel.closed {
   transform: translateY(-12px) scaleY(0.15);
@@ -1852,7 +1866,9 @@ body.has-photo-strip .status {
    дальше»); глубже — дальше (--depth ставит core/layers-panel.js); шаг назад — возвращается */
 .wheel.away,
 .layers-sub.carousel.away {
-  transform: translateX(calc(var(--depth, 1) * 12px)) scale(calc(1 - var(--depth, 1) * 0.14));
+  /* шаг вглубь — на треть кнопки вправо, следующий — ещё на полкнопки (Грегори 2026-11-24: «барабаны сливаются,
+     двоятся — нужно их ещё разводить»): сдвиг d² / 12 + d / 4 кнопки — 1/3, 5/6 */
+  transform: translateX(calc((var(--depth, 1) * var(--depth, 1) / 12 + var(--depth, 1) / 4) * var(--button))) scale(calc(1 - var(--depth, 1) * 0.14));
   transform-origin: 50% 50%;
   opacity: calc(0.65 - var(--depth, 1) * 0.15);
   filter: blur(calc(var(--depth, 1) * 0.6px));
@@ -1999,6 +2015,14 @@ body.labels-off.numbers-off .carousel .layers-item > span {
   top: calc(var(--top-inset) + 3 * var(--gap) + 2 * var(--button));
   z-index: 26;
   transition: transform 0.25s ease;
+}
+
+/* кнопки барабанов — скруглённые квадраты, как значок Atlas в шторке телефона: не сливаются с круглыми кнопками
+   барабанов (Грегори 2026-11-24: «поменять форму главных кнопок на скруглённую прямоугольную, как кнопки на Samsung») */
+.search-toggle,
+.places-toggle,
+.wheel-toggle {
+  border-radius: 28%;
 }
 
 .wheel-toggle.open,

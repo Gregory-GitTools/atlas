@@ -15,6 +15,7 @@ import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Build;
+import android.os.SystemClock;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.Looper;
@@ -369,11 +370,12 @@ public class TrackService extends Service {
         PendingIntent back = PendingIntent.getService(this, 3, new Intent(this, TrackService.class).setAction(NO), flags);
         RemoteViews v = new RemoteViews(getPackageName(), R.layout.note);
         Locale ru = new Locale("ru");
-        // время в пути без пауз — часы в шапке идут сами; на паузе стоят: «пауза 0:23»
+        // время в пути без пауз — часы в строке идут сами, на паузе стоят
         long ran = Math.max(0, (paused ? p.getLong("pausedAt", 0) : System.currentTimeMillis()) - p.getLong("start", 0) - p.getLong("pausedTotal", 0));
         String km = String.format(ru, "%.1f км", p.getFloat("dist", 0) / 1000), max = String.format(ru, "%d км/ч", Math.round(p.getFloat("max", 0) * 3.6f));
         v.setTextViewText(R.id.km, km);
         v.setTextViewText(R.id.max, "макс " + max);
+        v.setChronometer(R.id.time, SystemClock.elapsedRealtime() - ran, null, !paused);
         v.setViewVisibility(R.id.stats, ask ? View.GONE : View.VISIBLE);
         v.setViewVisibility(R.id.ask, ask ? View.VISIBLE : View.GONE);
         v.setViewVisibility(R.id.backIcon, ask ? View.VISIBLE : View.GONE);
@@ -384,22 +386,21 @@ public class TrackService extends Service {
         v.setOnClickPendingIntent(R.id.backIcon, back);
         v.setOnClickPendingIntent(R.id.toggleIcon, toggle);
         v.setOnClickPendingIntent(R.id.stopIcon, stop);
-        long s = ran / 1000;
-        String clock = s >= 3600 ? String.format(ru, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String.format(ru, "%d:%02d", s / 60, s % 60);
         return new NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_track)
             .setContentTitle(paused ? "Запись трека — пауза" : "Запись трека") // для чтения с экрана; на виду — своя разметка
             .setContentText(km + " · макс " + max)
             .setStyle(new NotificationCompat.DecoratedCustomViewStyle())
+            // свёрнутая и развёрнутая — одинаковые: стрелку Android рисует сам, но жать её незачем (Грегори 2026-11-24:
+            // «убрать свернуть/развернуть, попасть по ней нереально — пусть всегда будет развёрнута»)
             .setCustomContentView(v)
+            .setCustomBigContentView(v)
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
-            .setShowWhen(!paused)
-            .setUsesChronometer(!paused)
-            .setWhen(System.currentTimeMillis() - ran)
-            .setSubText(paused ? "пауза " + clock : null)
+            .setShowWhen(false)
+            .setSubText(paused ? "пауза" : null)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build();

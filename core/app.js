@@ -79,6 +79,8 @@ map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-lef
   attrib?.addEventListener("click", (e) => { if (e.target.closest(".maplibregl-ctrl-attrib-button")) asked = true; }, true);
   const keep = () => { if (!asked && attrib.classList.contains("maplibregl-compact-show")) attrib.classList.remove("maplibregl-compact-show"); };
   if (attrib) { keep(); new MutationObserver(keep).observe(attrib, { attributes: true, attributeFilter: ["class"] }); }
+  // щелчок вне раскрытого окна — свернуть (Грегори 2026-11-24: «окно информации должно закрываться при клике вне окна»)
+  addEventListener("pointerdown", (e) => { if (attrib && !(e.target instanceof Node && attrib.contains(e.target))) attrib.classList.remove("maplibregl-compact-show"); }, true);
 }
 // первой строкой в ⓘ — версия: коммит и дата обновления (Грегори 2026-11-06: «буду ориентироваться по
 // дате»). Узнаётся у GitHub по первому нажатию на ⓘ (открытый репозиторий, ничего своего не уходит);

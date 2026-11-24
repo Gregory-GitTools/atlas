@@ -8,6 +8,7 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.ImageDecoder;
+import android.media.ExifInterface;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.MediaStore;
@@ -35,8 +36,11 @@ final class Photos {
     private Photos() { }
 
     static String[] wanted() {
-        if (Build.VERSION.SDK_INT >= 34) return new String[] { Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED };
-        if (Build.VERSION.SDK_INT >= 33) return new String[] { Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO };
+        // и место в снимках (Android 10+)
+        String place = Manifest.permission.ACCESS_MEDIA_LOCATION;
+        if (Build.VERSION.SDK_INT >= 34) return new String[] { Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED, place };
+        if (Build.VERSION.SDK_INT >= 33) return new String[] { Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, place };
+        if (Build.VERSION.SDK_INT >= 29) return new String[] { Manifest.permission.READ_EXTERNAL_STORAGE, place };
         return new String[] { Manifest.permission.READ_EXTERNAL_STORAGE };
     }
 
@@ -49,7 +53,11 @@ final class Photos {
 
     private static boolean has(Context c, String p) { return ContextCompat.checkSelfPermission(c, p) == PackageManager.PERMISSION_GRANTED; }
 
-    // [{ id: "img:123", name, video, at }] — снятое между from и to (мс)
+    // место в снимках видно только с этим разрешением (Android 10+ иначе обнуляет координаты в EXIF)
+    static boolean placeAllowed(Context c) { return Build.VERSION.SDK_INT < 29 || has(c, Manifest.permission.ACCESS_MEDIA_LOCATION); }
+
+    // [{ id: "img:123", name, video, at, lat?, lon? }] — снятое между from и to (мс); место — из EXIF снимка
+    // (Грегори 2026-11-24: у трека без времени, mapy.cz, фото встают по месту — без него их не было)
     static String list(Context c, long from, long to) {
         JSONArray out = new JSONArray();
         add(c, out, "img", MediaStore.Images.Media.EXTERNAL_CONTENT_URI, from, to);
@@ -62,10 +70,21 @@ final class Photos {
         String where = MediaStore.MediaColumns.DATE_TAKEN + " >= ? AND " + MediaStore.MediaColumns.DATE_TAKEN + " <= ?";
         try (Cursor q = c.getContentResolver().query(table, cols, where, new String[] { String.valueOf(from), String.valueOf(to) }, MediaStore.MediaColumns.DATE_TAKEN)) {
             while (q != null && q.moveToNext()) {
-                out.put(new JSONObject().put("id", kind + ":" + q.getLong(0)).put("name", q.getString(1))
-                    .put("video", kind.equals("vid")).put("at", q.getLong(2)));
+                JSONObject o = new JSONObject().put("id", kind + ":" + q.getLong(0)).put("name", q.getString(1))
+                    .put("video", kind.equals("vid")).put("at", q.getLong(2));
+                double[] ll = kind.equals("img") ? place(c, ContentUris.withAppendedId(table, q.getLong(0))) : null;
+                if (ll != null) o.put("lat", ll[0]).put("lon", ll[1]);
+                out.put(o);
             }
         } catch (Exception ignored) { } // нет разрешения — пусто
+    }
+
+    private static double[] place(Context c, Uri item) {
+        if (!placeAllowed(c)) return null;
+        try (InputStream in = c.getContentResolver().openInputStream(Build.VERSION.SDK_INT >= 29 ? MediaStore.setRequireOriginal(item) : item)) {
+            float[] ll = new float[2];
+            return in != null && new ExifInterface(in).getLatLong(ll) && (ll[0] != 0 || ll[1] != 0) ? new double[] { ll[0], ll[1] } : null;
+        } catch (Exception e) { return null; }
     }
 
     // ответ на https://phone.invalid/… или null — не наш адрес

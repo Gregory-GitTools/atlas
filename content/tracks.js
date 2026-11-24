@@ -1411,7 +1411,8 @@ function phonePhotos(from, to) {
   };
   const items = new Map(list.map((x) => [`phone:${x.id}`, item(x)]));
   return list.map((x) => ({ id: `phone:${x.id}`, name: x.name, video: x.video, at: x.at, wall: x.at - new Date(x.at).getTimezoneOffset() * 60000,
-    lat: null, lon: null, mine: true, thumb: () => Promise.resolve(items.get(`phone:${x.id}`).thumb),
+    lat: x.lat ?? null, lon: x.lon ?? null, mine: true, // место — из EXIF (приложение 1.7): по нему снимок встаёт на трек без времени
+    thumb: () => Promise.resolve(items.get(`phone:${x.id}`).thumb),
     open: (ids) => openGalleryWith(ids.filter((id) => items.has(id)).map((id) => items.get(id)), `phone:${x.id}`) }));
 }
 // разрешение дали (или выбрали другие снимки) — снимки трека заново
