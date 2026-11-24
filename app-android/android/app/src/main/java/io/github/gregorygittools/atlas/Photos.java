@@ -79,6 +79,34 @@ final class Photos {
         } catch (Exception ignored) { } // нет разрешения — пусто
     }
 
+    // папки галереи — альбомы сайта (Грегори 2026-11-24: «показывать»): [{ id: "img:123", name, video, at, folder }]
+    // всех снимков и роликов; место — отдельно, по одному (place), чтобы список приходил сразу
+    static String all(Context c) {
+        JSONArray out = new JSONArray();
+        addAll(c, out, "img", MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+        addAll(c, out, "vid", MediaStore.Video.Media.EXTERNAL_CONTENT_URI);
+        return out.toString();
+    }
+
+    private static void addAll(Context c, JSONArray out, String kind, Uri table) {
+        String[] cols = { MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.DATE_TAKEN, "bucket_display_name" };
+        try (Cursor q = c.getContentResolver().query(table, cols, null, null, null)) {
+            while (q != null && q.moveToNext()) {
+                out.put(new JSONObject().put("id", kind + ":" + q.getLong(0)).put("name", q.getString(1))
+                    .put("video", kind.equals("vid")).put("at", q.getLong(2)).put("folder", q.isNull(3) ? "" : q.getString(3)));
+            }
+        } catch (Exception ignored) { } // нет разрешения — пусто
+    }
+
+    // место снимка "img:123" — "широта,долгота"; "" — места нет; "-" — нет разрешения видеть место (не запоминать)
+    static String place(Context c, String id) {
+        if (!placeAllowed(c)) return "-";
+        String[] x = id.split(":");
+        if (!x[0].equals("img")) return "";
+        double[] ll = place(c, ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, Long.parseLong(x[1])));
+        return ll == null ? "" : ll[0] + "," + ll[1];
+    }
+
     private static double[] place(Context c, Uri item) {
         if (!placeAllowed(c)) return null;
         try (InputStream in = c.getContentResolver().openInputStream(Build.VERSION.SDK_INT >= 29 ? MediaStore.setRequireOriginal(item) : item)) {

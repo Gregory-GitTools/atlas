@@ -163,6 +163,15 @@ public class MainActivity extends BridgeActivity {
             }
             return Photos.list(MainActivity.this, (long) from, (long) to);
         }
+        // папки галереи — альбомы («Мои альбомы»); место — так же: разрешение спрашивается один раз
+        @JavascriptInterface public String all() {
+            if (!placeAsked && Build.VERSION.SDK_INT >= 29 && !Photos.access(MainActivity.this).equals("none") && !Photos.placeAllowed(MainActivity.this)) {
+                placeAsked = true;
+                runOnUiThread(() -> ActivityCompat.requestPermissions(MainActivity.this, new String[] { Manifest.permission.ACCESS_MEDIA_LOCATION }, 8));
+            }
+            return Photos.all(MainActivity.this);
+        }
+        @JavascriptInterface public String place(String id) { return Photos.place(MainActivity.this, id); }
     }
 
     // ── номер приложения для ⓘ и «Настроек» сайта (core/version.js)

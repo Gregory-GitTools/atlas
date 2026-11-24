@@ -353,7 +353,11 @@ public class TrackService extends Service {
     // сохранить?»; 2026-11-24: «посмотри, как шторка сделана bergfex… у bergfex нет свернуть»): как у bergfex —
     // заголовок с часами, три столбика с подписями (note.xml) и системные кнопки текстом: Пауза · Стоп, после
     // «Стоп» — Назад (запись идёт) · Не сохранять · Сохранить. Канал обычной важности, но без звука: «тихие»
-    // (IMPORTANCE_LOW) Android показывает свёрнутыми — таблеткой со стрелкой; прежний канал "track" удаляется
+    // (IMPORTANCE_LOW) Android показывает свёрнутыми — таблеткой со стрелкой; прежний канал "track" удаляется.
+    // Стрелка «свернуть» осталась и так (Грегори 2026-11-24, снимок шторки): у своей разметки (RemoteViews) Android 12+
+    // её рисует всегда. Без стрелки — только «живое уведомление» Android 16 (Live Update): развёрнуто и не сворачивается,
+    // но вид системный, своей разметки нельзя — в заголовке значения первыми («1,2 км · 40 км/ч макс»), часы — в
+    // строке сверху и в значке строки состояния. Android старше или живые уведомления выключены — столбики note.xml
     private Notification note() {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null) {
@@ -381,13 +385,21 @@ public class TrackService extends Service {
         v.setChronometer(R.id.time, SystemClock.elapsedRealtime() - ran, null, !paused);
         v.setViewVisibility(R.id.stats, ask ? View.GONE : View.VISIBLE);
         v.setViewVisibility(R.id.ask, ask ? View.VISIBLE : View.GONE);
+        boolean live = Build.VERSION.SDK_INT >= 36 && nm.canPostPromotedNotifications();
         NotificationCompat.Builder b = new NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_stat_track)
+            .setSmallIcon(R.drawable.ic_stat_track);
+        if (live) b
+            .setContentTitle(ask ? "Сохранить трек?" : km + " · " + max + " макс")
+            .setContentText(ask ? km + " · " + max + " макс" : paused ? "Запись трека — пауза" : "Запись трека")
+            .setRequestPromotedOngoing(true)
+            .setShortCriticalText(km);
+        else b
             .setContentTitle(ask ? "Запись трека — стоп" : paused ? "Запись трека — пауза" : "Запись трека")
-            .setContentText(km + " · макс " + max)
+            .setContentText(km + " · " + max + " макс")
             .setStyle(new NotificationCompat.DecoratedCustomViewStyle())
             .setCustomContentView(v)
-            .setCustomBigContentView(v)
+            .setCustomBigContentView(v);
+        b
             // часы в заголовке, как у bergfex; на паузе и при вопросе — без них
             .setWhen(System.currentTimeMillis() - ran)
             .setUsesChronometer(!paused && !ask)

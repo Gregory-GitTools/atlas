@@ -2012,9 +2012,28 @@ try {
         const x = line.querySelector(".search-delete"); const t = x.title; x.click(); return { t, asked }; })()`);
       for (let i = 0; i < 20 && (await run(`${as}.busy || ${as}.albums !== ${before}`)); i++) await sleep(500);
       const rowsAfter = await run(`[...document.querySelectorAll(".panel:not([hidden]) .home-line .tr-row-title")].map((t) => t.textContent)`);
-      check("альбомы: своя папка — строкой в списке, крестик «Убрать папку» с вопросом убирает её",
-        rowsBefore.includes("Диск D") && xTitle.t === "Убрать папку «Диск D»" && /Снимки на диске останутся/.test(xTitle.asked) && !rowsAfter.includes("Диск D") && rowsAfter.length === rowsBefore.length - 1,
+      // в строке папки — что нашёл обход (Грегори 2026-11-24: папка добавлена, а «Альбомов пока нет» без объяснений)
+      check("альбомы: своя папка — строкой в списке со счётом альбомов и снимков, крестик «Убрать папку» с вопросом убирает её",
+        rowsBefore.some((t) => /^Диск D — альбомов \d+, снимков \d+$/.test(t)) && xTitle.t === "Убрать папку «Диск D»" && /Снимки на диске останутся/.test(xTitle.asked)
+        && !rowsAfter.some((t) => t.startsWith("Диск D")) && rowsAfter.length === rowsBefore.length - 1,
         JSON.stringify({ rowsBefore, xTitle, rowsAfter }));
+      // папки галереи телефона — альбомы «Моих альбомов» (Грегори 2026-11-24: «показывать», приложение 1.9):
+      // без доступа — строка «Показать снимки телефона», с доступом — по альбому на папку, место — из EXIF через приложение
+      const alm = `atlas.modules().find((m) => m.id === "content/albums")`;
+      await run(`(() => { window.AtlasPhotos = { a: "none", access() { return this.a; }, ask() { this.a = "all"; setTimeout(() => dispatchEvent(new Event("atlas-photos-changed"))); }, list: () => "[]",
+        all: () => JSON.stringify([{ id: "img:21", name: "a.jpg", video: false, at: Date.UTC(2026, 5, 1), folder: "Camera" }, { id: "img:22", name: "b.jpg", video: false, at: Date.UTC(2026, 5, 2), folder: "Camera" },
+          { id: "vid:23", name: "c.mp4", video: true, at: Date.UTC(2026, 5, 3), folder: "WhatsApp Video" }]),
+        place: (id) => (id === "img:21" ? "59.437,24.7536" : "") }; return true; })()`);
+      for (let i = 0; i < 40 && (await run(`${alm}.stats().busy`)); i++) await sleep(300);
+      const pa1 = await run(`${alm}.column.items().filter((i) => i.id === "#phone").map((i) => i.title)`);
+      await run(`AtlasPhotos.ask(); true`); // то же, что строка «Показать снимки телефона»
+      for (let i = 0; i < 40 && !(await run(`${alm}.stats().phone.length === 2 && !${alm}.stats().busy`)); i++) await sleep(300);
+      const pa2 = await run(`({ phone: ${alm}.stats().phone, row: ${alm}.column.items().some((i) => i.id === "#phone") })`);
+      await run(`delete window.AtlasPhotos; dispatchEvent(new Event("atlas-photos-changed")); true`);
+      for (let i = 0; i < 40 && (await run(`${alm}.stats().phone.length || ${alm}.stats().busy`)); i++) await sleep(300);
+      await run(`${alm}.column.close(); true`);
+      check("приложение: папки галереи телефона — альбомы; без доступа — строка «Показать снимки телефона»",
+        pa1.join() === "Показать снимки телефона" && pa2.phone.join() === "Camera:2:место,WhatsApp Video:1" && !pa2.row, JSON.stringify({ pa1, pa2 }));
       await run(closeLayers);
       await run(gear);
       await sleep(600);
@@ -2365,7 +2384,16 @@ try {
     }
     await send("Emulation.clearGeolocationOverride");
     check("запись трека: при начале — ко мне, шкала 50 м", z50.want != null && Math.abs(z50.zoom - z50.want) < 0.3, JSON.stringify(z50));
-    const rc1 = await run(`({ ...${ts}.recState(), row: document.querySelector('[data-panel="tracks"] .tk-rec')?.textContent })`);
+    // крупные цифры: запись — над ⓘ, вплотную над названием места; длинная навигация справа на неё не налезает
+    const rc1 = await run(`({ ...${ts}.recState(), row: document.querySelector('[data-panel="tracks"] .tk-rec')?.textContent, hudFit: (() => {
+      const rec = document.querySelector(".hud-rec"); let nav = document.querySelector(".hud-nav"); const made = !nav;
+      nav ??= document.body.appendChild(Object.assign(document.createElement("div"), { className: "hud hud-nav" }));
+      const old = nav.innerHTML; nav.innerHTML = "<b>12,4 км</b><span>1 ч 25 мин</span>";
+      const a = rec.getBoundingClientRect(), b = nav.getBoundingClientRect(), cap = document.querySelector(".place-caption")?.getBoundingClientRect(),
+        i = document.querySelector(".maplibregl-ctrl-attrib-button")?.getBoundingClientRect();
+      nav.innerHTML = old; if (made) nav.remove();
+      return { apart: a.right + 8 <= b.left, near: !cap?.height || (cap.top - a.bottom >= 0 && cap.top - a.bottom < 16), overI: !i?.width || Math.abs(a.left - i.left) < 12,
+        r: [a.left, a.right, a.bottom, b.left, cap?.top, i?.left].map(Math.round) }; })() })`);
     await run(`document.querySelector('[data-panel="tracks"] .tk-rec .pb-btn').click(); true`);
     await sleep(500);
     const rc2 = await run(`({ paused: document.querySelector(".rec-btn").classList.contains("paused"), row: document.querySelector('[data-panel="tracks"] .tk-rec')?.textContent })`);
@@ -2384,8 +2412,8 @@ try {
     const rc3 = await run(`({ ...${ts}.recState(), ...${ts}.stats(), kinds: __recKinds.join(), navOn: __recNav, navOff: !atlas.geo.state().on, kindSaved: ${ts}.recKind(), left: __rec.length, segs: atlas.map.getSource("tracks-rec").serialize().data.features.length, hint: document.querySelector('[data-panel="tracks"] .pb-hint')?.textContent })`);
     check("запись трека: без пути — окно вида активности (выбрали — пишет, навигация включилась); кнопка над «Навигацией», время, км и скорость, пауза, стоп — трек в «Моих треках» из двух кусков, вид — «Бег», навигация выключилась",
       /^Прогулка,Поход,Бег,Велосипед,.*Лыжи беговые,Лыжи горные/.test(rc3.kinds) && rc3.navOn && rc3.navOff && rc3.kindSaved === "run"
-      && rc1.btn && rc1.on && /^0:01:0\d$/.test(rc1.time) && rc1.pts === 20 && rc1.line && /^Идёт запись0:01:0\d · 850 м · макс 45 км\/ч$/.test(rc1.row)
-      && /^0:01:0\d\n850 м\nмакс 45 км\/ч$/.test(rc1.pill)
+      && rc1.btn && rc1.on && /^0:01:0\d$/.test(rc1.time) && rc1.pts === 20 && rc1.line && /^Идёт запись0:01:0\d · 850 м · 45 км\/ч макс$/.test(rc1.row)
+      && /^0:01:0\d\n850 м\n45 км\/ч макс$/.test(rc1.pill) && rc1.hudFit.apart && rc1.hudFit.near && rc1.hudFit.overI
       && rc2.paused && /^Запись — пауза/.test(rc2.row) && !rc3.on && rc3.time === "" && rc3.tracks === 1 && /^\d{4}\.\d\d\.\d\d \d\d:\d\d:\d\d — бег/.test(rc3.open) && rc3.left === 0 && rc3.segs === 0
       && /^Трек: \d{4}\.\d\d\.\d\d \d\d:\d\d:\d\d — бег/.test(rs.title) && rs.acts === "Назад,Пауза,Остановить" && rs.paused && /^Трек: /.test(rs.review)
       && rs.facts > 2 && rs.racts === "Назад,Выйти не сохраняя,Сохранить"

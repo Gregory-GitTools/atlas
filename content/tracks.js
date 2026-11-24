@@ -475,7 +475,7 @@ const STOP_D = "M6 6h12v12H6z";
 let recState = null, recPts = [], recTimer = 0, recTick = 0, recBtn = null, recHud = null, recFinishing = false;
 const recWhen = (s) => { const ms = Math.max(0, (s.pausedAt || Date.now()) - s.start - s.pausedTotal), sec = Math.floor(ms / 1000);
   return `${Math.floor(sec / 3600)}:${String(Math.floor(sec / 60) % 60).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`; };
-const recSpeed = (s) => `макс ${Math.round(s.max * 3.6)} км/ч`;
+const recSpeed = (s) => `${Math.round(s.max * 3.6)} км/ч макс`; // значение первым (Грегори 2026-11-24: «40 км/ч max»)
 const recSegs = (pts) => { // null в записи — пауза: новый кусок
   const segs = [[]];
   for (const p of pts) if (p) segs.at(-1).push(p); else if (segs.at(-1).length) segs.push([]);
@@ -1424,6 +1424,7 @@ window.atlasPhotosChanged = () => {
   photoAsk.clear();
   photoRaw.clear();
   if (openId) openTrack(openId, true);
+  window.dispatchEvent(new Event("atlas-photos-changed")); // и «Моим альбомам» — папки галереи
 };
 export function placePhotos(t, raw) {
   if (!timed(t)) return placeByPlace(t, raw);

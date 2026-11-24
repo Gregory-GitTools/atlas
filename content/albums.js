@@ -84,6 +84,11 @@ let scan = 0, ctx = null, loading = null;
 // свои папки со снимками (Грегори 2026-11-03: «+ Добавить папку») — доступ к каждой в IndexedDB albums/dirs
 let dirs = [], needsAccess = false, busy = false, checked = 0;
 const canFolders = () => "showDirectoryPicker" in window && !isMobile();
+// папки галереи телефона — альбомы (Грегори 2026-11-24: «показывать»; приложение 1.9 — AtlasPhotos.all/place):
+// снимки — по адресам https://phone.invalid/… (Photos.java), место — из EXIF по одному снимку
+const PHONE = "https://phone.invalid/", PHONE_ROOT = "Телефон";
+const phoneApp = () => typeof window.AtlasPhotos?.all === "function";
+const phoneAccess = () => { try { return AtlasPhotos.access(); } catch { return "none"; } };
 
 function addAlbum(path, name, local, files, tracks = [], texts = []) {
   const a = { id: path, name, title: displayName(name), local, parent: null, photos: [], point: null, country: undefined, cover: null, from: 0, to: 0, done: false, texts, story: null,
@@ -113,6 +118,21 @@ async function listRepo() {
   for (const [d, files] of by) addAlbum(d, d.split("/").pop(), false, files, [], texts.get(d) || []);
 }
 
+function listPhone() {
+  if (!phoneApp() || phoneAccess() === "none") return;
+  let list;
+  try { list = JSON.parse(AtlasPhotos.all()); } catch { return; }
+  const by = new Map();
+  for (const x of list) { const k = x.folder || "Без папки"; if (!by.has(k)) by.set(k, []); by.get(k).push(x); }
+  for (const [name, xs] of by) {
+    addAlbum(`${PHONE_ROOT}/${name}`, name, false, xs.map((x) => {
+      const [kind, n] = x.id.split(":");
+      return { name: x.name, path: `${PHONE_ROOT}/${name}/${x.name}`, url: `${PHONE}full/${kind}/${n}`, thumbUrl: `${PHONE}thumb/${kind}/${n}`,
+        phone: x.id, at: x.at, key: `exif/phone/${x.id}|${x.at}` };
+    }));
+  }
+}
+
 // своя папка: альбом — каждая папка, где есть снимки (подпапки — свои альбомы); «[Originals]» —
 // исходники поправленных снимков, повторы — пропускаются
 async function walk(handle, path, token, root) {
@@ -128,9 +148,12 @@ async function walk(handle, path, token, root) {
   } catch (e) {
     // корень своей папки не читается — сказать в списке, а не молчать «Альбомов пока нет»
     if (handle === root) scanErr = `Папка «${handle.name}» не читается (${e?.name || e}) — повторить`;
+    else if (found.has(root)) found.get(root).bad++;
     return;
   }
   if (token !== scan) return;
+  const st = found.get(root);
+  if (st) { st.dirs++; st.files += files.length; refresh(); }
   // GoPro: рядом с роликом GX011479.MP4 (4K, сотни МБ) — его уменьшенная копия GL011479.LRV (640×480);
   // кадр для клетки берётся из неё — быстро; играет в галерее сам ролик
   for (const f of files) { const m = /^G[HX](\d{6})\.MP4$/i.exec(f.name); if (m && proxies.has(m[1])) f.proxy = proxies.get(m[1]); }
@@ -238,6 +261,9 @@ function tally(g) {
 // unpkg не ответил — та же версия с jsdelivr (Грегори 2026-11-24: «альбом не загружается» — без программы
 // обход стоял, список пустой)
 let exifrLoad = null, noExif = false, scanErr = ""; // scanErr — почему обход своей папки не удался (строкой в списке)
+// что нашёл обход в каждой своей папке — в её строке списка (Грегори 2026-11-24: папка добавлена, а «Альбомов пока нет»
+// без объяснений): папки → { dirs: прочитано папок, files: снимков и роликов, bad: не открылось папок, done }
+const found = new Map();
 const exifr = () => (exifrLoad ??= import("https://unpkg.com/exifr@7.1.3/dist/full.esm.mjs")
   .catch(() => import("https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.esm.mjs"))
   .then((m) => m.default || m).catch((err) => { exifrLoad = null; throw err; }));
@@ -246,6 +272,18 @@ const OPTS = { tiff: true, exif: true, gps: true, xmp: false, icc: false, iptc: 
 async function exifOf(p) {
   if (p.rec) return p.rec;
   let key = p.key, file = null;
+  // снимок телефона: дата — из галереи (настоящее время), место — EXIF через приложение; «-» — место не
+  // разрешено: без места и не запоминаем (разрешат — прочитается)
+  if (p.phone) {
+    const hit = await cacheGet(key).catch(() => null);
+    checked++;
+    if (hit) return (p.rec = hit);
+    let ll = "";
+    try { ll = AtlasPhotos.place(p.phone); } catch { /* старое приложение */ }
+    const [lat, lon] = ll.split(",").map(Number), rec = { ...(p.at ? { date: p.at } : {}), ...(ll.includes(",") ? { lat, lon } : {}) };
+    if (ll !== "-") cacheSet(key, rec).catch(() => {});
+    return (p.rec = rec);
+  }
   try {
     if (p.handle) { file = await p.handle.getFile(); key = `exif/local/${p.path}|${file.size}|${file.lastModified}`; }
     const hit = await cacheGet(key).catch(() => null);
@@ -367,11 +405,15 @@ async function scanAll() {
   busy = true;
   refresh();
   // программа чтения снимков не загрузилась — альбомы всё равно в списке («Без страны»), строкой «Повторить»
-  noExif = await exifr().then(() => false, () => true);
+  found.clear();
+  for (const d of dirs) found.set(d, { dirs: 0, files: 0, bad: 0, done: false });
+  // программа чтения снимков не ответила за 20 с — тоже «не загрузилась»: обход не ждёт её вечно
+  noExif = await Promise.race([exifr(), new Promise((_, no) => setTimeout(no, 20000))]).then(() => false, () => true);
   if (noExif) ctx?.status("Не загрузилась программа чтения снимков — места и даты не прочитаны");
   await listRepo().catch(() => {});
+  listPhone();
   nest("Альбомы");
-  if (!needsAccess) for (const d of dirs) { await walk(d, d.name, token, d); if (token !== scan) return; }
+  if (!needsAccess) for (const d of dirs) { await walk(d, d.name, token, d); if (token !== scan) return; found.get(d).done = true; refresh(); }
   if (token !== scan) return;
   for (const d of dirs) nest(d.name);
   sendTracks();
@@ -472,7 +514,8 @@ async function heicThumb(p) {
 }
 async function makeThumb(p) {
   // поворот из EXIF браузер учитывает сам (imageOrientation по умолчанию — from-image)
-  const bmp = p.video ? await frameOf(p.proxy ? await p.proxy.getFile() : await fileOf(p)).catch((err) => { p.noFrame = true; throw err; })
+  const bmp = p.thumbUrl ? await createImageBitmap(await fetch(p.thumbUrl).then((r) => (r.ok ? r.blob() : Promise.reject(new Error(r.status)))))
+    : p.video ? await frameOf(p.proxy ? await p.proxy.getFile() : await fileOf(p)).catch((err) => { p.noFrame = true; throw err; })
     : HEIC_RE.test(p.name) ? await heicThumb(p)
     : await createImageBitmap(await fileOf(p), { resizeWidth: 480, resizeQuality: "medium" });
   const side = Math.min(bmp.width, bmp.height), sx = (bmp.width - side) / 2, sy = (bmp.height - side) / 2;
@@ -494,7 +537,7 @@ async function makeThumb(p) {
 // (у живого фото — и его ролик: kind "live")
 const fulls = [];
 async function fullOf(f, id) {
-  if (f.url) return HEIC_RE.test(f.name) ? fullOf({ ...f, url: "", handle: { getFile: () => fileOf(f) } }, id) : f.url;
+  if (f.url) return HEIC_RE.test(f.name) && !f.phone ? fullOf({ ...f, url: "", handle: { getFile: () => fileOf(f) } }, id) : f.url;
   const hit = fulls.find((x) => x.id === id);
   if (hit) return hit.url;
   const file = await f.handle.getFile();
@@ -1359,19 +1402,31 @@ function countryItems() {
     title: needsAccess && dirs.length ? accessTitle() : "Добавить папку…" },
     // свои папки — под ней, у каждой крестик «Убрать папку» (Грегори 2026-11-11: раздел папок в настройках
     // закомментирован — убрать было негде); снимки на диске не трогаются
-    ...(needsAccess ? [] : dirs.map((d, i) => ({ id: `#dir:${i}`, icon: FOLDER_ICON, title: d.name, hint: "Своя папка со снимками",
+    ...(needsAccess ? [] : dirs.map((d, i) => ({ id: `#dir:${i}`, icon: FOLDER_ICON, title: dirTitle(d), hint: "Своя папка со снимками",
       remove: { title: `Убрать папку «${d.name}»`, fn: () => confirm(`Убрать папку «${d.name}» из альбомов? Снимки на диске останутся.`)
         && forgetFolder(d, () => isOpen("albums") && !currentCountry && renderList(null)) } })))];
   const list = countries().map(([name, n]) => ({ id: name, title: `${name} (${n})`, thumb: flagUrl(isoOf(name)) || "",
     icon: isoOf(name) ? "" : ICON, selected: currentCountry === name && isOpen("albums") }));
+  // в приложении без доступа к галерее — строка «Показать снимки телефона» (Android спросит разрешение)
+  const phone = phoneApp() && phoneAccess() === "none" ? [{ id: "#phone", icon: OPEN_ICON, title: "Показать снимки телефона", hint: "Папки галереи — альбомами; снимки никуда не отправляются" }] : [];
   const retry = scanErr ? [{ id: "#retry", icon: ICON, title: scanErr }]
     : noExif ? [{ id: "#retry", icon: ICON, title: "Места и даты не прочитаны — повторить", hint: "Не загрузилась программа чтения снимков — проверьте интернет" }] : [];
-  return [...folder, ...retry, ...(list.length || !loading ? list : [{ id: "", title: busy ? "Читаю альбомы…" : "Альбомов пока нет", icon: ICON }])];
+  return [...folder, ...phone, ...retry, ...(list.length || !loading ? list : [{ id: "", title: busy ? "Читаю альбомы…" : "Альбомов пока нет", icon: ICON }])];
+}
+// «Alboms — альбомов 65, снимков 3712» / «Alboms — читаю…» / «Alboms — снимков не найдено (папок 3)»
+function dirTitle(d) {
+  const st = found.get(d);
+  if (!st) return d.name;
+  if (!st.done) return `${d.name} — читаю… папок ${st.dirs}, снимков ${st.files}`;
+  const n = [...albums.values()].filter((a) => a.local && a.photos.some((id) => photos.get(id)?.root === d)).length;
+  const bad = st.bad ? `, не открылось папок ${st.bad}` : "";
+  return st.files ? `${d.name} — альбомов ${n}, снимков ${st.files}${bad}` : `${d.name} — снимков не найдено (папок ${st.dirs}${bad})`;
 }
 // окно выбора папки — прямо по нажатию (иначе браузер его не откроет); после выбора — снова список стран
 function chooseItem(country) {
   if (country?.startsWith("#dir:")) return; // строка своей папки — только крестик «Убрать»
   if (country === "#retry") { rescan(); return; }
+  if (country === "#phone") { try { AtlasPhotos.ask(); } catch { /* старое приложение */ } return; }
   if (country === "#folder") { (dirs.length && needsAccess ? askAccess() : pickFolder()).then(() => isOpen("albums") && !currentCountry && renderList(null)); return; }
   if (country) openCountry(country);
 }
@@ -1384,6 +1439,9 @@ function openCountry(country) {
   showOnMap(true);
   emit("module", { id: "content/albums", on: true });
 }
+
+// разрешили галерею (или место в снимках) — альбомы заново, если их уже читали
+window.addEventListener("atlas-photos-changed", () => { if (loading) rescan(); });
 
 // «Мои треки» открыли панель — им нужны треки альбомов (папки обходятся, если ещё нет)
 on("album-tracks-wanted", ({ ctx: c }) => { ctx = c; wire(); load(c).catch(() => {}); }, { replay: false });
@@ -1511,7 +1569,8 @@ register({
   // settings: settingsSection,
   // для проверки
   stats: () => ({ albums: albums.size, tracks: [...albums.values()].reduce((n, a) => n + a.tracks.length, 0), groups: groups.size, photos: photos.size, located: located().length, thumbs: [...photos.values()].filter((p) => p.thumb).length,
-    countries: countries().map(([n, k]) => `${n}:${k}`), busy, shown, dups: dups && { busy: dups.busy, same: dups.same.length, like: dups.like.length, view: dupView }, open: openAlbum?.title || openGroup?.title || null, country: currentCountry }),
+    countries: countries().map(([n, k]) => `${n}:${k}`), busy,
+    phone: [...albums.values()].filter((a) => a.id.startsWith(`${PHONE_ROOT}/`)).map((a) => `${a.name}:${a.photos.length}${a.point ? ":место" : ""}`).sort(), shown, dups: dups && { busy: dups.busy, same: dups.same.length, like: dups.like.length, view: dupView }, open: openAlbum?.title || openGroup?.title || null, country: currentCountry }),
   pickFolder: () => pickFolder(),
   forgetFolder: (name) => forgetFolder(dirs.find((d) => d.name === name)),
   openFirst: (title) => { const a = [...albums.values()].find((x) => !title || x.title === title); if (!a) return false; openCountry(countryOf(a)); openAlbumById(a.id); return true; },

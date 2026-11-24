@@ -1025,14 +1025,15 @@ html, body {
 }
 
 /* крупные цифры внизу без подложки (Грегори 2026-11-24: «в обоих режимах большие прозрачные цифры… при
-   навигации правее, при записи левее»): слева, правее кнопок, — запись (время, путь, макс), справа, левее
-   треугольника слоёв, — навигация (осталось, время); над масштабом и названием места; карту не ловят */
+   навигации правее, при записи левее»): слева, над ⓘ, — запись (время, путь, макс), справа у края —
+   навигация (осталось, время); вплотную над названием места («прижми данные к информации»); на узком
+   экране шрифт меньше — колонки не наслаиваются; карту не ловят */
 .hud {
   position: fixed;
-  bottom: 84px;
+  bottom: calc(var(--gap) + var(--button) / 2 + 36px);
   z-index: 1;
   color: var(--text);
-  font: 700 26px/1.15 var(--font);
+  font: 700 clamp(18px, 5.4vw, 26px)/1.15 var(--font);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   text-shadow: 0 0 3px var(--panel), 0 0 3px var(--panel), 0 0 6px var(--panel);
@@ -1049,15 +1050,15 @@ html, body {
 }
 
 .hud > b {
-  font-size: 32px;
+  font-size: clamp(22px, 6.8vw, 32px);
 }
 
 .hud-rec {
-  left: calc(var(--side-l) + var(--button) + var(--gap) + 8px);
+  left: calc(var(--side-l) + var(--button) + var(--gap));
 }
 
 .hud-nav {
-  right: calc(var(--side-r) + var(--button) + var(--gap) + 8px);
+  right: var(--side-r);
   text-align: right;
 }
 
