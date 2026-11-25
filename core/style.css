@@ -1842,7 +1842,9 @@ body.has-photo-strip .status {
   pointer-events: none;
 }
 
-.wheel:not(.closed) .wheel-cell > .btn {
+/* и крестик «Снять всё» в углу кнопки (Грегори 2026-11-25: «невозможно кликнуть на крестик» — нажатие уходило в кнопку) */
+.wheel:not(.closed) .wheel-cell > .btn,
+.wheel:not(.closed) .wheel-cell > .layers-clear {
   pointer-events: auto;
 }
 
@@ -4572,4 +4574,29 @@ body.go-nav-off .go-menu {
 
 .carousel .layers-item:hover .layers-icon.thumb {
   background: var(--panel-hover);
+}
+
+/* «Альбом 2» (content/albums2.js): над сеткой альбома — назад, счёт снимков, «Смотреть»; у ролика — ▶ */
+.a2-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px 8px;
+}
+
+.a2-sub {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.a2-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.6));
+  pointer-events: none;
 }

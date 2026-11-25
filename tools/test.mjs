@@ -1164,8 +1164,10 @@ try {
       const shown = !x.hidden;
       // крестик — на барабане: карусель назад (Esc), барабан возвращается
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", cancelable: true })); await new Promise((r) => setTimeout(r, 400));
+      // нажимается мышью: в его середине — он сам, а не кружок под ним (Грегори 2026-11-25: «невозможно кликнуть на крестик»)
+      const xr = x.getBoundingClientRect(), hit = x.contains(document.elementFromPoint(xr.x + xr.width / 2, xr.y + xr.height / 2));
       x.click(); await new Promise((r) => setTimeout(r, 800));
-      const res = { shown, off: !atlas.modules().find((m) => m.id === "places/transport").active,
+      const res = { shown, hit, off: !atlas.modules().find((m) => m.id === "places/transport").active,
         closed: document.querySelector(".sub-places").hidden };
       // открыть снова: ничего не отмечено, у видов кольца цвета
       await ${openLayers("places/transport")};
@@ -1173,7 +1175,7 @@ try {
       res.rings = [...document.querySelectorAll(".layers-sub .layers-icon.ring")].length;
       await ${closeLayers};
       return res; })()`);
-    check("транспорт: крестик снимает всё, у видов кольца цвета", cleared.shown && cleared.off && cleared.closed && cleared.noneMarked && cleared.rings === 7, JSON.stringify(cleared));
+    check("транспорт: крестик нажимается мышью и снимает всё, у видов кольца цвета", cleared.shown && cleared.hit && cleared.off && cleared.closed && cleared.noneMarked && cleared.rings === 7, JSON.stringify(cleared));
     await run(`atlas.toggle("places/transport", false)`);
     // «Горнолыжные спуски» (в «Тропах»): трассы и все подъёмники, включают «Канатные дороги» в «Транспорте» и
     // запоминают это; выключили спуски — канатные дороги остаются (Грегори 2026-11-13)
@@ -2034,6 +2036,34 @@ try {
       await run(`${alm}.column.close(); true`);
       check("приложение: папки галереи телефона — альбомы; без доступа — строка «Показать снимки телефона»",
         pa1.join() === "Показать снимки телефона" && pa2.phone.join() === "Camera:2:место,WhatsApp Video:1" && !pa2.row, JSON.stringify({ pa1, pa2 }));
+      // «Альбом 2» — альбомы, сделанные заново (Грегори 2026-11-25: «на альбом сделать кнопку с нуля»): строка папки сама
+      // говорит, что нашла; альбом — каждая папка со снимками («.скрытые» и пустые — нет); альбом — сетка с миниатюрами;
+      // крестик «Убрать папку» нажимается мышью и спрашивает
+      const a2 = `atlas.modules().find((m) => m.id === "content/albums2")`;
+      await run(`(() => { const { file, folder } = window.testFs; window.showDirectoryPicker = async () => folder("Фото2", [
+        folder("20240101 Рига", [file("r.jpg"), file("v.mp4")]), folder("Пусто", []), folder(".скрыто", [file("x.jpg")]),
+        folder("Таллин", [file("1.jpg"), file("2.jpg"), file("3.jpg")])]); return true; })()`);
+      await run(openLayers("content/albums2"));
+      await run(`[...document.querySelectorAll('[data-panel="albums2"] .home-row')].find((r) => r.textContent.includes("Добавить папку")).click(); true`);
+      for (let i = 0; i < 30 && !(await run(`/альбомов/.test(${a2}.stats().dirs[0] || "")`)); i++) await sleep(300);
+      const a2rows = await run(`[...document.querySelectorAll('[data-panel="albums2"] .home-row .tr-row-title')].map((t) => t.textContent)`);
+      await run(`[...document.querySelectorAll('[data-panel="albums2"] .a2-album')].find((r) => r.textContent.startsWith("Таллин")).click(); true`);
+      for (let i = 0; i < 20 && !(await run(`document.querySelectorAll('[data-panel="albums2"] .al-cell img').length === 3`)); i++) await sleep(300);
+      const a2album = await run(`({ title: document.querySelector('[data-panel="albums2"] .panel-title span').textContent, cells: document.querySelectorAll('[data-panel="albums2"] .al-cell').length,
+        imgs: document.querySelectorAll('[data-panel="albums2"] .al-cell img').length })`);
+      await shot("63-albums2-album");
+      await run(`document.querySelector('[data-panel="albums2"] .a2-head .pb-btn').click(); true`);
+      await shot("63-albums2-list");
+      const a2x = await run(`(async () => { const x = document.querySelector('[data-panel="albums2"] .home-line .search-delete'), r = x.getBoundingClientRect();
+        const hit = x.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); let asked = "";
+        const was = window.confirm; window.confirm = (q) => { asked = q; return true; }; x.click(); window.confirm = was;
+        await new Promise((r) => setTimeout(r, 500)); return { hit, title: x.title, asked, dirs: ${a2}.stats().dirs.length,
+          empty: document.querySelector('[data-panel="albums2"] .a2-empty')?.textContent || "" }; })()`);
+      await run(`${a2}.column.close(); true`);
+      check("«Альбом 2»: папка — строкой со счётом, альбомы — папки со снимками, сетка с миниатюрами, крестик «Убрать папку» нажимается и спрашивает",
+        a2rows.join("|") === "Добавить папку…|Фото2 — альбомов 2, снимков 5|Рига|Таллин" && a2album.title === "Таллин" && a2album.cells === 3 && a2album.imgs === 3
+        && a2x.hit && a2x.title === "Убрать папку «Фото2»" && /Снимки на диске останутся/.test(a2x.asked) && a2x.dirs === 0 && /Добавьте папку/.test(a2x.empty),
+        JSON.stringify({ a2rows, a2album, a2x }));
       await run(closeLayers);
       await run(gear);
       await sleep(600);
@@ -3138,7 +3168,7 @@ try {
     && lens.s3.layers && !lens.s3.places && lens.s3.under && lens.s3.shift.join() === "0,0"
     && !lens.s4.layers && !lens.s4.places && lens.s4.search && lens.s4.shift.join() === "0,0"
     && lens.s5.content && lens.s5.search && !lens.s6.content && !lens.s6.search && lens.s6.drop
-    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои споты", "Мои треки", "Настройки", "Поиск", "Трек", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
+    && JSON.stringify(lens.keys) === JSON.stringify(["Альбом 2", "Мои альбомы", "Мои споты", "Мои треки", "Настройки", "Поиск", "Трек", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
   await run(`(async () => { document.querySelector(".wheel-toggle").click(); await new Promise((r) => setTimeout(r, 450)); return true; })()`);
   await shot("95c-drum");
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико

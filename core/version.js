@@ -2,7 +2,7 @@
 // «Настройках». Номер общий у сайта и приложения Android (versionName): новый — при каждом выпуске.
 // Сайт обновляется сам, без приложения, поэтому рядом — дата обновления страницы, а в приложении —
 // ещё и номер установленной оболочки (у старых сборок без AtlasApp — по тому, что она умеет)
-export const VERSION = "1.9";
+export const VERSION = "1.10";
 
 export const updated = () => {
   const d = new Date(document.lastModified);
