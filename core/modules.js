@@ -37,6 +37,7 @@ export const MODULES = [
   "../content/tracks.js",
   "../content/albums.js",
   "../content/albums2.js",
+  "../content/music.js",
   "../content/spots.js",
 ];
 

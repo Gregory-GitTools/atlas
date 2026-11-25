@@ -489,9 +489,11 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 
-/* выбранный размер кнопок и текста (настройки) */
+/* выбранный размер кнопок и текста (настройки), выбранный плеер («Музыка») */
 .size-btn.on,
-.size-btn.on:hover {
+.size-btn.on:hover,
+.mu-pick.on,
+.mu-pick.on:hover {
   border-color: var(--accent);
   background: var(--active);
 }
@@ -4599,4 +4601,120 @@ body.go-nav-off .go-menu {
   color: #fff;
   filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.6));
   pointer-events: none;
+}
+
+/* «Музыка» (content/music.js): переключатель плееров, APlayer как есть, у Amplitude — свой вид */
+.mu-switch {
+  display: flex;
+  gap: 8px;
+  padding: 2px 4px 10px;
+}
+
+.mu-player [hidden] {
+  display: none !important;
+}
+
+.mu-player .aplayer {
+  margin: 0 0 10px;
+  color: #3c4043;
+}
+
+.mu-amp {
+  padding: 0 4px 10px;
+}
+
+.mu-now {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mu-cover {
+  flex: none;
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--panel-hover);
+}
+
+.mu-cover:not([src]),
+.mu-cover[src=""] {
+  visibility: hidden;
+}
+
+.mu-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mu-title,
+.mu-artist {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mu-artist,
+.mu-time,
+.mu-song-artist {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mu-slider {
+  width: 100%;
+  margin: 10px 0 0;
+  accent-color: var(--tone-my);
+}
+
+.mu-time {
+  display: flex;
+  justify-content: space-between;
+  font-variant-numeric: tabular-nums;
+}
+
+.mu-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin: 4px 0 8px;
+}
+
+.mu-play.amplitude-playing .mu-off,
+.mu-play:not(.amplitude-playing) .mu-on {
+  display: none;
+}
+
+.mu-play i {
+  display: grid;
+  font-style: normal;
+}
+
+.mu-songs {
+  display: flex;
+  flex-direction: column;
+}
+
+.mu-song {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mu-song:hover {
+  background: var(--panel-hover);
+}
+
+.mu-song.amplitude-active-song-container {
+  background: var(--active);
 }

@@ -5,10 +5,14 @@
 // альбомы появляются в списке по одному, ошибка — словами в строке папки (нажать — повторить). Строки не
 // перерисовываются, а дописываются, — нажатие (крестик «Убрать папку») не теряется посреди чтения.
 // Потом в фоне — место и дата альбома из EXIF первых снимков; альбом с местом — фиолетовой точкой на карте,
-// щелчок по ней — альбом. Альбом — сетка снимков (миниатюры по мере прокрутки), щелчок — общая галерея
+// щелчок по ней — альбом. Альбом — сетка снимков (миниатюры по мере прокрутки), щелчок — общая галерея.
+// Открыт альбом — на карте только он (Грегори 2026-11-25: «после выбора альбома на карте оставался только один альбом
+// со всеми фотками»): точки всех его снимков с местом (место читается у всех, по ходу), вблизи — миниатюры; щелчок —
+// галерея с этого снимка. Раздел — режимом строки поиска, как «Мои альбомы»: значок на кнопке, «Найти альбом»
 import { register } from "../core/modules.js";
 import { createPanel, isOpen } from "../core/panel.js";
 import { emit } from "../core/events.js";
+import { setSearchMode, searchMode } from "../core/search.js";
 import { cacheGet, cacheSet } from "../core/storage.js";
 import { claimLayers } from "../core/popups.js";
 import { openGalleryWith } from "../core/photo-strip.js";
@@ -26,7 +30,7 @@ const COLOR = "#7c4dff"; // --tone-my
 const VIDEO_RE = /\.(mov|mp4|m4v)$/i;
 const MEDIA_RE = /\.(jpe?g|webp|png|heic|heif|mov|mp4|m4v)$/i;
 const PROBE = 12; // сколько первых снимков альбома читать в поисках места
-const THUMB = 240;
+const THUMB = 240, PIN = 56, THUMB_ZOOM = 14; // миниатюра сетки; на карте — 28 px в белой рамке, с 14-го приближения
 const KEY = "albums2/dirs";
 
 // название напоказ — без даты-префикса и скобок (как в «Моих альбомах»; сама папка не меняется)
@@ -41,7 +45,7 @@ const albums = []; // { id, title, root, files: [{ name, handle, video, thumb }]
 
 const panel = createPanel({ id: "albums2", title: "Альбом 2", icon: svg(STACK_D, 18), side: "left" });
 const list = h("div", "home-list a2-list");
-let openAlbum = null;
+let openAlbum = null, query = "";
 
 // ---------- папки ----------
 const saveDirs = () => cacheSet(KEY, dirs.map((d) => d.handle)).catch(() => {});
@@ -159,7 +163,7 @@ async function exifOf(f) {
 }
 async function locate(a) {
   for (const f of a.files.filter((x) => !x.video).slice(0, PROBE)) {
-    const r = await exifOf(f).catch(() => ({}));
+    const r = (f.rec ??= await exifOf(f).catch(() => ({})));
     if (r.date && !a.date) a.date = r.date;
     if (r.lat) { a.point = [r.lon, r.lat]; if (r.date) a.date = r.date; return; }
   }
@@ -167,7 +171,9 @@ async function locate(a) {
 
 // ---------- список ----------
 function renderList() {
+  const was = openAlbum;
   openAlbum = null;
+  if (was) { seen?.disconnect(); drawMap(); }
   panel.setTitle("Альбом 2");
   list.replaceChildren();
   const add = row(OPEN_ICON, "Добавить папку…", "Снимки с этого компьютера никуда не отправляются", addFolder);
@@ -199,6 +205,7 @@ function addAlbumRow(a) {
   list.querySelector(".a2-empty")?.remove();
   a.row = row(ICON, a.title, a.path, () => showAlbum(a));
   a.row.classList.add("a2-album");
+  a.row.hidden = !matches(a);
   paintAlbum(a);
   list.append(a.row);
 }
@@ -207,6 +214,14 @@ function paintAlbum(a) {
   const when = a.date ? new Date(a.date).toLocaleDateString("ru", { month: "long", year: "numeric" }) : "";
   a.row.querySelector(".tr-row-sub").textContent = [plural(a.files.length, "снимок", "снимка", "снимков"), when, a.point ? "" : "без места"].filter(Boolean).join(" · ");
 }
+// строка поиска в режиме раздела — альбомы по названию
+const matches = (a) => !query || a.title.toLowerCase().includes(query) || a.path.toLowerCase().includes(query);
+function filter(text) {
+  query = text.trim().toLowerCase();
+  if (openAlbum && query) { renderList(); return; }
+  for (const a of albums) if (a.row) a.row.hidden = !matches(a);
+}
+const MODE = { icon: svg(STACK_D, 20), title: "Альбом 2", placeholder: "Найти альбом", tone: "my", filter, exit: () => panel.close() };
 // альбомов нет — сказать почему, а не молчать
 function paintEmpty() {
   if (openAlbum || albums.length || list.querySelector(".a2-empty")) return;
@@ -245,6 +260,28 @@ function showAlbum(a) {
   panel.body.replaceChildren(head, grid);
   panel.body.scrollTop = 0;
   if (a.point && ctx) ctx.map.flyTo({ center: a.point, zoom: Math.max(ctx.map.getZoom(), 11), duration: 1500 });
+  drawMap();
+  placeAll(a);
+}
+
+// место всех снимков открытого альбома — по ходу, точки появляются сразу; прочитано всё — карта на весь альбом
+async function placeAll(a) {
+  let n = 0;
+  for (const f of a.files) {
+    if (openAlbum !== a) return;
+    if (f.video || f.rec) continue;
+    f.rec = await exifOf(f).catch(() => ({}));
+    if (++n % 10 === 0) drawMap();
+  }
+  if (openAlbum !== a) return;
+  drawMap();
+  const pts = a.files.filter((f) => f.rec?.lat).map((f) => [f.rec.lon, f.rec.lat]);
+  if (!pts.length || !ctx) return;
+  const lng = pts.map((p) => p[0]), lat = pts.map((p) => p[1]);
+  const phone = innerWidth <= 600;
+  ctx.map.fitBounds([[Math.min(...lng), Math.min(...lat)], [Math.max(...lng), Math.max(...lat)]],
+    { padding: phone ? { top: innerHeight * 0.55, bottom: 110, left: 30, right: 30 } : { top: 80, bottom: 110, left: 460, right: 90 }, maxZoom: 16, duration: 1500 });
+  ctx.map.once("moveend", wantPins);
 }
 
 // миниатюры — по две за раз
@@ -295,7 +332,7 @@ function frameOf(file) {
 // ---------- галерея ----------
 const fulls = new Map(); // "a2/3/7" → адрес снимка в памяти (последние несколько)
 function gallery(a, start) {
-  const items = a.files.map((f, n) => ({ id: `a2/${a.id}/${n}`, thumb: f.thumb, full: "", title: a.title, credit: f.name, coordinates: null, video: f.video }));
+  const items = a.files.map((f, n) => ({ id: `a2/${a.id}/${n}`, thumb: f.thumb, full: "", title: a.title, credit: f.name, coordinates: f.rec?.lat ? [f.rec.lon, f.rec.lat] : null, video: f.video }));
   openGalleryWith(items, items[start]?.id, media);
 }
 async function media(kind, id) {
@@ -313,36 +350,88 @@ async function media(kind, id) {
   return url;
 }
 
-// ---------- карта: альбом с местом — точка ----------
+// ---------- карта: альбом с местом — точка; открыт альбом — только его снимки ----------
 let shown = false;
-const LAYER = "albums2";
-const data = () => ({ type: "FeatureCollection", features: albums.filter((a) => a.point).map((a) => ({ type: "Feature", geometry: { type: "Point", coordinates: a.point }, properties: { a: a.id } })) });
+const LAYER = "albums2", PHOTOS = "albums2-photos", PINS = "albums2-pins";
+const fc = (features) => ({ type: "FeatureCollection", features });
+const point = (coordinates, properties) => ({ type: "Feature", geometry: { type: "Point", coordinates }, properties });
+const albumData = () => fc(openAlbum ? [] : albums.filter((a) => a.point).map((a) => point(a.point, { a: a.id })));
+const located = () => (openAlbum ? openAlbum.files.map((f, n) => [f, n]).filter(([f]) => f.rec?.lat) : []);
+const photoData = () => fc(located().map(([f, n]) => point([f.rec.lon, f.rec.lat], { a: openAlbum.id, n, pin: f.pin || "" })));
+let mapCount = { albums: 0, photos: 0 }; // для проверки: сколько точек сейчас на карте
 function drawMap() {
   if (!shown || !ctx) return;
-  const map = ctx.map;
+  const map = ctx.map, ad = albumData(), pd = photoData();
+  mapCount = { albums: ad.features.length, photos: pd.features.length };
   if (!map.getSource(LAYER)) {
-    map.addSource(LAYER, { type: "geojson", data: data() });
+    map.addSource(LAYER, { type: "geojson", data: ad });
+    map.addSource(PHOTOS, { type: "geojson", data: pd });
     map.addLayer({ id: LAYER, type: "circle", source: LAYER, paint: { "circle-radius": 8, "circle-color": COLOR, "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
-    claimLayers(LAYER);
-  } else map.getSource(LAYER).setData(data());
+    map.addLayer({ id: PHOTOS, type: "circle", source: PHOTOS, paint: { "circle-radius": 5, "circle-color": COLOR, "circle-stroke-color": "#fff", "circle-stroke-width": 1.5 } });
+    map.addLayer({ id: PINS, type: "symbol", source: PHOTOS, minzoom: THUMB_ZOOM, filter: ["!=", ["get", "pin"], ""], layout: { "icon-image": ["get", "pin"], "icon-padding": 2 } });
+    claimLayers(LAYER, PHOTOS, PINS);
+  } else {
+    map.getSource(LAYER).setData(ad);
+    map.getSource(PHOTOS).setData(pd);
+  }
+}
+// миниатюры снимков в кадре — вблизи, ближние к центру первыми
+let pinning = false;
+async function wantPins() {
+  if (pinning || !shown || !openAlbum || !ctx || ctx.map.getZoom() < THUMB_ZOOM - 0.5) return;
+  pinning = true;
+  const a = openAlbum, map = ctx.map, b = map.getBounds(), c = map.getCenter();
+  const todo = located().map(([f]) => f).filter((f) => !f.pin && !f.video && b.contains([f.rec.lon, f.rec.lat]))
+    .sort((x, y) => Math.hypot(x.rec.lon - c.lng, x.rec.lat - c.lat) - Math.hypot(y.rec.lon - c.lng, y.rec.lat - c.lat)).slice(0, 40);
+  for (const [i, f] of todo.entries()) {
+    if (openAlbum !== a || !shown) break;
+    await pinOf(f).catch(() => {});
+    if (i % 5 === 4) drawMap();
+  }
+  drawMap();
+  pinning = false;
+}
+let pins = 0;
+async function pinOf(f) {
+  const url = await thumbOf(f);
+  if (!url) return;
+  const img = new Image();
+  img.src = url;
+  await img.decode();
+  const c = Object.assign(document.createElement("canvas"), { width: PIN, height: PIN }), x = c.getContext("2d");
+  const k = Math.max((PIN - 6) / img.width, (PIN - 6) / img.height), w = img.width * k, hh = img.height * k;
+  x.fillStyle = "#fff";
+  x.fillRect(0, 0, PIN, PIN);
+  x.save();
+  x.beginPath();
+  x.rect(3, 3, PIN - 6, PIN - 6);
+  x.clip();
+  x.drawImage(img, (PIN - w) / 2, (PIN - hh) / 2, w, hh);
+  x.restore();
+  const id = `a2pin-${++pins}`;
+  ctx.map.addImage(id, x.getImageData(0, 0, PIN, PIN), { pixelRatio: 2 });
+  f.pin = id;
 }
 function showOnMap(on) {
   if (!ctx || shown === on) return;
   shown = on;
   if (on) { drawMap(); return; }
-  if (ctx.map.getLayer(LAYER)) ctx.map.removeLayer(LAYER);
-  if (ctx.map.getSource(LAYER)) ctx.map.removeSource(LAYER);
+  for (const id of [PINS, PHOTOS, LAYER]) if (ctx.map.getLayer(id)) ctx.map.removeLayer(id);
+  for (const id of [PHOTOS, LAYER]) if (ctx.map.getSource(id)) ctx.map.removeSource(id);
 }
 function wire() {
   if (wired || !ctx) return;
   wired = true;
   const map = ctx.map;
-  map.on("style.load", () => { if (shown) drawMap(); });
+  // новый стиль карты — без своих картинок: миниатюры заново
+  map.on("style.load", () => { if (!shown) return; for (const a of albums) for (const f of a.files) f.pin = ""; drawMap(); wantPins(); });
+  map.on("moveend", wantPins);
   map.on("click", (e) => {
     if (!shown || !map.getLayer(LAYER)) return;
-    const f = map.queryRenderedFeatures(e.point, { layers: [LAYER] })[0];
+    const f = map.queryRenderedFeatures(e.point, { layers: [PINS, PHOTOS, LAYER] })[0];
     const a = f && albums[f.properties.a];
     if (!a) return;
+    if (f.properties.n !== undefined && openAlbum === a) { gallery(a, f.properties.n); return; }
     panel.open();
     showAlbum(a);
   });
@@ -350,6 +439,7 @@ function wire() {
 
 panel.onClose(() => {
   showOnMap(false);
+  if (searchMode() === MODE) setSearchMode(null);
   emit("module", { id: "content/albums2", on: false });
 });
 
@@ -367,6 +457,7 @@ register({
       ctx = c;
       wire();
       panel.open();
+      setSearchMode(MODE);
       showOnMap(true);
       emit("module", { id: "content/albums2", on: true });
       if (started) { if (openAlbum) showAlbum(openAlbum); else renderList(); return; }
@@ -381,5 +472,6 @@ register({
     close: () => panel.close(),
   },
   // для проверки
-  stats: () => ({ dirs: dirs.map(dirText), albums: albums.map((a) => `${a.title}:${a.files.length}${a.point ? ":место" : ""}`), open: openAlbum?.title || null }),
+  stats: () => ({ dirs: dirs.map(dirText), albums: albums.map((a) => `${a.title}:${a.files.length}${a.point ? ":место" : ""}`), open: openAlbum?.title || null,
+    map: shown ? { ...mapCount, pins: located().filter(([f]) => f.pin).length } : null }),
 });

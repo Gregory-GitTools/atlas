@@ -65,7 +65,8 @@ let netFails = 0;
 ws.onmessage = (m) => {
   const d = JSON.parse(m.data);
   if (pending.has(d.id)) { pending.get(d.id)(d.result ?? { exceptionDetails: { text: `ошибка браузера: ${d.error?.message}` } }); pending.delete(d.id); }
-  if (d.method === "Runtime.exceptionThrown") errors.push("исключение: " + (d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text).split("\n")[0]);
+  if (d.method === "Runtime.exceptionThrown") errors.push("исключение: " + (d.params.exceptionDetails.exception?.description || d.params.exceptionDetails.text).split("\n")[0]
+    + (d.params.exceptionDetails.url ? ` (${d.params.exceptionDetails.url.split("/").pop()}:${d.params.exceptionDetails.lineNumber + 1}:${d.params.exceptionDetails.columnNumber})` : ""));
   if (d.method === "Runtime.consoleAPICalled" && d.params.type === "error") {
     // у объекта ошибки — и место, где она возникла (первые строки стека), иначе в отчёте одно «Error»
     const text = (d.params.args.map((a) => a.value ?? a.description).join(" ") + " @ " + (d.params.stackTrace?.callFrames || []).slice(0, 3).map((f) => `${f.functionName}:${f.url.split("/").pop()}:${f.lineNumber}`).join(" < ")).split("\n").slice(0, 4).map((l) => l.trim()).join(" ← ");
@@ -2038,21 +2039,36 @@ try {
         pa1.join() === "Показать снимки телефона" && pa2.phone.join() === "Camera:2:место,WhatsApp Video:1" && !pa2.row, JSON.stringify({ pa1, pa2 }));
       // «Альбом 2» — альбомы, сделанные заново (Грегори 2026-11-25: «на альбом сделать кнопку с нуля»): строка папки сама
       // говорит, что нашла; альбом — каждая папка со снимками («.скрытые» и пустые — нет); альбом — сетка с миниатюрами;
-      // крестик «Убрать папку» нажимается мышью и спрашивает
+      // крестик «Убрать папку» нажимается мышью и спрашивает. Раздел — режимом строки поиска («Найти альбом» прячет
+      // неподходящие); открыт альбом — на карте только его снимки с местом (два из трёх), вблизи — миниатюры
       const a2 = `atlas.modules().find((m) => m.id === "content/albums2")`;
-      await run(`(() => { const { file, folder } = window.testFs; window.showDirectoryPicker = async () => folder("Фото2", [
-        folder("20240101 Рига", [file("r.jpg"), file("v.mp4")]), folder("Пусто", []), folder(".скрыто", [file("x.jpg")]),
-        folder("Таллин", [file("1.jpg"), file("2.jpg"), file("3.jpg")])]); return true; })()`);
+      await run(`(async () => { const { file, folder } = window.testFs, { setMeta } = await import("./tools/jpeg.js");
+        const base = await new Promise((r) => { const c = Object.assign(document.createElement("canvas"), { width: 64, height: 48 }); c.getContext("2d").fillRect(0, 0, 32, 48); c.toBlob(r, "image/jpeg"); });
+        const at = (lat, lon) => setMeta(base, { gps: [lat, lon] });
+        const t1 = await at(59.4372, 24.7453), t2 = await at(59.4381, 24.7470), riga = await at(56.9496, 24.1052);
+        window.showDirectoryPicker = async () => folder("Фото2", [
+        folder("20240101 Рига", [file("r.jpg", riga), file("v.mp4")]), folder("Пусто", []), folder(".скрыто", [file("x.jpg")]),
+        folder("Таллин", [file("1.jpg", t1), file("2.jpg", t2), file("3.jpg")])]); return true; })()`);
       await run(openLayers("content/albums2"));
       await run(`[...document.querySelectorAll('[data-panel="albums2"] .home-row')].find((r) => r.textContent.includes("Добавить папку")).click(); true`);
       for (let i = 0; i < 30 && !(await run(`/альбомов/.test(${a2}.stats().dirs[0] || "")`)); i++) await sleep(300);
+      for (let i = 0; i < 30 && (await run(`${a2}.stats().map?.albums`)) !== 2; i++) await sleep(300);
       const a2rows = await run(`[...document.querySelectorAll('[data-panel="albums2"] .home-row .tr-row-title')].map((t) => t.textContent)`);
+      const a2search = await run(`(async () => { const i = document.querySelector(".search-box input"), ph = i.placeholder, w = () => new Promise((r) => setTimeout(r, 600));
+        i.value = "тал"; i.dispatchEvent(new Event("input")); await w();
+        const shown = [...document.querySelectorAll('[data-panel="albums2"] .a2-album')].filter((r) => !r.hidden).map((r) => r.querySelector(".tr-row-title").textContent);
+        i.value = ""; i.dispatchEvent(new Event("input")); await w();
+        return { ph, shown, all: [...document.querySelectorAll('[data-panel="albums2"] .a2-album')].filter((r) => !r.hidden).length, mapAll: ${a2}.stats().map }; })()`);
       await run(`[...document.querySelectorAll('[data-panel="albums2"] .a2-album')].find((r) => r.textContent.startsWith("Таллин")).click(); true`);
       for (let i = 0; i < 20 && !(await run(`document.querySelectorAll('[data-panel="albums2"] .al-cell img').length === 3`)); i++) await sleep(300);
       const a2album = await run(`({ title: document.querySelector('[data-panel="albums2"] .panel-title span').textContent, cells: document.querySelectorAll('[data-panel="albums2"] .al-cell').length,
         imgs: document.querySelectorAll('[data-panel="albums2"] .al-cell img').length })`);
+      for (let i = 0; i < 30 && (await run(`${a2}.stats().map?.pins`)) !== 2; i++) await sleep(300);
+      const a2map = await run(`({ ...${a2}.stats().map, zoom: Math.round(atlas.map.getZoom()) })`);
       await shot("63-albums2-album");
       await run(`document.querySelector('[data-panel="albums2"] .a2-head .pb-btn').click(); true`);
+      await sleep(300);
+      const a2back = await run(`${a2}.stats().map`);
       await shot("63-albums2-list");
       const a2x = await run(`(async () => { const x = document.querySelector('[data-panel="albums2"] .home-line .search-delete'), r = x.getBoundingClientRect();
         const hit = x.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); let asked = "";
@@ -2064,6 +2080,10 @@ try {
         a2rows.join("|") === "Добавить папку…|Фото2 — альбомов 2, снимков 5|Рига|Таллин" && a2album.title === "Таллин" && a2album.cells === 3 && a2album.imgs === 3
         && a2x.hit && a2x.title === "Убрать папку «Фото2»" && /Снимки на диске останутся/.test(a2x.asked) && a2x.dirs === 0 && /Добавьте папку/.test(a2x.empty),
         JSON.stringify({ a2rows, a2album, a2x }));
+      check("«Альбом 2»: режим строки поиска «Найти альбом»; открыт альбом — на карте только его снимки, вблизи миниатюрами; назад — снова все альбомы",
+        a2search.ph === "Найти альбом" && a2search.shown.join() === "Таллин" && a2search.all === 2 && a2search.mapAll?.albums === 2
+        && a2map.albums === 0 && a2map.photos === 2 && a2map.pins === 2 && a2map.zoom >= 14 && a2back?.albums === 2 && a2back.photos === 0,
+        JSON.stringify({ a2search, a2map, a2back }));
       await run(closeLayers);
       await run(gear);
       await sleep(600);
@@ -2161,6 +2181,67 @@ try {
         await sleep(300);
       }
     }
+  }
+
+  // музыка: выдуманные песни (тишина) — папка (компьютер) и выбранный файл (везде). mp3 с тегами ID3 (название,
+  // исполнитель в UTF-16, обложка), wav — по имени «Исполнитель - Название» и cover.jpg рядом; оба плеера
+  // (APlayer, Amplitude) показывают все песни, «Найти песню» прячет неподходящие, крестик — пауза и закрыть
+  if (want("content/music") && mods.some((m) => m.id === "content/music")) {
+    const mu = `atlas.modules().find((m) => m.id === "content/music")`;
+    await run(`(async () => {
+      localStorage.removeItem("atlas-music-player");
+      const wav = (() => { const n = 4000, b = new DataView(new ArrayBuffer(44 + n)), str = (o, t) => [...t].forEach((c, i) => b.setUint8(o + i, c.charCodeAt(0)));
+        str(0, "RIFF"); b.setUint32(4, 36 + n, true); str(8, "WAVEfmt "); b.setUint32(16, 16, true); b.setUint16(20, 1, true); b.setUint16(22, 1, true);
+        b.setUint32(24, 8000, true); b.setUint32(28, 8000, true); b.setUint16(32, 1, true); b.setUint16(34, 8, true); str(36, "data"); b.setUint32(40, n, true);
+        for (let i = 0; i < n; i++) b.setUint8(44 + i, 128); return new Uint8Array(b.buffer); })();
+      const jpg = new Uint8Array(await (await new Promise((r) => { const c = Object.assign(document.createElement("canvas"), { width: 32, height: 32 }); const x = c.getContext("2d"); x.fillStyle = "#c33"; x.fillRect(0, 0, 32, 32); c.toBlob(r, "image/jpeg"); })).arrayBuffer());
+      const u8 = (t) => new TextEncoder().encode(t), u16 = (t) => { const a = [0xff, 0xfe]; for (const c of t) { const k = c.charCodeAt(0); a.push(k & 255, k >> 8); } return a; };
+      const frame = (id, body) => [...u8(id), body.length >> 24 & 255, body.length >> 16 & 255, body.length >> 8 & 255, body.length & 255, 0, 0, ...body];
+      const frames = [...frame("TIT2", [3, ...u8("Песня")]), ...frame("TPE1", [1, ...u16("Певец"), 0, 0]), ...frame("APIC", [0, ...u8("image/jpeg"), 0, 3, 0, ...jpg])];
+      const z = frames.length, mp3 = new Uint8Array([...u8("ID3"), 3, 0, 0, z >> 21 & 127, z >> 14 & 127, z >> 7 & 127, z & 127, ...frames, ...wav]);
+      const file = (name, data, type) => ({ kind: "file", name, getFile: async () => new File([data], name, { type }) });
+      const folder = (name, items) => ({ kind: "directory", name, async *entries() { for (const i of items) yield [i.name, i]; },
+        isSameEntry: async (o) => o?.name === name, queryPermission: async () => "granted", requestPermission: async () => "granted" });
+      window.showDirectoryPicker = async () => folder("Песни", [file("02.mp3", mp3, "audio/mpeg"), file("01 Ансамбль - Тишина.wav", wav, "audio/wav"),
+        file("cover.jpg", jpg, "image/jpeg"), file(".скрыто.mp3", wav, "audio/mpeg"), folder("_служебное", [file("x.wav", wav, "audio/wav")])]);
+      window.testMusic = () => new File([wav], "Группа - Третья.wav", { type: "audio/wav" });
+      return true; })()`);
+    await run(openLayers("content/music"));
+    await sleep(400);
+    const muFolders = await run(`import("./core/modules.js").then((m) => "showDirectoryPicker" in window && !m.isMobile())`);
+    const muRows = await run(`[...document.querySelectorAll('[data-panel="music"] .home-row .tr-row-title')].map((t) => t.textContent)`);
+    if (!PHONE) await run(`[...document.querySelectorAll('[data-panel="music"] .home-row')].find((r) => r.textContent.includes("Добавить папку")).click(); true`);
+    await sleep(600);
+    await run(`(() => { const i = document.querySelector('input[type=file][accept^="audio"]'), dt = new DataTransfer(); dt.items.add(testMusic()); i.files = dt.files; i.dispatchEvent(new Event("change")); return true; })()`);
+    const songsWant = PHONE ? 1 : 3;
+    for (let i = 0; i < 40 && !(await run(`(() => { const s = ${mu}.stats(); return s.mounted === "aplayer" && s.rows === ${songsWant}; })()`)); i++) await sleep(300);
+    const mu1 = await run(`({ ...${mu}.stats(), ph: document.querySelector(".search-box input").placeholder, covers: [...document.querySelectorAll('[data-panel="music"] .aplayer-list li')].length })`);
+    await shot("64-music-aplayer");
+    const muFind = await run(`(async () => { const i = document.querySelector(".search-box input"), w = () => new Promise((r) => setTimeout(r, 600));
+      i.value = "трет"; i.dispatchEvent(new Event("input")); await w(); const one = ${mu}.stats().rows;
+      i.value = ""; i.dispatchEvent(new Event("input")); await w(); return { one, all: ${mu}.stats().rows }; })()`);
+    await run(`document.querySelector('[data-panel="music"] .mu-switch [data-player="amplitude"]').click(); true`);
+    for (let i = 0; i < 40 && !(await run(`(() => { const s = ${mu}.stats(); return s.mounted === "amplitude" && s.rows === ${songsWant}; })()`)); i++) await sleep(300);
+    const mu2 = await run(`({ ...${mu}.stats(), title: document.querySelector('[data-panel="music"] .mu-title')?.textContent || "", buttons: document.querySelectorAll('[data-panel="music"] .mu-buttons button').length })`);
+    await shot("64-music-amplitude");
+    let muX = { dirs: 0 };
+    if (!PHONE) muX = await run(`(async () => { const x = document.querySelector('[data-panel="music"] .home-line .search-delete'), r = x.getBoundingClientRect();
+      const hit = x.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); let asked = "";
+      const was = window.confirm; window.confirm = (q) => { asked = q; return true; }; x.click(); window.confirm = was;
+      for (let k = 0; k < 20 && ${mu}.stats().rows !== 1; k++) await new Promise((r) => setTimeout(r, 300));
+      return { hit, asked, dirs: ${mu}.stats().dirs.length, rows: ${mu}.stats().rows }; })()`);
+    await run(`${mu}.column.close(); true`);
+    await sleep(300);
+    const muClosed = await run(`({ open: ${mu}.column.isOpen(), ph: document.querySelector(".search-box input").placeholder })`);
+    await run(`localStorage.removeItem("atlas-music-player"); true`);
+    await run(closeLayers);
+    const songsOk = PHONE ? mu1.songs.join("|") === "Группа — Третья"
+      : mu1.songs.join("|") === "Ансамбль — Тишина:обложка|Певец — Песня:обложка|Группа — Третья";
+    check("музыка: папка и файлы — песни с названиями из тегов и имён, обложки; APlayer и Amplitude показывают все, «Найти песню» прячет неподходящие, крестик закрывает",
+      songsOk && mu1.player === "aplayer" && mu1.ph === "Найти песню" && muRows.includes("Выбрать файлы…") && muRows.some((r) => r.includes("Добавить папку")) === muFolders
+      && muFind.one === 1 && muFind.all === songsWant && mu2.player === "amplitude" && mu2.buttons === 3 && mu2.title !== ""
+      && (PHONE || (muX.hit && /Песни на диске останутся/.test(muX.asked) && muX.dirs === 0 && muX.rows === 1)) && !muClosed.open && muClosed.ph !== "Найти песню",
+      JSON.stringify({ muRows, mu1, muFind, mu2, muX, muClosed }));
   }
 
   // мои треки: выдуманный трек (не настоящий — личное в репозиторий не кладём): 2 км на восток вдоль
@@ -3168,7 +3249,7 @@ try {
     && lens.s3.layers && !lens.s3.places && lens.s3.under && lens.s3.shift.join() === "0,0"
     && !lens.s4.layers && !lens.s4.places && lens.s4.search && lens.s4.shift.join() === "0,0"
     && lens.s5.content && lens.s5.search && !lens.s6.content && !lens.s6.search && lens.s6.drop
-    && JSON.stringify(lens.keys) === JSON.stringify(["Альбом 2", "Мои альбомы", "Мои споты", "Мои треки", "Настройки", "Поиск", "Трек", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
+    && JSON.stringify(lens.keys) === JSON.stringify(["Альбом 2", "Мои альбомы", "Мои споты", "Мои треки", "Музыка", "Настройки", "Поиск", "Трек", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
   await run(`(async () => { document.querySelector(".wheel-toggle").click(); await new Promise((r) => setTimeout(r, 450)); return true; })()`);
   await shot("95c-drum");
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико
