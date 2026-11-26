@@ -987,6 +987,11 @@ try {
   await hAct(/^В группу «Группа 1»/);
   await sleep(200);
   const hGroup = await run(hTitles);
+  await run(`document.querySelector(".search-results .history-sort").click(); true`);
+  await sleep(200);
+  const hOld = { rows: await run(hTitles), title: await run(`document.querySelector(".search-results .history-sort")?.title`) };
+  await run(`document.querySelector(".search-results .history-sort").click(); true`);
+  await sleep(200);
   await run(`document.querySelector(".search-results .history-group").click(); true`);
   for (let i = 0; i < 30 && (await run(`document.querySelectorAll(".search-results .nav-country").length`)) < 2; i++) await sleep(300);
   const hLands = await run(`[...document.querySelectorAll(".search-results .nav-country")].map((b) => b.textContent)`);
@@ -1014,13 +1019,14 @@ try {
   await run(`localStorage.setItem("atlas.search.history", ${JSON.stringify(histKeep)}); localStorage.removeItem("atlas.search.history.groups"); localStorage.removeItem("atlas.search.history.grouped");
     document.querySelector(".search-toggle").click(); true`);
   await sleep(500);
-  check("окно истории: шапка (по странам, экспорт, корзина, свернуть, закрыть); подержать ручку — значки и группы; группа — одной строкой и в стране первой записи; экспорт KML",
-    hHead.title === "История поиска" && hHead.btns.join() === "Сгруппировать по странам,Импорт (KML, GPX),Экспорт (KML),Очистить историю,Свернуть,Закрыть"
+  check("окно истории: шапка (по странам, порядок, экспорт, корзина, свернуть, закрыть); подержать ручку — значки и группы; группа — одной строкой и в стране первой записи; «сначала старые» переворачивает; экспорт KML",
+    hHead.title === "История поиска" && hHead.btns.join() === "Сгруппировать по странам,Сначала новые — щелчок: сначала старые,Импорт (KML, GPX),Экспорт (KML),Очистить историю,Свернуть,Закрыть"
+    && hOld.rows.join() === "Tallinn,Группа 1" && /^Сначала старые/.test(hOld.title)
     && hPick.icons > 15 && hPick.names.join() === "Аэропорт,Аренда авто,Гостиница,Апартаменты" && hPick.acts.join() === "В новую группу"
     && hIcon.icon === "hotel" && hIcon.shown && hGroup.join() === "Группа 1,Tallinn" && /^Греция \(2\),Эстония \(1\)$/.test(hLands.join())
     && hIn.head === "Греция" && hIn.rows.join() === "Группа 1" && hMembers.head === "Группа 1" && hMembers.rows.join() === "Nafplio,Athens International Airport"
     && hKml.folder && hKml.marks === 3 && hKml.hotel && hFold && hClose,
-    JSON.stringify({ hHead, hPick, hIcon, hGroup, hLands, hIn, hMembers, hKml, hFold, hClose }));
+    JSON.stringify({ hHead, hPick, hIcon, hGroup, hOld, hLands, hIn, hMembers, hKml, hFold, hClose }));
   await sleep(2800);
   await idle();
   await shot("60-search");
@@ -1412,8 +1418,9 @@ try {
     const cs = await run(`[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((b) => b.firstChild.textContent)`);
     // телефон узнаётся так же, как в программе (эмуляция здесь меняет только размер экрана)
     const phone = await run(`import("./core/modules.js").then((m) => m.isMobile())`);
-    check("альбомы: в столбике — страны, на компьютере первой строкой — выбор папки", cs.some((c) => /^Эстония/.test(c))
-      && (phone ? !/папк/.test(cs[0]) : cs[0] === "Добавить папку…"), JSON.stringify(cs));
+    const alAdd = await run(`(() => { const b = document.querySelector('[data-panel="albums"] .panel-btn[title="Добавить папку…"]'); return !!b && !b.hidden; })()`);
+    check("альбомы: в столбике — страны, выбор папки — значком в шапке (на компьютере), не строкой", cs.some((c) => /^Эстония/.test(c))
+      && !cs.some((c) => /Добавить папку/.test(c)) && alAdd === !phone, JSON.stringify({ cs, alAdd }));
     await run(`${itemFor("Эстония (1)")}.click(); true`);
     await sleep(600);
     const lst = await run(`({ panel: !document.querySelector('[data-panel="albums"]').hidden, rows: [...document.querySelectorAll(".al-row .tr-row-title")].map((r) => r.textContent),
@@ -1426,7 +1433,8 @@ try {
     for (let i = 0; i < 30 && !(await run(`atlas.map.queryRenderedFeatures({ layers: ["albums-dots", "albums-thumbs"] }).length > 0`)); i++) await sleep(1000);
     const al = await run(`({ ...${as}, cells: document.querySelectorAll(".al-cell").length, imgs: document.querySelectorAll(".al-cell img[src]").length,
       onMap: atlas.map.queryRenderedFeatures({ layers: ["albums-dots", "albums-thumbs"] }).length, zoom: atlas.map.getZoom() })`);
-    check("альбомы: альбом открыт, снимки с местом на карте", al.open && al.cells >= 10 && al.imgs >= 5 && al.located >= 5 && al.onMap > 0, JSON.stringify(al));
+    check("альбомы: альбом открыт, на карте — только его снимки (без значков других альбомов)", al.open && al.cells >= 10 && al.imgs >= 5 && al.located >= 5 && al.onMap > 0
+      && al.map?.albums === 0 && al.map.photos >= 5, JSON.stringify(al));
     await shot("99-albums");
     for (let i = 0; i < 20 && !(await run(`document.querySelectorAll(".photo-strip-item").length > 0`)); i++) await sleep(1000);
     check("альбомы: снимки — в ленте внизу", await run(`document.querySelectorAll(".photo-strip-item").length > 0`));
@@ -1499,6 +1507,13 @@ try {
       check("альбомы: стрелка папки раскрывает её альбомы, кнопка в шапке сворачивает все",
         f0.chev === 1 && f0.fold === "Раскрыть все папки" && f1.rows.length === f0.rows.length + 4 && f1.indent === "24px" && f1.fold === "Свернуть все папки"
         && f2.rows.length === f0.rows.length && f2.fold === "Раскрыть все папки", JSON.stringify({ f0, f1, f2 }));
+      const sortSel = `document.querySelector('[data-panel="albums"] .panel-head .panel-btn:not([hidden])[title^="Сначала"]')`;
+      const s0 = await run(`({ title: ${sortSel}?.title, rows: ${titles}, add: !document.querySelector('[data-panel="albums"] .panel-btn[title="Добавить папку…"]').hidden })`);
+      await run(`${sortSel}.click(); true`);
+      const s1 = await run(`({ title: ${sortSel}?.title, rows: ${titles}, old: ${as}.oldFirst })`);
+      await run(`${sortSel}.click(); true`);
+      check("альбомы: в шапке списка — значок папки и порядок по дате (сначала новые ↔ сначала старые)",
+        s0.add && /^Сначала новые/.test(s0.title) && /^Сначала старые/.test(s1.title) && s1.old === true && s1.rows.length === s0.rows.length, JSON.stringify({ s0, s1 }));
     // ползунок внизу окна: потянуть мышью вверх — окно ниже; двойное нажатие — снова по содержимому
       const box = `document.querySelector('[data-panel="albums"]')`;
       const g = await run(`(() => { const r = ${box}.querySelector(".panel-grip").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2, ${box}.getBoundingClientRect().height]; })()`);
@@ -1636,8 +1651,10 @@ try {
             save: document.querySelector(".edit-save").disabled, nav: getComputedStyle(document.querySelector(".nav")).pointerEvents })`);
           // «Горизонт» (OpenCV, грузится по нажатию): линия на выдуманном снимке завалена на 2° — угол −2°
           await srun(`[...document.querySelectorAll(".edit-tool")].find((b) => b.title === "Выровнять по горизонту").click(); true`);
-          for (let i = 0; i < 60 && !/Горизонт выровнен|не нашлось|другое|интернет|запустилась/.test(await srun(`galleryEditor.state().note`)); i++) await sleep(500);
-          const hz = await srun(`galleryEditor.state()`);
+          // OpenCV (10 МБ) запускается до 60 с — столько же ждёт и программа
+          const hzT = Date.now();
+          for (let i = 0; i < 130 && !/Горизонт выровнен|не нашлось|другое|интернет|запустилась/.test(await srun(`galleryEditor.state().note`)); i++) await sleep(500);
+          const hz = { ...(await srun(`galleryEditor.state()`)), sec: Math.round((Date.now() - hzT) / 1000) };
           check("правка: «Горизонт» — угол по линии горизонта", Math.abs(hz.angle + 2) <= 0.6 && /Горизонт выровнен/.test(hz.note), JSON.stringify(hz));
           await srun(`(() => { const s = document.querySelector(".edit-angle input"); s.value = 3; s.dispatchEvent(new Event("input")); return true; })()`);
           const e2 = await srun(`({ ...galleryEditor.state(), save: document.querySelector(".edit-save").disabled, label: document.querySelector(".edit-angle-value").textContent })`);
@@ -2050,7 +2067,7 @@ try {
         folder("20240101 Рига", [file("r.jpg", riga), file("v.mp4")]), folder("Пусто", []), folder(".скрыто", [file("x.jpg")]),
         folder("Таллин", [file("1.jpg", t1), file("2.jpg", t2), file("3.jpg")])]); return true; })()`);
       await run(openLayers("content/albums2"));
-      await run(`[...document.querySelectorAll('[data-panel="albums2"] .home-row')].find((r) => r.textContent.includes("Добавить папку")).click(); true`);
+      await run(`document.querySelector('[data-panel="albums2"] .panel-btn[title="Добавить папку…"]').click(); true`);
       for (let i = 0; i < 30 && !(await run(`/альбомов/.test(${a2}.stats().dirs[0] || "")`)); i++) await sleep(300);
       for (let i = 0; i < 30 && (await run(`${a2}.stats().map?.albums`)) !== 2; i++) await sleep(300);
       const a2rows = await run(`[...document.querySelectorAll('[data-panel="albums2"] .home-row .tr-row-title')].map((t) => t.textContent)`);
@@ -2076,8 +2093,8 @@ try {
         await new Promise((r) => setTimeout(r, 500)); return { hit, title: x.title, asked, dirs: ${a2}.stats().dirs.length,
           empty: document.querySelector('[data-panel="albums2"] .a2-empty')?.textContent || "" }; })()`);
       await run(`${a2}.column.close(); true`);
-      check("«Альбом 2»: папка — строкой со счётом, альбомы — папки со снимками, сетка с миниатюрами, крестик «Убрать папку» нажимается и спрашивает",
-        a2rows.join("|") === "Добавить папку…|Фото2 — альбомов 2, снимков 5|Рига|Таллин" && a2album.title === "Таллин" && a2album.cells === 3 && a2album.imgs === 3
+      check("«Альбом 2»: папка — значком в шапке, своя папка — строкой со счётом, альбомы — папки со снимками, сетка с миниатюрами, крестик «Убрать папку» нажимается и спрашивает",
+        a2rows.join("|") === "Фото2 — альбомов 2, снимков 5|Рига|Таллин" && a2album.title === "Таллин" && a2album.cells === 3 && a2album.imgs === 3
         && a2x.hit && a2x.title === "Убрать папку «Фото2»" && /Снимки на диске останутся/.test(a2x.asked) && a2x.dirs === 0 && /Добавьте папку/.test(a2x.empty),
         JSON.stringify({ a2rows, a2album, a2x }));
       check("«Альбом 2»: режим строки поиска «Найти альбом»; открыт альбом — на карте только его снимки, вблизи миниатюрами; назад — снова все альбомы",
@@ -2118,8 +2135,8 @@ try {
         await sleep(800);
         const g1 = await run(`({ ...${as}, facts: document.querySelector(".al-facts").textContent, btn: document.querySelector(".al-track")?.title,
           lines: atlas.map.getSource("albums-tracks")?.serialize().data.features.length })`);
-        check("альбомы: GPX в папке — альбом и без снимков, линия на карте, в шапке «Просмотр трека»",
-          g1.tracks === 2 && g1.open === "Поход" && /^1 фото · 1 трек/.test(g1.facts) && g1.btn === "Просмотр трека «walk»" && g1.lines === 2, JSON.stringify(g1));
+        check("альбомы: GPX в папке — альбом и без снимков, на карте — только его линия, в шапке «Просмотр трека»",
+          g1.tracks === 2 && g1.open === "Поход" && /^1 фото · 1 трек/.test(g1.facts) && g1.btn === "Просмотр трека «walk»" && g1.lines === 1, JSON.stringify(g1));
         await run(`document.querySelector(".al-track").click(); true`);
         await sleep(1200);
         const tbar = `[...document.querySelectorAll('[data-panel="tracks"] .pb-bar .pb-btn')].map((b) => b.title || b.dataset.tip || "")`;
@@ -2210,7 +2227,8 @@ try {
     await sleep(400);
     const muFolders = await run(`import("./core/modules.js").then((m) => "showDirectoryPicker" in window && !m.isMobile())`);
     const muRows = await run(`[...document.querySelectorAll('[data-panel="music"] .home-row .tr-row-title')].map((t) => t.textContent)`);
-    if (!PHONE) await run(`[...document.querySelectorAll('[data-panel="music"] .home-row')].find((r) => r.textContent.includes("Добавить папку")).click(); true`);
+    const muAdd = await run(`(() => { const b = document.querySelector('[data-panel="music"] .panel-btn[title="Добавить папку с музыкой…"]'); return !!b && !b.hidden; })()`);
+    if (!PHONE) await run(`document.querySelector('[data-panel="music"] .panel-btn[title="Добавить папку с музыкой…"]').click(); true`);
     await sleep(600);
     await run(`(() => { const i = document.querySelector('input[type=file][accept^="audio"]'), dt = new DataTransfer(); dt.items.add(testMusic()); i.files = dt.files; i.dispatchEvent(new Event("change")); return true; })()`);
     const songsWant = PHONE ? 1 : 3;
@@ -2238,10 +2256,10 @@ try {
     const songsOk = PHONE ? mu1.songs.join("|") === "Группа — Третья"
       : mu1.songs.join("|") === "Ансамбль — Тишина:обложка|Певец — Песня:обложка|Группа — Третья";
     check("музыка: папка и файлы — песни с названиями из тегов и имён, обложки; APlayer и Amplitude показывают все, «Найти песню» прячет неподходящие, крестик закрывает",
-      songsOk && mu1.player === "aplayer" && mu1.ph === "Найти песню" && muRows.includes("Выбрать файлы…") && muRows.some((r) => r.includes("Добавить папку")) === muFolders
+      songsOk && mu1.player === "aplayer" && mu1.ph === "Найти песню" && muRows.includes("Выбрать файлы…") && !muRows.some((r) => r.includes("Добавить папку")) && muAdd === muFolders
       && muFind.one === 1 && muFind.all === songsWant && mu2.player === "amplitude" && mu2.buttons === 3 && mu2.title !== ""
       && (PHONE || (muX.hit && /Песни на диске останутся/.test(muX.asked) && muX.dirs === 0 && muX.rows === 1)) && !muClosed.open && muClosed.ph !== "Найти песню",
-      JSON.stringify({ muRows, mu1, muFind, mu2, muX, muClosed }));
+      JSON.stringify({ muRows, muAdd, mu1, muFind, mu2, muX, muClosed }));
   }
 
   // мои треки: выдуманный трек (не настоящий — личное в репозиторий не кладём): 2 км на восток вдоль
@@ -2322,6 +2340,14 @@ try {
       await sleep(400);
       const list = await run(`(async () => { const ex = await ${ts}.exportAll();
         return { btns: ${vis}, dels: ${P}.querySelectorAll(".home-line .search-delete").length, trk: (ex.match(/<trk>/g) || []).length, names: ["Проверочный трек", "Короткий"].every((n) => ex.includes(n)) }; })()`);
+      const tkRows = `[...${P}.querySelectorAll(".home-line .tr-row-title")].map((t) => t.textContent)`;
+      const sortSel = `${P}.querySelector('.panel-head .panel-btn[title^="Сначала"]')`;
+      const s0 = await run(`({ rows: ${tkRows}, title: ${sortSel}?.title })`);
+      await run(`${sortSel}.click(); true`);
+      await sleep(300);
+      const s1 = await run(`({ rows: ${tkRows}, title: ${sortSel}?.title })`);
+      await run(`${sortSel}.click(); true`);
+      await sleep(300);
       await run(`${P}.querySelector('.panel-btn[title="Сгруппировать по странам"]').click(); true`);
       let groups = [];
       for (let i = 0; i < 20; i++) { groups = await run(`[...${P}.querySelectorAll(".tk-country")].map((r) => r.textContent)`); if (groups.some((g) => /\(2\)$/.test(g))) break; await sleep(300); }
@@ -2332,10 +2358,11 @@ try {
       await run(`window.confirm = () => true; [...${P}.querySelectorAll(".home-line")].find((l) => l.textContent.includes("Короткий")).querySelector(".search-delete").click(); true`);
       await sleep(500);
       const after = await run(`({ n: ${ts}.stats().tracks, rows: [...${P}.querySelectorAll(".home-line .tr-row-title")].map((t) => t.textContent) })`);
-      check("треки: в шапке списка — группировка по странам, импорт, экспорт всех в один GPX; у открытого трека их нет; короткий трек — крупно; крестик удаляет трек",
+      check("треки: в шапке списка — группировка по странам, порядок по дате (новые ↔ старые), импорт, экспорт всех в один GPX; у открытого трека их нет; короткий трек — крупно; крестик удаляет трек",
         !inTrack.some((t) => /стран|Импорт|Экспорт/.test(t)) && zoom > 16.5 && ["Сгруппировать по странам", "Импорт (GPX, KML)", "Экспорт всех треков (GPX)"].every((t) => list.btns.includes(t))
-        && list.dels === 2 && list.trk === 2 && list.names && groups.length && inCountry.back && inCountry.rows === 2 && after.n === before - 1 && !after.rows.includes("Короткий"),
-        JSON.stringify({ inTrack, zoom, list, groups, inCountry, before, after }));
+        && list.dels === 2 && list.trk === 2 && list.names && groups.length
+        && s0.rows.join() === "Короткий,Проверочный трек" && s1.rows.join() === "Проверочный трек,Короткий" && /^Сначала новые/.test(s0.title) && /^Сначала старые/.test(s1.title) && inCountry.back && inCountry.rows === 2 && after.n === before - 1 && !after.rows.includes("Короткий"),
+        JSON.stringify({ inTrack, zoom, list, s0, s1, groups, inCountry, before, after }));
       await run(`[...${P}.querySelectorAll(".home-line .tr-row")].find((r) => r.textContent.includes("Проверочный трек")).click(); true`);
       await sleep(1500);
     }

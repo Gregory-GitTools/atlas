@@ -12,6 +12,7 @@ import * as settings from "./settings.js";
 import { countryAt } from "./borders.js";
 import { flagUrl } from "./flags.js";
 import { saveFile } from "./save-file.js";
+import { sortButton } from "./icons.js";
 
 const CLEAR = `<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
 // долгое нажатие на строку — переименовать, на ручку — значок и группа (полсекунды, палец не сдвинулся)
@@ -310,6 +311,10 @@ export function historyPanel({ key, title, id, label: baseLabel, pick, changed, 
   }
 
   const isGrouped = settings.get(`${key}.grouped`) ?? grouped;
+  // порядок записей (Грегори 2026-11-26: «сортировка от последней даты и наоборот»): список и так от последней —
+  // «сначала старые» его переворачивает
+  const oldFirst = settings.get(`${key}.oldFirst`) === true;
+  const order = (list) => (oldFirst ? [...list].reverse() : list);
   if (!all.length) return empty || fromPlace ? [head(title), ...(empty ? [el("div", "search-note", empty)] : [])] : [];
   locate(key, id, lngLat, changed);
   const membersOf = (g) => all.filter((e) => e.group === g.id);
@@ -332,7 +337,7 @@ export function historyPanel({ key, title, id, label: baseLabel, pick, changed, 
   }
   if (v.group) {
     const g = groups.find((x) => x.id === v.group);
-    if (g) return [inner(g.name, g.icon ? iconSvg(g.icon) : svg(FOLDER, 22), () => { v.group = null; }), historyList({ key, id, label, pick, changed, rename, hold, items: membersOf(g) })];
+    if (g) return [inner(g.name, g.icon ? iconSvg(g.icon) : svg(FOLDER, 22), () => { v.group = null; }), historyList({ key, id, label, pick, changed, rename, hold, items: order(membersOf(g)) })];
     v.group = null;
   }
   // по странам — сначала страны с флажками («Без страны» первой, остальные по алфавиту, как в альбомах)
@@ -347,7 +352,7 @@ export function historyPanel({ key, title, id, label: baseLabel, pick, changed, 
   }
   // строки: записи по порядку, группа — одной строкой на месте своей первой записи
   const items = [], seen = new Set();
-  for (const e of all) {
+  for (const e of order(all)) {
     if (v.country && placeOf(e) !== v.country) continue;
     const g = groups.find((x) => x.id === e.group);
     if (!g) items.push(e);
@@ -375,7 +380,7 @@ export function historyPanel({ key, title, id, label: baseLabel, pick, changed, 
       changed();
     });
     const load = fromPlace && button("panel-btn history-import", "Импорт (KML, GPX)", svg(OPEN), () => importFile(key, id, fromPlace, changed));
-    box.append(name, group, ...(load ? [load] : []), save, trash, ...controls());
+    box.append(name, group, sortCtl(), ...(load ? [load] : []), save, trash, ...controls());
     return box;
   }
   // шапка внутри страны или группы: назад, значок, название; свернуть, закрыть
@@ -383,8 +388,13 @@ export function historyPanel({ key, title, id, label: baseLabel, pick, changed, 
     const box = el("div", "history-head route-view-head");
     const name = el("div", "route-view-title history-title", text);
     if (icon) name.insertAdjacentHTML("afterbegin", `<i class="history-icon">${icon}</i>`);
-    box.append(button("route-view-back", "Назад", BACK, () => { back(); changed(); }), name, ...controls());
+    box.append(button("route-view-back", "Назад", BACK, () => { back(); changed(); }), name, sortCtl(), ...controls());
     return box;
+  }
+  function sortCtl() {
+    const b = button("panel-btn history-sort", "", "", () => { settings.set(`${key}.oldFirst`, oldFirst ? null : true); changed(); });
+    sortButton(b, oldFirst);
+    return b;
   }
   function controls() {
     return [...(fold ? [button("panel-btn history-fold", "Свернуть", FOLD_ICON, fold)] : []),

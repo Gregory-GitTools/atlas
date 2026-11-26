@@ -8,6 +8,7 @@
 // программы плееров — с jsdelivr (потом из кэша)
 import { register, isMobile } from "../core/modules.js";
 import { createPanel, isOpen } from "../core/panel.js";
+import { FOLDER_ADD_D } from "../core/icons.js";
 import { emit } from "../core/events.js";
 import { setSearchMode, searchMode } from "../core/search.js";
 import { cacheGet, cacheSet } from "../core/storage.js";
@@ -15,7 +16,6 @@ import { cacheGet, cacheSet } from "../core/storage.js";
 const svg = (d, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor"><path d="${d}"/></svg>`;
 const NOTE_D = "M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z";
 const ICON = svg(NOTE_D);
-const OPEN_ICON = svg("M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z");
 const FOLDER_ICON = svg("M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z");
 const FILE_ICON = svg("M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13z");
 const PREV = svg("M6 6h2v12H6zm3.5 6 8.5 6V6z", 26);
@@ -46,6 +46,9 @@ let query = "", started = false, scan = 0, status = "";
 let ap = null, ampOn = false; // текущий плеер
 
 const panel = createPanel({ id: "music", title: "Музыка", icon: svg(NOTE_D, 18), side: "left" });
+// «Добавить папку с музыкой…» — значком в шапке, а не строкой (Грегори 2026-11-26)
+const addBtn = panel.addButton(svg(FOLDER_ADD_D), "Добавить папку с музыкой…", () => addFolder());
+addBtn.hidden = !canFolders();
 const switcher = h("div", "mu-switch");
 const host = h("div", "mu-player");
 const list = h("div", "home-list mu-list");
@@ -250,7 +253,6 @@ function paintSwitch() {
 }
 function render() {
   list.replaceChildren();
-  if (canFolders()) list.append(row(OPEN_ICON, "Добавить папку с музыкой…", "Песни с этого компьютера никуда не отправляются", addFolder));
   for (const d of dirs) {
     d.row = row(FOLDER_ICON, dirText(d), "Своя папка с музыкой", () => {
       if (d.state === "need") openAccess(d);

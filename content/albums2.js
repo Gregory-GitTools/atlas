@@ -11,6 +11,7 @@
 // галерея с этого снимка. Раздел — режимом строки поиска, как «Мои альбомы»: значок на кнопке, «Найти альбом»
 import { register } from "../core/modules.js";
 import { createPanel, isOpen } from "../core/panel.js";
+import { FOLDER_ADD_D } from "../core/icons.js";
 import { emit } from "../core/events.js";
 import { setSearchMode, searchMode } from "../core/search.js";
 import { cacheGet, cacheSet } from "../core/storage.js";
@@ -21,7 +22,6 @@ import { HEIC_RE, heicBitmap, heicViewable } from "../core/heic.js";
 const svg = (d, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor"><path d="${d}"/></svg>`;
 const STACK_D = "M22 16V4c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2zm-11-4 2.03 2.71L16 11l4 5H8l3-4zM2 6v14c0 1.1.9 2 2 2h14v-2H4V6H2z";
 const ICON = svg(STACK_D);
-const OPEN_ICON = svg("M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z");
 const FOLDER_ICON = svg("M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z");
 const BACK = svg("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z", 20);
 const PLAY = svg("M8 5v14l11-7z", 20);
@@ -44,6 +44,9 @@ let dirs = []; // [{ handle, state: "need" | "read" | "done" | "error", dirs, fi
 const albums = []; // { id, title, root, files: [{ name, handle, video, thumb }], point, date, row }
 
 const panel = createPanel({ id: "albums2", title: "Альбом 2", icon: svg(STACK_D, 18), side: "left" });
+// «Добавить папку…» — значком в шапке, а не строкой (Грегори 2026-11-26); в открытом альбоме не нужен
+const addBtn = panel.addButton(svg(FOLDER_ADD_D), "Добавить папку…", () => addFolder());
+addBtn.hidden = !("showDirectoryPicker" in window);
 const list = h("div", "home-list a2-list");
 let openAlbum = null, query = "";
 
@@ -176,8 +179,7 @@ function renderList() {
   if (was) { seen?.disconnect(); drawMap(); }
   panel.setTitle("Альбом 2");
   list.replaceChildren();
-  const add = row(OPEN_ICON, "Добавить папку…", "Снимки с этого компьютера никуда не отправляются", addFolder);
-  list.append(add);
+  addBtn.hidden = !("showDirectoryPicker" in window);
   for (const d of dirs) {
     d.row = row(FOLDER_ICON, dirText(d), "Своя папка со снимками", () => {
       if (d.state === "need") openAccess(d);
@@ -237,6 +239,7 @@ let seen = null;
 function showAlbum(a) {
   openAlbum = a;
   panel.setTitle(a.title);
+  addBtn.hidden = true;
   const head = h("div", "a2-head");
   const back = Object.assign(h("button", "pb-btn"), { type: "button", title: "Ко всем альбомам", innerHTML: BACK });
   back.addEventListener("click", () => { renderList(); refreshEmpty(); });

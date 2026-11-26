@@ -14,7 +14,7 @@
 // «album-tracks», здесь — только ссылка (раздел «Из альбомов», стрелка назад — в альбом). Правка пишется в
 // сам файл, исходник — в «[Originals]» рядом (только при первой правке), «Вернуть трек как в файле» — из него
 import { register } from "../core/modules.js";
-import { trackIcon } from "../core/icons.js";
+import { sortButton, trackIcon } from "../core/icons.js";
 import { createPanel, isOpen, homeList } from "../core/panel.js";
 import { emit, on, current } from "../core/events.js";
 import { setSearchMode, searchMode } from "../core/search.js";
@@ -453,10 +453,16 @@ const EXPORT_D = "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z";
 const CLEAR_X = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 let grouped = settings.get("tracks.grouped") === true, inCountry = null;
 const groupBtn = panel.addButton(svg(GLOBE_D), "Сгруппировать по странам", () => { grouped = !grouped; settings.set("tracks.grouped", grouped || null); inCountry = null; renderList(); });
+// порядок по дате — рядом с группировкой (Грегори 2026-11-26: «сортировка от последней даты и наоборот»)
+let oldFirst = settings.get("tracks.oldFirst") === true;
+const sortBtn = panel.addButton("", "", () => { oldFirst = !oldFirst; settings.set("tracks.oldFirst", oldFirst || null); sortButton(sortBtn, oldFirst); renderList(); });
+sortButton(sortBtn, oldFirst);
+// без даты — всегда в конце
+const byDate = (a, b) => (oldFirst ? (a || Infinity) - (b || Infinity) : (b || 0) - (a || 0));
 const importBtn = panel.addButton(svg(IMPORT_D), "Импорт (GPX, KML)", () => input.click());
 const exportBtn = panel.addButton(svg(EXPORT_D), "Экспорт всех треков (GPX)", () => exportAll());
 const listButtons = (on) => {
-  for (const b of [groupBtn, importBtn, exportBtn]) b.hidden = !on;
+  for (const b of [groupBtn, sortBtn, importBtn, exportBtn]) b.hidden = !on;
   groupBtn.classList.toggle("on", grouped);
   groupBtn.title = grouped ? "Разгруппировать" : "Сгруппировать по странам";
 };
@@ -741,7 +747,7 @@ function renderList(query = searchText) {
   searchText = query;
   draw();
   const q = query.toLowerCase();
-  let list = index.filter((x) => !q || [x.name, day(x.date), x.note].join(" ").toLowerCase().includes(q)).sort((a, b) => (b.date || 0) - (a.date || 0));
+  let list = index.filter((x) => !q || [x.name, day(x.date), x.note].join(" ").toLowerCase().includes(q)).sort((a, b) => byDate(a.date, b.date));
   panel.setTitle(q ? "Найденные треки" : "Мои треки");
   panel.setIcon();
   listButtons(true);
@@ -750,7 +756,7 @@ function renderList(query = searchText) {
   // треки — из папок со снимками; файл можно и перетащить на карту
   const nodes = [/* openButton() */ ...recRows()];
   let inAlbums = albumIndex.filter((e) => !q || [e.name, e.albumTitle, tracks.get(e.key)?.note].join(" ").toLowerCase().includes(q))
-    .sort((a, b) => (tracks.get(b.key)?.date || 0) - (tracks.get(a.key)?.date || 0));
+    .sort((a, b) => byDate(tracks.get(a.key)?.date, tracks.get(b.key)?.date));
   // по странам: сначала страны с флажками и числом треков, в стране — её треки; набирают текст — без стран
   if (grouped && !q && (list.length || inAlbums.length)) {
     locateTracks();

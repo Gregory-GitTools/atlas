@@ -14,7 +14,8 @@
 // клетка со значком LIVE, ролик оживает в галерее. Дубликаты (2026-11-08) — одинаковые и похожие снимки в
 // своих папках, лишние копии — в папку «[Повторы]»
 import { register, isMobile } from "../core/modules.js";
-import { trackIcon } from "../core/icons.js";
+import { trackIcon, FOLDER_ADD_D, sortButton } from "../core/icons.js";
+import * as settings from "../core/settings.js";
 import { createPanel, isOpen, homeList } from "../core/panel.js";
 import { repoFiles, repoUrl } from "../core/repo.js";
 import { flagUrl } from "../core/flags.js";
@@ -452,7 +453,7 @@ async function load(c) {
       needsAccess = await noAccess();
     }
     await rescan();
-  })();
+  })().catch((e) => { loading = null; busy = false; scanErr = `Альбомы не прочитались (${e?.message || e}) — повторить`; refresh(); });
   return loading;
 }
 
@@ -579,7 +580,7 @@ const media = (kind, id) => {
 function wantInView() {
   if (!shown || ctx.map.getZoom() < VIEW_ZOOM) return;
   const b = ctx.map.getBounds(), c = ctx.map.getCenter();
-  [...photos.values()].filter((p) => p.rec?.lat && !p.thumb && b.contains([p.rec.lon, p.rec.lat]))
+  onMap().filter((p) => !p.thumb && b.contains([p.rec.lon, p.rec.lat]))
     .sort((x, y) => Math.hypot(x.rec.lon - c.lng, x.rec.lat - c.lat) - Math.hypot(y.rec.lon - c.lng, y.rec.lat - c.lat))
     .slice(0, 60).forEach(thumbOf);
 }
@@ -588,13 +589,18 @@ function wantInView() {
 let shown = false, frame = 0;
 const pt = (p) => [p.rec.lon, p.rec.lat];
 const located = () => [...photos.values()].filter((p) => p.rec?.lat);
+// открыт альбом или поездка — на карте только они (Грегори 2026-11-25: «после выбора альбома на карте оставался
+// только один альбом со всеми фотками»): их снимки, их треки, без значков других альбомов
+const focus = () => openAlbum || openGroup;
+const focusAlbums = () => { const x = focus(); return x ? (x.group ? tally(x).list : [x]) : [...albums.values()]; };
+const onMap = () => { const x = focus(); if (!x) return located(); const ids = new Set(photosOf(x)); return located().filter((p) => ids.has(p.id)); };
 const fc = (features) => ({ type: "FeatureCollection", features });
-const albumData = () => fc([...albums.values()].filter((a) => a.point).map((a) => ({ type: "Feature", geometry: { type: "Point", coordinates: a.point },
+const albumData = () => fc((focus() ? [] : [...albums.values()]).filter((a) => a.point).map((a) => ({ type: "Feature", geometry: { type: "Point", coordinates: a.point },
   properties: { album: a.id, title: a.title } })));
-const dotData = () => fc(located().map((p) => ({ type: "Feature", geometry: { type: "Point", coordinates: pt(p) }, properties: { photo: p.id } })));
-const thumbData = () => fc(located().filter((p) => p.img).map((p) => ({ type: "Feature", geometry: { type: "Point", coordinates: pt(p) }, properties: { photo: p.id, img: p.img } })));
+const dotData = () => fc(onMap().map((p) => ({ type: "Feature", geometry: { type: "Point", coordinates: pt(p) }, properties: { photo: p.id } })));
+const thumbData = () => fc(onMap().filter((p) => p.img).map((p) => ({ type: "Feature", geometry: { type: "Point", coordinates: pt(p) }, properties: { photo: p.id, img: p.img } })));
 const font = (map) => map.getStyle().layers.find((l) => l.type === "symbol" && Array.isArray(l.layout?.["text-font"]))?.layout["text-font"] || ["Noto Sans Regular"];
-const trackData = () => fc([...albums.values()].flatMap((a) => a.tracks.flatMap((t) => (t.parsed?.segs || []).filter((s) => s.length > 1)
+const trackData = () => fc(focusAlbums().flatMap((a) => a.tracks.flatMap((t) => (t.parsed?.segs || []).filter((s) => s.length > 1)
   .map((s) => ({ type: "Feature", geometry: { type: "LineString", coordinates: s.map((q) => [q[0], q[1]]) }, properties: { album: a.id, title: a.title, color: t.parsed.color || TRACK_COLOR } })))));
 const LAYERS = ["albums-tracks", "albums-icons", "albums-dots", "albums-count", "albums-thumbs"];
 
@@ -640,16 +646,18 @@ function addLayers() {
 }
 
 // карта, лента и открытые списки — по ходу обхода, не чаще раза за кадр
+function drawMap() {
+  if (!shown || !ctx) return;
+  ctx.map.getSource("albums")?.setData(albumData());
+  ctx.map.getSource("albums-photos")?.setData(dotData());
+  ctx.map.getSource("albums-thumbs")?.setData(thumbData());
+  ctx.map.getSource("albums-tracks")?.setData(trackData());
+  setStripItems("albums", onMap().filter((p) => p.thumb).map(stripItem));
+}
 function refresh() {
   cancelAnimationFrame(frame);
   frame = requestAnimationFrame(() => {
-    if (shown && ctx) {
-      ctx.map.getSource("albums")?.setData(albumData());
-      ctx.map.getSource("albums-photos")?.setData(dotData());
-      ctx.map.getSource("albums-thumbs")?.setData(thumbData());
-      ctx.map.getSource("albums-tracks")?.setData(trackData());
-      setStripItems("albums", located().filter((p) => p.thumb).map(stripItem));
-    }
+    drawMap();
     if (isOpen("albums") && !openAlbum && !searchText && !dupView) { if (openGroup) renderGroup(true); else renderList(currentCountry); }
   });
 }
@@ -860,8 +868,17 @@ const foldBtn = panel.addButton(UNFOLD, "Раскрыть все папки", ()
   for (const g of all) if (open) expanded.delete(g.id); else expanded.add(g.id);
   rerender();
 });
-function setFold(items) {
+// своя папка со снимками — значком в шапке (Грегори 2026-11-26), видна в списках, не в альбоме
+const addBtn = panel.addButton(svg(FOLDER_ADD_D), "Добавить папку…", () => addFolder());
+// порядок альбомов по дате: сначала новые или сначала старые; без даты — всегда в конце
+let oldFirst = settings.get("albums.oldFirst") === true;
+const sortBtn = panel.addButton("", "", () => { oldFirst = !oldFirst; settings.set("albums.oldFirst", oldFirst || null); sortButton(sortBtn, oldFirst); rerender(); });
+sortButton(sortBtn, oldFirst);
+function setFold(items, sortable = false) {
   foldItems = items;
+  addBtn.hidden = !canFolders() || dupView || !!openAlbum || !!openGroup;
+  addBtn.title = needsAccess && dirs.length ? accessTitle() : "Добавить папку…";
+  sortBtn.hidden = !sortable;
   dupBtn.hidden = dupView || ![...photos.values()].some((p) => p.handle);
   panel.setIcon(dupView ? FIND_DUPS : undefined);
   const all = allFolders(items), open = all.length > 0 && all.every((g) => expanded.has(g.id));
@@ -886,16 +903,18 @@ function accessRow() {
 }
 
 function renderList(country, query = "") {
+  const was = openAlbum || openGroup;
   openAlbum = null;
   openGroup = null;
   dupView = false;
   currentCountry = country ?? currentCountry;
   searchText = query;
+  if (was) drawMap();
   const q = query.toLowerCase();
-  const from = (x) => (x.group ? tally(x).from : x.from) || 0;
+  const from = (x) => (x.group ? tally(x).from : x.from) || (oldFirst ? Infinity : 0);
   const list = (q ? [...groups.values(), ...albums.values()] : tops())
     .filter((a) => (q ? [a.title, a.name, a.id, countryOf(a)].join(" ").toLowerCase().includes(q) : countryOf(a) === currentCountry))
-    .sort((x, y) => from(y) - from(x) || x.title.localeCompare(y.title, "ru"));
+    .sort((x, y) => (oldFirst ? from(x) - from(y) : from(y) - from(x)) || x.title.localeCompare(y.title, "ru"));
   // без страны — список стран (первой строкой — своя папка), у списка страны — стрелка «Все страны»
   if (!q && !currentCountry) {
     panel.setTitle("Мои альбомы");
@@ -913,7 +932,7 @@ function renderList(country, query = "") {
   if (needsAccess && dirs.length) nodes.push(accessRow());
   if (busy) nodes.push(h("p", "pb-hint", `Читаю снимки… проверено ${checked}`));
   if (q && !list.length) nodes.push(h("p", "pb-hint", "Ничего не нашлось"));
-  setFold(list);
+  setFold(list, list.length > 1);
   nodes.push(...rows(list));
   const keep = panel.body.scrollTop;
   panel.body.replaceChildren(...nodes);
@@ -944,6 +963,7 @@ function openGroupById(id) {
   openGroup = g;
   dupView = false;
   renderGroup();
+  drawMap();
   fitAlbum(g);
 }
 
@@ -1046,6 +1066,7 @@ function openAlbumById(id) {
   dupView = false;
   renderedAlbum = null; // открыли заново — с начала
   renderAlbum();
+  drawMap();
   fitAlbum(a);
   if (!a.done) finish(a).then(() => { refresh(); if (openAlbum === a) renderAlbum(); });
 }
@@ -1317,14 +1338,25 @@ function forget(p) {
 
 // ---------- свои папки (настройки) ----------
 // раньше папка была одна (albums/dir) — она становится первой в списке
+// Запись, которая не папка (старая, испорченная), пропускается: на ней обход падал раньше первой строки, и раздел
+// молчал (Грегори 2026-11-25: «старая кнопка по прежнему бездействует»). Папки «Альбома 2» переходят сюда один раз
+// (Грегори 2026-11-26: «переносим все функции»)
+const isDir = (d) => typeof d?.queryPermission === "function" && typeof d?.entries === "function";
 async function savedDirs() {
-  const list = await cacheGet("albums/dirs").catch(() => null);
-  if (Array.isArray(list)) return list;
-  const old = await cacheGet("albums/dir").catch(() => null);
-  return old ? [old] : [];
+  let list = await cacheGet("albums/dirs").catch(() => null);
+  if (!Array.isArray(list)) { const old = await cacheGet("albums/dir").catch(() => null); list = old ? [old] : []; }
+  list = list.filter(isDir);
+  if (await cacheGet("albums/from2").catch(() => null)) return list;
+  const more = await cacheGet("albums2/dirs").catch(() => null);
+  for (const d of Array.isArray(more) ? more.filter(isDir) : []) {
+    const same = await Promise.all(list.map((x) => x.isSameEntry(d).catch(() => false)));
+    if (!same.includes(true)) list.push(d);
+  }
+  await Promise.all([cacheSet("albums/dirs", list), cacheSet("albums/from2", true)]).catch(() => {});
+  return list;
 }
 const noAccess = async () => {
-  for (const d of dirs) if (await d.queryPermission({ mode: "read" }).catch(() => "denied") !== "granted") return true;
+  for (const d of dirs) if (await Promise.resolve().then(() => d.queryPermission({ mode: "read" })).catch(() => "denied") !== "granted") return true;
   return false;
 };
 const saveDirs = () => Promise.all([cacheSet("albums/dirs", dirs), cacheDelete("albums/dir")]).catch(() => {});
@@ -1398,8 +1430,8 @@ const MODE = { icon: svg(STACK_D, 20), title: "Мои альбомы", placehold
 // первой строкой — своя папка со снимками (на компьютере), прямо здесь, а не в настройках
 // (Грегори, 2026-11-02: «в треках файлы выбираются на месте, для фото надо лазать по меню»)
 function countryItems() {
-  const folder = !canFolders() ? [] : [{ id: "#folder", icon: OPEN_ICON, hint: "Снимки с этого компьютера никуда не отправляются",
-    title: needsAccess && dirs.length ? accessTitle() : "Добавить папку…" },
+  const folder = !canFolders() ? [] : [...(needsAccess && dirs.length ? [{ id: "#folder", icon: OPEN_ICON, title: accessTitle(),
+    hint: "Снимки с этого компьютера никуда не отправляются" }] : []),
     // свои папки — под ней, у каждой крестик «Убрать папку» (Грегори 2026-11-11: раздел папок в настройках
     // закомментирован — убрать было негде); снимки на диске не трогаются
     ...(needsAccess ? [] : dirs.map((d, i) => ({ id: `#dir:${i}`, icon: FOLDER_ICON, title: dirTitle(d), hint: "Своя папка со снимками",
@@ -1411,7 +1443,8 @@ function countryItems() {
   const phone = phoneApp() && phoneAccess() === "none" ? [{ id: "#phone", icon: OPEN_ICON, title: "Показать снимки телефона", hint: "Папки галереи — альбомами; снимки никуда не отправляются" }] : [];
   const retry = scanErr ? [{ id: "#retry", icon: ICON, title: scanErr }]
     : noExif ? [{ id: "#retry", icon: ICON, title: "Места и даты не прочитаны — повторить", hint: "Не загрузилась программа чтения снимков — проверьте интернет" }] : [];
-  return [...folder, ...phone, ...retry, ...(list.length || !loading ? list : [{ id: "", title: busy ? "Читаю альбомы…" : "Альбомов пока нет", icon: ICON }])];
+  const none = busy ? "Читаю альбомы…" : canFolders() && !dirs.length ? "Альбомов пока нет — папка со снимками: значок папки вверху" : "Альбомов пока нет";
+  return [...folder, ...phone, ...retry, ...(list.length || !loading ? list : [{ id: "", title: none, icon: ICON }])];
 }
 // «Alboms — альбомов 65, снимков 3712» / «Alboms — читаю…» / «Alboms — снимков не найдено (папок 3)»
 function dirTitle(d) {
@@ -1422,12 +1455,15 @@ function dirTitle(d) {
   const bad = st.bad ? `, не открылось папок ${st.bad}` : "";
   return st.files ? `${d.name} — альбомов ${n}, снимков ${st.files}${bad}` : `${d.name} — снимков не найдено (папок ${st.dirs}${bad})`;
 }
+function addFolder() {
+  (dirs.length && needsAccess ? askAccess() : pickFolder()).then(() => isOpen("albums") && !openAlbum && !openGroup && !dupView && renderList(currentCountry, searchText));
+}
 // окно выбора папки — прямо по нажатию (иначе браузер его не откроет); после выбора — снова список стран
 function chooseItem(country) {
   if (country?.startsWith("#dir:")) return; // строка своей папки — только крестик «Убрать»
-  if (country === "#retry") { rescan(); return; }
+  if (country === "#retry") { if (loading) rescan(); else load(ctx); return; }
   if (country === "#phone") { try { AtlasPhotos.ask(); } catch { /* старое приложение */ } return; }
-  if (country === "#folder") { (dirs.length && needsAccess ? askAccess() : pickFolder()).then(() => isOpen("albums") && !currentCountry && renderList(null)); return; }
+  if (country === "#folder") { addFolder(); return; }
   if (country) openCountry(country);
 }
 
@@ -1570,7 +1606,8 @@ register({
   // для проверки
   stats: () => ({ albums: albums.size, tracks: [...albums.values()].reduce((n, a) => n + a.tracks.length, 0), groups: groups.size, photos: photos.size, located: located().length, thumbs: [...photos.values()].filter((p) => p.thumb).length,
     countries: countries().map(([n, k]) => `${n}:${k}`), busy,
-    phone: [...albums.values()].filter((a) => a.id.startsWith(`${PHONE_ROOT}/`)).map((a) => `${a.name}:${a.photos.length}${a.point ? ":место" : ""}`).sort(), shown, dups: dups && { busy: dups.busy, same: dups.same.length, like: dups.like.length, view: dupView }, open: openAlbum?.title || openGroup?.title || null, country: currentCountry }),
+    phone: [...albums.values()].filter((a) => a.id.startsWith(`${PHONE_ROOT}/`)).map((a) => `${a.name}:${a.photos.length}${a.point ? ":место" : ""}`).sort(), shown, dups: dups && { busy: dups.busy, same: dups.same.length, like: dups.like.length, view: dupView }, open: openAlbum?.title || openGroup?.title || null, country: currentCountry,
+    map: shown ? { albums: albumData().features.length, photos: dotData().features.length } : null, oldFirst }),
   pickFolder: () => pickFolder(),
   forgetFolder: (name) => forgetFolder(dirs.find((d) => d.name === name)),
   openFirst: (title) => { const a = [...albums.values()].find((x) => !title || x.title === title); if (!a) return false; openCountry(countryOf(a)); openAlbumById(a.id); return true; },

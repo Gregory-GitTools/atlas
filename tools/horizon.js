@@ -3,7 +3,9 @@
 // верхняя длинная и ровная линия (над горизонтом обычно только небо, берег и волны — ниже).
 // OpenCV.js (~10 МБ) грузится при первом нажатии «Горизонт», а не при открытии галереи
 
-const OPENCV = "https://docs.opencv.org/4.9.0/opencv.js";
+// та же сборка 4.9.0 — с jsdelivr, не ответил — с docs.opencv.org (2026-11-26 docs.opencv.org отвечал 504
+// через 80 с, и «Горизонт», «Шум» не работали)
+const OPENCV = ["https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.9.0-release.2/dist/opencv.js", "https://docs.opencv.org/4.9.0/opencv.js"];
 export const MAX_TILT = 5; // ° — горизонт заваливают редко сильнее: больше — значит, нашли не его
 
 let loading = null;
@@ -13,12 +15,18 @@ let loading = null;
 export function opencv() {
   if (window.cv && typeof window.cv.Mat === "function") return Promise.resolve(); // уже загружена
   loading ??= new Promise((resolve, reject) => {
-    const s = Object.assign(document.createElement("script"), { src: OPENCV, async: true });
-    s.onerror = () => { loading = null; reject(new Error("не загрузилась программа поиска горизонта — проверьте интернет")); };
-    document.head.append(s);
-    const t0 = Date.now();
+    let t0 = 0, failed = false;
+    const next = (i) => {
+      if (i >= OPENCV.length) { failed = true; loading = null; reject(new Error("не загрузилась программа поиска горизонта — проверьте интернет")); return; }
+      const s = Object.assign(document.createElement("script"), { src: OPENCV[i], async: true });
+      s.onerror = () => { s.remove(); next(i + 1); };
+      document.head.append(s);
+      t0 = Date.now();
+    };
+    next(0);
     const poll = () => {
       if (window.cv && typeof window.cv.Mat === "function") resolve();
+      else if (failed) return;
       else if (Date.now() - t0 > 60000) { loading = null; reject(new Error("программа поиска горизонта не запустилась")); }
       else setTimeout(poll, 100);
     };
