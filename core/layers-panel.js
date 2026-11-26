@@ -41,6 +41,7 @@ import { modules, toggle, available, allowed, onRegister, MODULES } from "./modu
 import { on, emit, current } from "./events.js";
 import { BASEMAPS, currentBasemap, setBasemap, thumbOf } from "./basemaps.js";
 import * as settings from "./settings.js";
+import { playerButton } from "./player-window.js";
 
 const svg = (inner) => `<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">${inner}</svg>`;
 // разделы по порядку; значок не задан — берётся у первого модуля раздела. tone — цвет группы кнопок
@@ -182,6 +183,7 @@ export function initLayersPanel(ctx) {
   const arrowBtn = Object.assign(document.createElement("button"), { className: "btn glass wheel-toggle", innerHTML: ARROW });
   const placesBtn = Object.assign(document.createElement("button"), { className: "btn glass places-toggle", innerHTML: GROUPS.find((g) => g.id === PLACES).icon });
   const lensBtn = Object.assign(document.createElement("button"), { className: "btn glass search-toggle" });
+  const playerBtn = playerButton(); // четвёртая — плеер, под кнопками барабанов
   // тающие карусели (Грегори 2026-11-22): открыт один барабан — он выезжает из своей кнопки вниз и сдвигает кнопки
   // ниже; нажали кнопку другого — открытый сразу сворачивается. Нет над ним мыши и пальца — через 5 с шаг назад
   // (карусель растворяется, справа возвращается предыдущая), и так каждые 2 с, пока не растает сам барабан; тогда
@@ -225,7 +227,9 @@ export function initLayersPanel(ctx) {
     lensBtn.classList.toggle("drop", logo);
     lensBtn.innerHTML = target ? `<span class="search-card-arrow" style="transform: rotate(${routeNow.me ? routeNow.arrow || 0 : 0}deg)">${ROUTE_ARROW}</span>`
       : mode ? mode.icon : logo ? LOGO : LUPA;
-    lensBtn.title = openName === "content" ? "Свернуть поиск и разделы" : "Поиск и разделы";
+    // включён раздел — его название (Грегори 2026-11-26: «на кнопке Поиск и разделы пиши подпись выбранного раздела»)
+    lensBtn.title = mode && !target ? (openName === "content" ? `${mode.title} — свернуть разделы` : mode.title)
+      : openName === "content" ? "Свернуть поиск и разделы" : "Поиск и разделы";
   };
   // открытый поиск — шаг для «Назад» телефона
   let searchBack = null;
@@ -259,12 +263,13 @@ export function initLayersPanel(ctx) {
       b.style.transform = shift ? `translateY(${shift}px)` : "";
       if (n !== openName) return;
       // offsetTop — место кнопки без сдвига
-      const top = b.offsetTop + b.offsetHeight + gap, below = BANDS.length - 1 - i;
+      const top = b.offsetTop + b.offsetHeight + gap, below = BANDS.length - i; // и плеер
       const room = innerHeight - top - below * (b.offsetHeight + gap) - 2 * gap - b.offsetHeight;
       const d = drumOf(n), h = Math.round(Math.max(BTN + 2 * gap, Math.min(d.need(), room)));
       d.place(top, h);
       shift = h + gap;
     });
+    playerBtn.style.transform = shift ? `translateY(${shift}px)` : "";
     for (const d of drums) d.relayout();
     placeStrip();
     paint();
@@ -549,7 +554,7 @@ export function initLayersPanel(ctx) {
     if (a) a.style.transform = `rotate(${r.me ? r.arrow || 0 : 0}deg)`; else paint();
     if (!sameTarget) renderAll();
   });
-  document.body.append(arrowBtn, placesBtn, lensBtn);
+  document.body.append(playerBtn, arrowBtn, placesBtn, lensBtn);
 
   // подписи и номера кнопок барабанов и каруселей — в Настройках (Грегори 2026-11-21: «пункты видимости подписей»)
   const paintLabels = () => {

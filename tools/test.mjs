@@ -1481,10 +1481,18 @@ try {
       for (let i = 0; i < 30 && !(await run(`${as}.groups === 1 && !${as}.busy`)); i++) await sleep(500);
       await run(gear);
       await run(openLayers("content/albums"));
+      // первым уровнем — папки: своя и «Альбомы сайта»; в своей — только её страны, на карте — только её альбомы
+      // (Грегори 2026-11-26: «добавленные папки должны определять первый уровень группировки, и работать отдельно»)
+      const homeRows = `[...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")]`;
+      for (let i = 0; i < 20 && !(await run(`${homeRows}.some((b) => /^Фото — альбомов/.test(b.firstChild.textContent))`)); i++) await sleep(500);
+      const top = await run(`${homeRows}.map((b) => b.firstChild.textContent)`);
+      await run(`${homeRows}.find((b) => /^Фото — /.test(b.firstChild.textContent)).click(); true`);
       for (let i = 0; i < 20 && !(await run(`!!${itemFor("Без страны (2)")}`)); i++) await sleep(500);
-      const tc = await run(`({ ...${as}, items: [...document.querySelectorAll(".layers-sub:not([hidden]) .layers-item, .panel:not([hidden]) .home-row")].map((b) => b.firstChild.textContent) })`);
-      check("альбомы: поездка с подпапками — одна строка, дни — свои альбомы, «[Originals]» пропущены",
-        tc.groups === 1 && tc.albums === 6 && tc.items.includes("Без страны (2)"), JSON.stringify(tc));
+      const tc = await run(`({ ...${as}, title: document.querySelector('[data-panel="albums"] .panel-title').textContent, items: ${homeRows}.map((b) => b.firstChild.textContent) })`);
+      check("альбомы: первым уровнем — папки (своя, «Альбомы сайта»); в своей папке — только её страны и альбомы на карте; поездка с подпапками — одна строка, «[Originals]» пропущены",
+        top.some((t) => /^Фото — альбомов 5/.test(t)) && top.includes("Альбомы сайта — альбомов 1") && !top.some((t) => /^Эстония/.test(t))
+        && tc.root === "Фото" && tc.title === "Фото" && tc.map?.albums === 0 && tc.groups === 1 && tc.albums === 6 && tc.items.includes("Без страны (2)") && !tc.items.some((t) => /^Эстония/.test(t)),
+        JSON.stringify({ top, tc }));
       // просьба о записи в папку (окно галереи её не получает) — красная плашка внизу слева над шкалой, крестик закрывает
       const ask = await run(`(() => { atlasGalleryAskWrite(0); const el = document.querySelector(".al-write-ask"), r = el.getBoundingClientRect(),
         sc = document.querySelector(".maplibregl-ctrl-scale").getBoundingClientRect();
@@ -1514,6 +1522,20 @@ try {
       await run(`${sortSel}.click(); true`);
       check("альбомы: в шапке списка — значок папки и порядок по дате (сначала новые ↔ сначала старые)",
         s0.add && /^Сначала новые/.test(s0.title) && /^Сначала старые/.test(s1.title) && s1.old === true && s1.rows.length === s0.rows.length, JSON.stringify({ s0, s1 }));
+      // группировка по странам — кнопкой в шапке (Грегори 2026-11-26: «кнопки группировки не вижу»): выключена — все альбомы папки одним списком
+      const grp = `document.querySelector('[data-panel="albums"] .panel-head .panel-btn:not([hidden])[title$="группировать"], [data-panel="albums"] .panel-head .panel-btn:not([hidden])[title="Сгруппировать по странам"]')`;
+      const g0 = await run(`${grp}?.title`);
+      await run(`${grp}.click(); true`);
+      await sleep(300);
+      const g1 = await run(`({ title: document.querySelector('[data-panel="albums"] .panel-title').textContent, btn: ${grp}?.title, rows: ${titles}, flat: ${as}.flat })`);
+      await run(`${grp}.click(); true`);
+      await sleep(300);
+      const g2 = await run(`({ title: document.querySelector('[data-panel="albums"] .panel-title').textContent, flat: ${as}.flat })`);
+      check("альбомы: «Разгруппировать» — все альбомы папки одним списком, «Сгруппировать по странам» — снова страны папки",
+        g0 === "Разгруппировать" && g1.title === "Фото" && g1.btn === "Сгруппировать по странам" && g1.flat && g1.rows.join() === "Рига,Испания" && g2.title === "Фото" && !g2.flat,
+        JSON.stringify({ g0, g1, g2 }));
+      await run(`${itemFor("Без страны (2)")}.click(); true`);
+      await sleep(400);
     // ползунок внизу окна: потянуть мышью вверх — окно ниже; двойное нажатие — снова по содержимому
       const box = `document.querySelector('[data-panel="albums"]')`;
       const g = await run(`(() => { const r = ${box}.querySelector(".panel-grip").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2, ${box}.getBoundingClientRect().height]; })()`);
@@ -1963,28 +1985,38 @@ try {
         };
         const v = atlasGalleryRoots()[0].items.find((i) => i.name === "20240101 Рига").items.find((i) => i.name === "v.mp4");
         const s1 = await shot(400), s2 = await shot(200);
-        window.showDirectoryPicker = async () => folder("Диск D", [folder("20240101 Рига", [file("v.mp4", v.data)]),
+        window.showDirectoryPicker = async () => folder("Диск D", [folder("20240101 Рига", [file("v.mp4", v.data)]), folder("20240102 Копия", [file("v.mp4", v.data)]),
           folder("20240301 Похожие", [file("s1.jpg", s1), file("s2.jpg", s2)])]);
         return true; })()`);
       const before = await run(`${as}.albums`);
       await run(gear);
       await sleep(600);
       await run(`atlas.modules().find((m) => m.id === "content/albums").pickFolder(); true`);
-      for (let i = 0; i < 30 && !(await run(`${as}.albums === ${before + 2} && !${as}.busy`)); i++) await sleep(500);
+      for (let i = 0; i < 30 && !(await run(`${as}.albums === ${before + 3} && !${as}.busy`)); i++) await sleep(500);
       await run(gear);
       await run(openLayers("content/albums"));
       await sleep(600);
+      // дубликаты — внутри одной своей папки: среди папок кнопки нет, в папке — есть
       const dupBtn = `document.querySelector('[data-panel="albums"] .panel-head .panel-btn[title="Найти дубликаты снимков"]')`;
-      check("повторы: кнопка в шапке «Моих альбомов»", await run(`!!${dupBtn} && !${dupBtn}.hidden`));
+      const dupHome = await run(`!!${dupBtn} && !${dupBtn}.hidden`);
+      const openDir = (name) => `[...document.querySelectorAll(".panel:not([hidden]) .home-row")].find((b) => b.firstChild.textContent.startsWith(${JSON.stringify(name + " — ")})).click()`;
+      await run(`${openDir("Диск D")}; true`);
+      await sleep(400);
+      check("повторы: кнопка в шапке — в своей папке, не в списке папок", !dupHome && (await run(`!!${dupBtn} && !${dupBtn}.hidden`)));
       const hs = await run(`[...document.querySelectorAll('[data-panel="albums"] .panel-head svg')].filter((x) => x.getBoundingClientRect().width).map((x) => Math.round(x.getBoundingClientRect().width))`);
       check("шапка окна: значки крупные — значок окна как в строках списка, в кнопках почти во всю кнопку", hs[0] === 24 && hs.slice(1).every((w) => w === 30), JSON.stringify(hs));
+      // стрелка «К альбомам» нажимается и пока идёт поиск (Грегори 2026-11-26: «не позволяет из него выйти»)
+      await run(`${dupBtn}.click(); true`);
+      const dExit = await run(`(async () => { const b = document.querySelector('[data-panel="albums"] .pb-bar .pb-btn'); await new Promise((r) => setTimeout(r, 30)); b.click();
+        await new Promise((r) => setTimeout(r, 200)); return { view: ${as}.dups.view, title: document.querySelector('[data-panel="albums"] .panel-title').textContent }; })()`);
+      check("повторы: «К альбомам» — назад в папку", !dExit.view && dExit.title === "Диск D", JSON.stringify(dExit));
       await run(`${dupBtn}.click(); true`);
       for (let i = 0; i < 40 && !(await run(`${as}.dups && !${as}.dups.busy`)); i++) await sleep(500);
       const dv = await run(`({ ...${as}.dups, title: document.querySelector('[data-panel="albums"] .panel-title').textContent,
         icon: document.querySelector('[data-panel="albums"] .panel-title path').getAttribute("d").startsWith("M18 13v7"), rows: [...document.querySelectorAll(".al-dup")].map((r) => r.children.length),
         keep: document.querySelectorAll(".al-dup-cell.keep").length, all: document.querySelector(".al-dup-all")?.textContent, where: [...document.querySelectorAll(".al-dup-where")].map((w) => w.textContent) })`);
-      check("повторы: одинаковые файлы (снимки и ролик в двух папках) и похожие снимки, в каждой группе один «оставить»",
-        dv.view && dv.title === "Дубликаты" && dv.icon && dv.same === 2 && dv.like === 1 && JSON.stringify(dv.rows.slice().sort()) === "[2,2,4]" && dv.keep === 3 && dv.all === "Убрать лишние копии (4)", JSON.stringify(dv));
+      check("повторы: в папке «Диск D» — только её копии (ролик в двух альбомах) и похожие снимки, в каждой группе один «оставить»",
+        dv.view && dv.title === "Дубликаты: Диск D" && dv.icon && dv.same === 1 && dv.like === 1 && JSON.stringify(dv.rows) === "[2,2]" && dv.keep === 2 && dv.all === "Убрать лишние копии (1)", JSON.stringify(dv));
       await sleep(800);
       await shot("99-dups");
       // в шапке — ссылки на разделы; у папок — «скопировать полный путь»: где лежит своя папка, спрашивается
@@ -2000,16 +2032,25 @@ try {
         btns[1].click(); await new Promise((r) => setTimeout(r, 300));
         return { first, second: got, asked: asked.length, title: btns[0].title }; })()`);
       check("повторы: в шапке ссылки на разделы, у папок — копировать полный путь (папку на диске спрашивают один раз)",
-        JSON.stringify(links.names) === '["Одинаковые (2)","Похожие (1)"]' && links.top > 0 && links.head > -30 && links.head < 400
-        && copied.asked === 2 && /^E:\\Архив\\(Фото|Диск D)\\20240101 Рига$/.test(copied.first) && copied.title === "Скопировать полный путь к папке"
+        JSON.stringify(links.names) === '["Одинаковые (1)","Похожие (1)"]' && links.top > 0 && links.head > -30 && links.head < 400
+        && copied.asked === 1 && /^E:\\Архив\\Диск D\\20240101 Рига$/.test(copied.first) && /^E:\\Архив\\Диск D\\20240102 Копия$/.test(copied.second) && copied.title === "Скопировать полный путь к папке"
         && (await run(`!document.querySelector('[data-panel="albums"] .panel-head .panel-btn[title="Найти дубликаты снимков"] path').getAttribute("d").startsWith("M16 1H4")`)),
         JSON.stringify({ links, copied }));
       const tree = `const tree = (d, pre = "") => d.items.flatMap((i) => (i.kind === "directory" ? tree(i, pre + i.name + "/") : [pre + i.name]));`;
-      await run(`[...document.querySelectorAll(".al-dup-cell")].find((c) => /^Диск D.*v[.]mp4/.test(c.querySelector(".al-cell").title)).querySelector(".al-dup-out").click(); true`);
-      for (let i = 0; i < 20 && (await run(`${as}.dups.same`)) !== 1; i++) await sleep(300);
+      await run(`[...document.querySelectorAll(".al-dup-cell")].find((c) => /Копия.*v[.]mp4/.test(c.querySelector(".al-cell").title)).querySelector(".al-dup-out").click(); true`);
+      for (let i = 0; i < 20 && (await run(`${as}.dups.same`)) !== 0; i++) await sleep(300);
       const d1 = await run(`(() => { ${tree} return { d: tree(atlasGalleryRoots()[1]), same: ${as}.dups.same }; })()`);
       check("повторы: «Убрать» переносит копию в «[Повторы]» тем же путём",
-        JSON.stringify(d1.d) === JSON.stringify(["20240301 Похожие/s1.jpg", "20240301 Похожие/s2.jpg", "[Повторы]/20240101 Рига/v.mp4"]) && d1.same === 1, JSON.stringify(d1));
+        JSON.stringify(d1.d) === JSON.stringify(["20240101 Рига/v.mp4", "20240301 Похожие/s1.jpg", "20240301 Похожие/s2.jpg", "[Повторы]/20240102 Копия/v.mp4"]) && d1.same === 0, JSON.stringify(d1));
+      // папка «Фото» — свои дубликаты: четыре одинаковых снимка поездки
+      await run(`document.querySelector('[data-panel="albums"] .pb-bar .pb-btn').click(); true`);
+      await sleep(300);
+      await run(`[...document.querySelectorAll('[data-panel="albums"] .pb-bar .pb-btn')].find((b) => b.title === "Все папки").click(); true`);
+      await sleep(300);
+      await run(`${openDir("Фото")}; true`);
+      await sleep(300);
+      await run(`${dupBtn}.click(); true`);
+      for (let i = 0; i < 40 && !(await run(`${as}.dups && ${as}.dups.same === 1 && !${as}.dups.busy`)); i++) await sleep(500);
       await run(`window.confirm = () => true; document.querySelector(".al-dup-all").click(); true`);
       for (let i = 0; i < 20 && (await run(`${as}.dups.same`)); i++) await sleep(300);
       const d2 = await run(`(() => { ${tree} const all = tree(atlasGalleryRoots()[0]); return { moved: all.filter((f) => f.startsWith("[Повторы]/")), jpgs: all.filter((f) => !f.includes("[") && /[0-9][.]jpg$/.test(f)),
@@ -2017,7 +2058,7 @@ try {
       const trip = "20230625-0716 (Travel) Испания";
       check("повторы: «Убрать лишние копии» — остался один снимок из альбома, где снимков больше, похожие — на месте",
         JSON.stringify(d2.moved) === JSON.stringify([`[Повторы]/${trip}/0.jpg`, `[Повторы]/${trip}/20230625 Таллин/2.jpg`, `[Повторы]/${trip}/20230626 Варшава/3.jpg`])
-        && JSON.stringify(d2.jpgs) === JSON.stringify([`${trip}/20230625 Таллин/1.jpg`, `${trip}/${trip}-Albom/1.jpg`]) && d2.same === 0 && d2.like === 1 && d2.facts === "Одинаковых файлов нет",
+        && JSON.stringify(d2.jpgs) === JSON.stringify([`${trip}/20230625 Таллин/1.jpg`, `${trip}/${trip}-Albom/1.jpg`]) && d2.same === 0 && d2.like === 0 && d2.facts === "Одинаковых файлов нет",
         JSON.stringify(d2));
       await run(exitMode);
       await run(closeLayers);
@@ -2054,53 +2095,6 @@ try {
       await run(`${alm}.column.close(); true`);
       check("приложение: папки галереи телефона — альбомы; без доступа — строка «Показать снимки телефона»",
         pa1.join() === "Показать снимки телефона" && pa2.phone.join() === "Camera:2:место,WhatsApp Video:1" && !pa2.row, JSON.stringify({ pa1, pa2 }));
-      // «Альбом 2» — альбомы, сделанные заново (Грегори 2026-11-25: «на альбом сделать кнопку с нуля»): строка папки сама
-      // говорит, что нашла; альбом — каждая папка со снимками («.скрытые» и пустые — нет); альбом — сетка с миниатюрами;
-      // крестик «Убрать папку» нажимается мышью и спрашивает. Раздел — режимом строки поиска («Найти альбом» прячет
-      // неподходящие); открыт альбом — на карте только его снимки с местом (два из трёх), вблизи — миниатюры
-      const a2 = `atlas.modules().find((m) => m.id === "content/albums2")`;
-      await run(`(async () => { const { file, folder } = window.testFs, { setMeta } = await import("./tools/jpeg.js");
-        const base = await new Promise((r) => { const c = Object.assign(document.createElement("canvas"), { width: 64, height: 48 }); c.getContext("2d").fillRect(0, 0, 32, 48); c.toBlob(r, "image/jpeg"); });
-        const at = (lat, lon) => setMeta(base, { gps: [lat, lon] });
-        const t1 = await at(59.4372, 24.7453), t2 = await at(59.4381, 24.7470), riga = await at(56.9496, 24.1052);
-        window.showDirectoryPicker = async () => folder("Фото2", [
-        folder("20240101 Рига", [file("r.jpg", riga), file("v.mp4")]), folder("Пусто", []), folder(".скрыто", [file("x.jpg")]),
-        folder("Таллин", [file("1.jpg", t1), file("2.jpg", t2), file("3.jpg")])]); return true; })()`);
-      await run(openLayers("content/albums2"));
-      await run(`document.querySelector('[data-panel="albums2"] .panel-btn[title="Добавить папку…"]').click(); true`);
-      for (let i = 0; i < 30 && !(await run(`/альбомов/.test(${a2}.stats().dirs[0] || "")`)); i++) await sleep(300);
-      for (let i = 0; i < 30 && (await run(`${a2}.stats().map?.albums`)) !== 2; i++) await sleep(300);
-      const a2rows = await run(`[...document.querySelectorAll('[data-panel="albums2"] .home-row .tr-row-title')].map((t) => t.textContent)`);
-      const a2search = await run(`(async () => { const i = document.querySelector(".search-box input"), ph = i.placeholder, w = () => new Promise((r) => setTimeout(r, 600));
-        i.value = "тал"; i.dispatchEvent(new Event("input")); await w();
-        const shown = [...document.querySelectorAll('[data-panel="albums2"] .a2-album')].filter((r) => !r.hidden).map((r) => r.querySelector(".tr-row-title").textContent);
-        i.value = ""; i.dispatchEvent(new Event("input")); await w();
-        return { ph, shown, all: [...document.querySelectorAll('[data-panel="albums2"] .a2-album')].filter((r) => !r.hidden).length, mapAll: ${a2}.stats().map }; })()`);
-      await run(`[...document.querySelectorAll('[data-panel="albums2"] .a2-album')].find((r) => r.textContent.startsWith("Таллин")).click(); true`);
-      for (let i = 0; i < 20 && !(await run(`document.querySelectorAll('[data-panel="albums2"] .al-cell img').length === 3`)); i++) await sleep(300);
-      const a2album = await run(`({ title: document.querySelector('[data-panel="albums2"] .panel-title span').textContent, cells: document.querySelectorAll('[data-panel="albums2"] .al-cell').length,
-        imgs: document.querySelectorAll('[data-panel="albums2"] .al-cell img').length })`);
-      for (let i = 0; i < 30 && (await run(`${a2}.stats().map?.pins`)) !== 2; i++) await sleep(300);
-      const a2map = await run(`({ ...${a2}.stats().map, zoom: Math.round(atlas.map.getZoom()) })`);
-      await shot("63-albums2-album");
-      await run(`document.querySelector('[data-panel="albums2"] .a2-head .pb-btn').click(); true`);
-      await sleep(300);
-      const a2back = await run(`${a2}.stats().map`);
-      await shot("63-albums2-list");
-      const a2x = await run(`(async () => { const x = document.querySelector('[data-panel="albums2"] .home-line .search-delete'), r = x.getBoundingClientRect();
-        const hit = x.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)); let asked = "";
-        const was = window.confirm; window.confirm = (q) => { asked = q; return true; }; x.click(); window.confirm = was;
-        await new Promise((r) => setTimeout(r, 500)); return { hit, title: x.title, asked, dirs: ${a2}.stats().dirs.length,
-          empty: document.querySelector('[data-panel="albums2"] .a2-empty')?.textContent || "" }; })()`);
-      await run(`${a2}.column.close(); true`);
-      check("«Альбом 2»: папка — значком в шапке, своя папка — строкой со счётом, альбомы — папки со снимками, сетка с миниатюрами, крестик «Убрать папку» нажимается и спрашивает",
-        a2rows.join("|") === "Фото2 — альбомов 2, снимков 5|Рига|Таллин" && a2album.title === "Таллин" && a2album.cells === 3 && a2album.imgs === 3
-        && a2x.hit && a2x.title === "Убрать папку «Фото2»" && /Снимки на диске останутся/.test(a2x.asked) && a2x.dirs === 0 && /Добавьте папку/.test(a2x.empty),
-        JSON.stringify({ a2rows, a2album, a2x }));
-      check("«Альбом 2»: режим строки поиска «Найти альбом»; открыт альбом — на карте только его снимки, вблизи миниатюрами; назад — снова все альбомы",
-        a2search.ph === "Найти альбом" && a2search.shown.join() === "Таллин" && a2search.all === 2 && a2search.mapAll?.albums === 2
-        && a2map.albums === 0 && a2map.photos === 2 && a2map.pins === 2 && a2map.zoom >= 14 && a2back?.albums === 2 && a2back.photos === 0,
-        JSON.stringify({ a2search, a2map, a2back }));
       await run(closeLayers);
       await run(gear);
       await sleep(600);
@@ -2260,6 +2254,74 @@ try {
       && muFind.one === 1 && muFind.all === songsWant && mu2.player === "amplitude" && mu2.buttons === 3 && mu2.title !== ""
       && (PHONE || (muX.hit && /Песни на диске останутся/.test(muX.asked) && muX.dirs === 0 && muX.rows === 1)) && !muClosed.open && muClosed.ph !== "Найти песню",
       JSON.stringify({ muRows, muAdd, mu1, muFind, mu2, muX, muClosed }));
+  }
+
+  // плеер — четвёртая кнопка справа (core/player-window.js, player.html, core/music-player.js; Грегори 2026-11-26):
+  // под кнопкой «Слои»; на компьютере — своё окно (окна запрещены — поверх карты), на телефоне — поверх карты.
+  // Альбом — папка (название и исполнитель из тегов), обложка — cover.jpg или картинка из тегов, песни по номерам;
+  // выбранные песни без папки — альбомы по тегу; песня играет — название и обложка в шторке (Media Session)
+  if (want("core/player")) {
+    const plMob = await run(`import("./core/modules.js").then((m) => m.isMobile())`);
+    const pl0 = await run(`(() => { const b = document.querySelector(".player-toggle"), w = document.querySelector(".wheel-toggle").getBoundingClientRect(), r = b.getBoundingClientRect();
+      const calls = [], fake = { location: { href: "about:blank" }, focus() { calls.push("focus"); } }, was = window.open;
+      window.open = (u, n, f) => { calls.push([u, n, /popup/.test(f)].join()); return fake; }; b.click();
+      const href = fake.location.href;
+      window.open = (u, n) => { calls.push("null"); return null; }; b.click(); window.open = was;
+      return { below: Math.round(r.top - w.bottom), right: Math.round(r.right - w.right), title: b.title, calls, href, frame: !!document.querySelector(".player-frame") }; })()`);
+    if (plMob) await run(`document.querySelector(".player-toggle").click(); true`);
+    for (let i = 0; i < 40 && !(await run(`!!document.querySelector(".player-frame")?.contentWindow?.atlasPlayer`)); i++) await sleep(300);
+    const plWay = await run(`(async () => {
+      const w = document.querySelector(".player-frame").contentWindow, d = w.document;
+      const wav = (() => { const n = 4000, b = new DataView(new ArrayBuffer(44 + n)), str = (o, t) => [...t].forEach((c, i) => b.setUint8(o + i, c.charCodeAt(0)));
+        str(0, "RIFF"); b.setUint32(4, 36 + n, true); str(8, "WAVEfmt "); b.setUint32(16, 16, true); b.setUint16(20, 1, true); b.setUint16(22, 1, true);
+        b.setUint32(24, 8000, true); b.setUint32(28, 8000, true); b.setUint16(32, 1, true); b.setUint16(34, 8, true); str(36, "data"); b.setUint32(40, n, true);
+        for (let i = 0; i < n; i++) b.setUint8(44 + i, 128); return new Uint8Array(b.buffer); })();
+      const jpg = new Uint8Array(await (await new Promise((r) => { const c = Object.assign(document.createElement("canvas"), { width: 32, height: 32 }); const x = c.getContext("2d"); x.fillStyle = "#3c3"; x.fillRect(0, 0, 32, 32); c.toBlob(r, "image/jpeg"); })).arrayBuffer());
+      const u8 = (t) => new TextEncoder().encode(t);
+      const frame = (id, body) => [...u8(id), body.length >> 24 & 255, body.length >> 16 & 255, body.length >> 8 & 255, body.length & 255, 0, 0, ...body];
+      const mp3 = (title, track, cover) => { const f = [...frame("TIT2", [3, ...u8(title)]), ...frame("TPE1", [3, ...u8("Певец")]), ...frame("TALB", [3, ...u8("Первый")]), ...frame("TRCK", [3, ...u8(track)]),
+        ...(cover ? frame("APIC", [0, ...u8("image/jpeg"), 0, 3, 0, ...jpg]) : [])]; const z = f.length;
+        return new Uint8Array([...u8("ID3"), 3, 0, 0, z >> 21 & 127, z >> 14 & 127, z >> 7 & 127, z & 127, ...f, ...wav]); };
+      const raz = new File([mp3("Раз", "2/2", false)], "01.mp3", { type: "audio/mpeg" }), dva = new File([mp3("Два", "1/2", true)], "02.mp3", { type: "audio/mpeg" });
+      const tri = new File([wav], "Группа - Третья.wav", { type: "audio/wav" });
+      const file = (f) => ({ kind: "file", name: f.name, getFile: async () => f });
+      const folder = (name, items) => ({ kind: "directory", name, async *entries() { for (const i of items) yield [i.name, i]; },
+        isSameEntry: async (o) => o?.name === name, queryPermission: async () => "granted", requestPermission: async () => "granted" });
+      const add = d.querySelector('.head .btn[title="Добавить папку с музыкой…"]');
+      if (add) {
+        w.showDirectoryPicker = async () => folder("Музыка", [folder("Альбом А", [file(raz), file(dva), file(new File([jpg], "cover.jpg", { type: "image/jpeg" }))]), folder("Б", [file(tri)])]);
+        add.click();
+        return "folder";
+      }
+      const i = d.querySelector('input[accept^="audio"]'), dt = new w.DataTransfer();
+      for (const f of [raz, dva, tri]) dt.items.add(f);
+      i.files = dt.files; i.dispatchEvent(new w.Event("change"));
+      return "files"; })()`);
+    const pl = `document.querySelector(".player-frame").contentWindow`;
+    for (let i = 0; i < 40 && (await run(`${pl}.atlasPlayer.stats().albums.length`)) < 2; i++) await sleep(300);
+    const pl1 = await run(`({ ...${pl}.atlasPlayer.stats(), cards: ${pl}.document.querySelectorAll(".card").length,
+      covers: [...${pl}.document.querySelectorAll(".card .cover")].filter((c) => c.style.backgroundImage).length })`);
+    await shot("65-player");
+    const pl2 = await run(`(async () => { const w = ${pl}, d = w.document; [...d.querySelectorAll(".card")].find((c) => c.title.startsWith("Первый")).click();
+      await new Promise((r) => setTimeout(r, 200)); const songs = [...d.querySelectorAll(".song b")].map((b) => b.textContent);
+      d.querySelector(".song").click(); await new Promise((r) => setTimeout(r, 400));
+      return { ...w.atlasPlayer.stats(), songs, bar: !d.querySelector(".bar").hidden, barTitle: d.querySelector(".bar .meta b")?.textContent,
+        yt: d.querySelector('.album-btns a')?.href || "" }; })()`);
+    await shot("65-player-album");
+    const pl3 = await run(`(async () => { const d = ${pl}.document, f = document.querySelector(".player-frame");
+      d.querySelector('.head .btn[title^="Свернуть"]').click(); await new Promise((r) => setTimeout(r, 200)); const hidden = f.hidden;
+      document.querySelector(".player-toggle").click(); await new Promise((r) => setTimeout(r, 200)); const back = !f.hidden;
+      d.querySelector('.head .btn[title="Закрыть плеер"]').click(); await new Promise((r) => setTimeout(r, 200));
+      return { hidden, back, gone: !document.querySelector(".player-frame") }; })()`);
+    const plAlbums = plWay === "folder" ? "Б|Группа|1,Первый|Певец|2|обложка" : "Выбранные песни|Группа|1,Первый|Певец|2|обложка";
+    check("плеер: четвёртая кнопка под «Слоями»; на компьютере — своё окно player.html (окна запрещены — поверх карты)",
+      pl0.below > 0 && pl0.below < 30 && Math.abs(pl0.right) <= 1 && pl0.title === "Плеер"
+      && (plMob ? pl0.frame && !pl0.calls.length : pl0.calls.join("|") === ",atlas-player,true|focus|null" && pl0.href === "player.html" && pl0.frame), JSON.stringify(pl0));
+    check(`плеер: альбомы из ${plWay === "folder" ? "папок" : "выбранных песен"} — название и исполнитель из тегов, обложки, песни по номерам; песня — в шторке с обложкой`,
+      pl1.albums.join() === plAlbums && pl1.cards === 2 && pl1.covers === 1 && pl2.view === "Первый" && pl2.songs.join() === "Два,Раз"
+      && pl2.now === "Два" && pl2.meta === "Два|Первый|1" && pl2.bar && pl2.barTitle === "Два" && /music\.youtube\.com\/search\?q=/.test(pl2.yt),
+      JSON.stringify({ plWay, pl1, pl2 }));
+    check("плеер поверх карты: «Свернуть» прячет, кнопка возвращает, «Закрыть» убирает", pl3.hidden && pl3.back && pl3.gone, JSON.stringify(pl3));
   }
 
   // мои треки: выдуманный трек (не настоящий — личное в репозиторий не кладём): 2 км на восток вдоль
@@ -3276,7 +3338,7 @@ try {
     && lens.s3.layers && !lens.s3.places && lens.s3.under && lens.s3.shift.join() === "0,0"
     && !lens.s4.layers && !lens.s4.places && lens.s4.search && lens.s4.shift.join() === "0,0"
     && lens.s5.content && lens.s5.search && !lens.s6.content && !lens.s6.search && lens.s6.drop
-    && JSON.stringify(lens.keys) === JSON.stringify(["Альбом 2", "Мои альбомы", "Мои споты", "Мои треки", "Музыка", "Настройки", "Поиск", "Трек", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
+    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои споты", "Мои треки", "Музыка", "Настройки", "Поиск", "Трек", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
   await run(`(async () => { document.querySelector(".wheel-toggle").click(); await new Promise((r) => setTimeout(r, 450)); return true; })()`);
   await shot("95c-drum");
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико

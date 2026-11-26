@@ -66,8 +66,19 @@ addEventListener("pointerover", (e) => {
   const t = (hoverTip = Object.assign(document.createElement("div"), { className: "touch-tip hover-tip", textContent: text }));
   document.body.append(t);
   const r = el.getBoundingClientRect(), s = t.getBoundingClientRect();
-  const left = r.left + r.width / 2 > innerWidth / 2 ? r.left - s.width - 10 : r.right + 10;
-  const top = r.top + r.height / 2 - s.height / 2;
+  let left = r.left + r.width / 2 > innerWidth / 2 ? r.left - s.width - 10 : r.right + 10;
+  let top = r.top + r.height / 2 - s.height / 2;
+  // сбоку другая кнопка (шапка окна, ряд кнопок) — подпись под кнопкой, у нижнего края — над ней
+  // (Грегори 2026-11-26: «подписи кнопок вправо накладываются на другие кнопки. Сделай вниз»)
+  const ys = [top + 2, top + s.height / 2, top + s.height - 2];
+  const covers = [left + 4, left + s.width / 2, left + s.width - 4].some((x) => ys.some((y) => {
+    const hit = document.elementFromPoint(x, y)?.closest?.("button, .btn");
+    return hit && hit !== el && !hit.contains(el);
+  }));
+  if (covers) {
+    left = r.left + r.width / 2 - s.width / 2;
+    top = r.bottom + s.height + 16 < innerHeight ? r.bottom + 8 : r.top - s.height - 8;
+  }
   Object.assign(t.style, { left: `${Math.round(Math.max(8, Math.min(innerWidth - s.width - 8, left)))}px`, top: `${Math.round(Math.max(8, Math.min(innerHeight - s.height - 8, top)))}px` });
   requestAnimationFrame(() => t.classList.add("on"));
 }, { capture: true });

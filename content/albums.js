@@ -14,7 +14,7 @@
 // клетка со значком LIVE, ролик оживает в галерее. Дубликаты (2026-11-08) — одинаковые и похожие снимки в
 // своих папках, лишние копии — в папку «[Повторы]»
 import { register, isMobile } from "../core/modules.js";
-import { trackIcon, FOLDER_ADD_D, sortButton } from "../core/icons.js";
+import { trackIcon, FOLDER_ADD_D, GLOBE_D, sortButton } from "../core/icons.js";
 import * as settings from "../core/settings.js";
 import { createPanel, isOpen, homeList } from "../core/panel.js";
 import { repoFiles, repoUrl } from "../core/repo.js";
@@ -459,9 +459,19 @@ async function load(c) {
 
 // в столбике и в списке страны — альбомы и поездки верхнего уровня
 const tops = () => [...groups.values(), ...albums.values()].filter((x) => !x.parent);
+// первый уровень — откуда альбомы: свои папки, «Альбомы» сайта, галерея телефона; каждая — отдельно: свои страны,
+// свои дубликаты, на карте — только её альбомы (Грегори 2026-11-26: «добавленные папки должны определять первый
+// уровень группировки, и работать отдельно»). Источник один — сразу его страны
+const SITE_ROOT = "Альбомы";
+const rootOf = (x) => x.id.split("/")[0];
+let currentRoot = null;
+const sources = () => [...dirs.map((d) => d.name), ...[SITE_ROOT, PHONE_ROOT].filter((r) => tops().some((x) => rootOf(x) === r))];
+const root = () => { if (currentRoot) return currentRoot; const s = sources(); return s.length === 1 ? s[0] : null; };
+const under = (r) => (x) => !r || rootOf(x) === r;
+const rootTitle = (r) => (r === SITE_ROOT ? "Альбомы сайта" : r);
 const countries = () => {
-  const by = new Map();
-  for (const a of tops()) { const k = countryOf(a); by.set(k, (by.get(k) || 0) + 1); }
+  const by = new Map(), mine = under(root());
+  for (const a of tops().filter(mine)) { const k = countryOf(a); by.set(k, (by.get(k) || 0) + 1); }
   // «Без страны» — первой, остальные по алфавиту
   return [...by].sort((x, y) => (y[0] === NO_COUNTRY) - (x[0] === NO_COUNTRY) || x[0].localeCompare(y[0], "ru"));
 };
@@ -588,14 +598,14 @@ function wantInView() {
 // ---------- карта ----------
 let shown = false, frame = 0;
 const pt = (p) => [p.rec.lon, p.rec.lat];
-const located = () => [...photos.values()].filter((p) => p.rec?.lat);
+const located = () => { const mine = under(root()); return [...photos.values()].filter((p) => p.rec?.lat && mine(p.album)); };
 // открыт альбом или поездка — на карте только они (Грегори 2026-11-25: «после выбора альбома на карте оставался
 // только один альбом со всеми фотками»): их снимки, их треки, без значков других альбомов
 const focus = () => openAlbum || openGroup;
-const focusAlbums = () => { const x = focus(); return x ? (x.group ? tally(x).list : [x]) : [...albums.values()]; };
+const focusAlbums = () => { const x = focus(); return x ? (x.group ? tally(x).list : [x]) : [...albums.values()].filter(under(root())); };
 const onMap = () => { const x = focus(); if (!x) return located(); const ids = new Set(photosOf(x)); return located().filter((p) => ids.has(p.id)); };
 const fc = (features) => ({ type: "FeatureCollection", features });
-const albumData = () => fc((focus() ? [] : [...albums.values()]).filter((a) => a.point).map((a) => ({ type: "Feature", geometry: { type: "Point", coordinates: a.point },
+const albumData = () => fc((focus() ? [] : [...albums.values()].filter(under(root()))).filter((a) => a.point).map((a) => ({ type: "Feature", geometry: { type: "Point", coordinates: a.point },
   properties: { album: a.id, title: a.title } })));
 const dotData = () => fc(onMap().map((p) => ({ type: "Feature", geometry: { type: "Point", coordinates: pt(p) }, properties: { photo: p.id } })));
 const thumbData = () => fc(onMap().filter((p) => p.img).map((p) => ({ type: "Feature", geometry: { type: "Point", coordinates: pt(p) }, properties: { photo: p.id, img: p.img } })));
@@ -871,15 +881,30 @@ const foldBtn = panel.addButton(UNFOLD, "Раскрыть все папки", ()
 // своя папка со снимками — значком в шапке (Грегори 2026-11-26), видна в списках, не в альбоме
 const addBtn = panel.addButton(svg(FOLDER_ADD_D), "Добавить папку…", () => addFolder());
 // порядок альбомов по дате: сначала новые или сначала старые; без даты — всегда в конце
+// группировка по странам — как в «Моих треках»; выключена — все альбомы папки одним списком по дате
+// (Грегори 2026-11-26: «кнопки группировки не вижу»)
+let byCountry = settings.get("albums.flat") !== true;
+const groupBtn = panel.addButton(svg(GLOBE_D), "", () => {
+  byCountry = !byCountry;
+  settings.set("albums.flat", byCountry ? null : true);
+  currentCountry = null;
+  renderList(null);
+  panel.body.scrollTop = 0;
+});
 let oldFirst = settings.get("albums.oldFirst") === true;
 const sortBtn = panel.addButton("", "", () => { oldFirst = !oldFirst; settings.set("albums.oldFirst", oldFirst || null); sortButton(sortBtn, oldFirst); rerender(); });
 sortButton(sortBtn, oldFirst);
-function setFold(items, sortable = false) {
+function setFold(items, sortable = false, groupable = false) {
   foldItems = items;
   addBtn.hidden = !canFolders() || dupView || !!openAlbum || !!openGroup;
   addBtn.title = needsAccess && dirs.length ? accessTitle() : "Добавить папку…";
   sortBtn.hidden = !sortable;
-  dupBtn.hidden = dupView || ![...photos.values()].some((p) => p.handle);
+  groupBtn.hidden = !groupable;
+  groupBtn.classList.toggle("on", byCountry);
+  groupBtn.title = byCountry ? "Разгруппировать" : "Сгруппировать по странам";
+  // дубликаты — внутри открытой своей папки
+  const r = root();
+  dupBtn.hidden = dupView || !r || ![...photos.values()].some((p) => p.handle && rootOf(p.album) === r);
   panel.setIcon(dupView ? FIND_DUPS : undefined);
   const all = allFolders(items), open = all.length > 0 && all.every((g) => expanded.has(g.id));
   foldBtn.hidden = !all.length;
@@ -890,8 +915,9 @@ function setFold(items, sortable = false) {
 // стрелка назад — в поездку, где лежит альбом, иначе к списку страны
 function backBtn(x) {
   const g = x.parent && groups.get(x.parent);
-  return btn(BACK, g ? `К поездке: ${g.title}` : `К альбомам: ${countryOf(x)}`, () => {
-    if (g) openGroupById(g.id); else renderList(countryOf(x));
+  return btn(BACK, g ? `К поездке: ${g.title}` : `К альбомам: ${byCountry ? countryOf(x) : rootTitle(rootOf(x))}`, () => {
+    if (g) openGroupById(g.id);
+    else { currentCountry = byCountry ? countryOf(x) : null; renderList(null); }
     panel.body.scrollTop = 0;
   });
 }
@@ -911,28 +937,31 @@ function renderList(country, query = "") {
   searchText = query;
   if (was) drawMap();
   const q = query.toLowerCase();
+  const r = root(), mine = under(r), many = sources().length > 1;
+  // в папке без группировки — все её альбомы одним списком
+  const flat = !q && !!r && !byCountry && !currentCountry;
   const from = (x) => (x.group ? tally(x).from : x.from) || (oldFirst ? Infinity : 0);
-  const list = (q ? [...groups.values(), ...albums.values()] : tops())
-    .filter((a) => (q ? [a.title, a.name, a.id, countryOf(a)].join(" ").toLowerCase().includes(q) : countryOf(a) === currentCountry))
+  const list = (q ? [...groups.values(), ...albums.values()] : tops()).filter(mine)
+    .filter((a) => (q ? [a.title, a.name, a.id, countryOf(a)].join(" ").toLowerCase().includes(q) : flat || countryOf(a) === currentCountry))
     .sort((x, y) => (oldFirst ? from(x) - from(y) : from(y) - from(x)) || x.title.localeCompare(y.title, "ru"));
-  // без страны — список стран (первой строкой — своя папка), у списка страны — стрелка «Все страны»
-  if (!q && !currentCountry) {
-    panel.setTitle("Мои альбомы");
-    setFold([]);
-    panel.body.replaceChildren(...(busy ? [h("p", "pb-hint", `Читаю снимки… проверено ${checked}`)] : []), homeList(countryItems(), chooseItem));
+  const upBtn = () => btn(BACK, "Все папки", () => { currentRoot = null; currentCountry = null; renderList(null); drawMap(); panel.body.scrollTop = 0; });
+  const bar = (b) => { const x = h("div", "pb-bar"); x.append(b); return x; };
+  // папка не выбрана — папки (первый уровень); в папке — её страны, у списка страны — стрелка к ним
+  if (!q && !currentCountry && !flat) {
+    panel.setTitle(r ? rootTitle(r) : "Мои альбомы");
+    setFold([], false, !!r);
+    panel.body.replaceChildren(...(r && currentRoot && many ? [bar(upBtn())] : []), ...(busy ? [h("p", "pb-hint", `Читаю снимки… проверено ${checked}`)] : []),
+      homeList(countryItems(), chooseItem));
     return;
   }
-  panel.setTitle(q ? "Найденные альбомы" : currentCountry || "Мои альбомы");
+  panel.setTitle(q ? "Найденные альбомы" : flat ? rootTitle(r) : currentCountry);
   const nodes = [];
-  if (!q) {
-    const bar = h("div", "pb-bar");
-    bar.append(btn(BACK, "Все страны", () => { currentCountry = null; renderList(null); panel.body.scrollTop = 0; }));
-    nodes.push(bar);
-  }
+  if (!q && (!flat || many)) nodes.push(bar(flat ? upBtn()
+    : btn(BACK, r && many ? `Страны: ${rootTitle(r)}` : "Все страны", () => { currentCountry = null; renderList(null); panel.body.scrollTop = 0; })));
   if (needsAccess && dirs.length) nodes.push(accessRow());
   if (busy) nodes.push(h("p", "pb-hint", `Читаю снимки… проверено ${checked}`));
   if (q && !list.length) nodes.push(h("p", "pb-hint", "Ничего не нашлось"));
-  setFold(list, list.length > 1);
+  setFold(list, list.length > 1, !q && !!r);
   nodes.push(...rows(list));
   const keep = panel.body.scrollTop;
   panel.body.replaceChildren(...nodes);
@@ -1113,8 +1142,9 @@ const differ = (a, b) => a.reduce((n, bit, i) => n + (bit !== b[i]), 0);
 
 async function findDups() {
   const run = ++dupRun, token = scan;
-  const list = [...photos.values()].filter((p) => p.handle && p.album.title !== "Избранное");
-  dups = { busy: true, scan, step: "", done: 0, total: 0, same: [], like: [], keep: new Map(), moving: 0 };
+  const r = root();
+  const list = [...photos.values()].filter((p) => p.handle && rootOf(p.album) === r && p.album.title !== "Избранное");
+  dups = { busy: true, scan, root: r, step: "", done: 0, total: 0, same: [], like: [], keep: new Map(), moving: 0 };
   const step = (text, total) => { Object.assign(dups, { step: text, done: 0, total }); renderDups(); };
   const tick = () => { if (++dups.done % 25 === 0) renderDups(); };
   const stale = () => run !== dupRun || token !== scan;
@@ -1168,11 +1198,10 @@ async function findDups() {
 
 const keepOf = (g) => dups.keep.get(g) || [...g].sort((x, y) => (y.size || 0) - (x.size || 0) || y.album.photos.length - x.album.photos.length
   || x.name.length - y.name.length)[0]; // «IMG_1.jpg» раньше «IMG_1 — копия.jpg»
-// где лежит: своя папка (если их несколько), поездка, альбом
+// где лежит: поездка, альбом (дубликаты ищутся внутри одной своей папки)
 function placeOf(a) {
   const parts = [a.title];
   for (let g = a.parent && groups.get(a.parent); g; g = g.parent && groups.get(g.parent)) parts.unshift(g.title);
-  if (dirs.length > 1) parts.unshift(a.id.split("/")[0]);
   return parts.join(" / ");
 }
 
@@ -1180,13 +1209,17 @@ function openDups() {
   dupView = true;
   openAlbum = null;
   openGroup = null;
-  if (!dups || (!dups.busy && dups.scan !== scan)) findDups(); else renderDups();
+  if (!dups || dups.root !== root() || (!dups.busy && dups.scan !== scan)) findDups(); else renderDups();
   panel.body.scrollTop = 0;
 }
 
 function renderDups() {
   if (!dupView || !dups) return;
-  panel.setTitle("Дубликаты");
+  // идёт поиск — меняется только строка счёта: панель не перестраивается каждые 25 снимков, и стрелка «К альбомам»
+  // успевает нажаться (Грегори 2026-11-26: «этот режим забирает на себя всё управление и не позволяет из него выйти»)
+  const progress = dups.busy && panel.body.querySelector(".al-dup-progress");
+  if (progress) { progress.textContent = `${dups.step}… ${dups.done} из ${dups.total}`; return; }
+  panel.setTitle(sources().length > 1 ? `Дубликаты: ${rootTitle(dups.root)}` : "Дубликаты");
   setFold([]);
   const bar = h("div", "pb-bar");
   bar.append(btn(BACK, "К альбомам", () => { renderList(currentCountry); panel.body.scrollTop = 0; }));
@@ -1195,7 +1228,7 @@ function renderDups() {
   const sections = [];
   bar.append(links);
   const nodes = [bar];
-  if (dups.busy) nodes.push(h("p", "pb-hint al-dup-hint", `${dups.step}… ${dups.done} из ${dups.total}`));
+  if (dups.busy) nodes.push(h("p", "pb-hint al-dup-hint al-dup-progress", `${dups.step}… ${dups.done} из ${dups.total}`));
   else {
     const extra = dups.same.flatMap((g) => g.filter((p) => p !== keepOf(g)));
     const size = extra.reduce((n, p) => n + (p.size || 0), 0);
@@ -1430,15 +1463,19 @@ const MODE = { icon: svg(STACK_D, 20), title: "Мои альбомы", placehold
 // первой строкой — своя папка со снимками (на компьютере), прямо здесь, а не в настройках
 // (Грегори, 2026-11-02: «в треках файлы выбираются на месте, для фото надо лазать по меню»)
 function countryItems() {
+  const r = root();
   const folder = !canFolders() ? [] : [...(needsAccess && dirs.length ? [{ id: "#folder", icon: OPEN_ICON, title: accessTitle(),
     hint: "Снимки с этого компьютера никуда не отправляются" }] : []),
     // свои папки — под ней, у каждой крестик «Убрать папку» (Грегори 2026-11-11: раздел папок в настройках
-    // закомментирован — убрать было негде); снимки на диске не трогаются
-    ...(needsAccess ? [] : dirs.map((d, i) => ({ id: `#dir:${i}`, icon: FOLDER_ICON, title: dirTitle(d), hint: "Своя папка со снимками",
+    // закомментирован — убрать было негде); снимки на диске не трогаются. Щелчок — альбомы этой папки
+    ...(needsAccess || currentRoot ? [] : dirs.map((d, i) => ({ id: `#dir:${i}`, icon: FOLDER_ICON, title: dirTitle(d), hint: "Своя папка со снимками",
       remove: { title: `Убрать папку «${d.name}»`, fn: () => confirm(`Убрать папку «${d.name}» из альбомов? Снимки на диске останутся.`)
         && forgetFolder(d, () => isOpen("albums") && !currentCountry && renderList(null)) } })))];
-  const list = countries().map(([name, n]) => ({ id: name, title: `${name} (${n})`, thumb: flagUrl(isoOf(name)) || "",
-    icon: isoOf(name) ? "" : ICON, selected: currentCountry === name && isOpen("albums") }));
+  const count = (s) => tops().filter((x) => rootOf(x) === s).reduce((n, x) => n + (x.group ? tally(x).list.length : 1), 0);
+  const list = r ? countries().map(([name, n]) => ({ id: name, title: `${name} (${n})`, thumb: flagUrl(isoOf(name)) || "",
+    icon: isoOf(name) ? "" : ICON, selected: currentCountry === name && isOpen("albums") }))
+    : [SITE_ROOT, PHONE_ROOT].filter((s) => sources().includes(s)).map((s) => ({ id: `#root:${s}`, icon: s === PHONE_ROOT ? svg(CAMERA_D) : ICON,
+      title: `${rootTitle(s)} — альбомов ${count(s)}`, hint: s === PHONE_ROOT ? "Папки галереи телефона" : "Альбомы, выложенные на сайте" }));
   // в приложении без доступа к галерее — строка «Показать снимки телефона» (Android спросит разрешение)
   const phone = phoneApp() && phoneAccess() === "none" ? [{ id: "#phone", icon: OPEN_ICON, title: "Показать снимки телефона", hint: "Папки галереи — альбомами; снимки никуда не отправляются" }] : [];
   const retry = scanErr ? [{ id: "#retry", icon: ICON, title: scanErr }]
@@ -1460,11 +1497,19 @@ function addFolder() {
 }
 // окно выбора папки — прямо по нажатию (иначе браузер его не откроет); после выбора — снова список стран
 function chooseItem(country) {
-  if (country?.startsWith("#dir:")) return; // строка своей папки — только крестик «Убрать»
+  if (country?.startsWith("#dir:")) { const d = dirs[+country.slice(5)]; if (d) openRoot(d.name); return; }
+  if (country?.startsWith("#root:")) { openRoot(country.slice(6)); return; }
   if (country === "#retry") { if (loading) rescan(); else load(ctx); return; }
   if (country === "#phone") { try { AtlasPhotos.ask(); } catch { /* старое приложение */ } return; }
   if (country === "#folder") { addFolder(); return; }
   if (country) openCountry(country);
+}
+
+function openRoot(r) {
+  currentRoot = r;
+  currentCountry = null;
+  openCountry(null);
+  drawMap();
 }
 
 function openCountry(country) {
@@ -1528,6 +1573,7 @@ on("album-open", async ({ id, ctx: c }) => {
   await load(c).catch(() => {});
   const a = albums.get(id);
   if (!a) return;
+  currentRoot = rootOf(a);
   openCountry(countryOf(topOf(a)));
   openAlbumById(id);
 }, { replay: false });
@@ -1539,6 +1585,7 @@ panel.onClose(() => {
   openAlbum = null;
   openGroup = null;
   currentCountry = null;
+  currentRoot = null;
   searchText = "";
   showOnMap(false);
   if (searchMode() === MODE) setSearchMode(null);
@@ -1556,7 +1603,7 @@ function wire() {
     if (!shown) return;
     const f = map.queryRenderedFeatures(e.point, { layers: LAYERS.filter((id) => map.getLayer(id)) })[0];
     if (!f) return;
-    if (f.properties.album) { const a = albums.get(f.properties.album); if (a) { renderList(countryOf(topOf(a))); openAlbumById(a.id); } return; }
+    if (f.properties.album) { const a = albums.get(f.properties.album); if (a) { currentRoot = rootOf(a); renderList(countryOf(topOf(a))); openAlbumById(a.id); } return; }
     if (f.properties.cluster) {
       map.getSource("albums-photos").getClusterExpansionZoom(f.properties.cluster_id)
         .then((zoom) => map.easeTo({ center: f.geometry.coordinates, zoom: Math.min(zoom, 19) })).catch(() => {});
@@ -1591,6 +1638,7 @@ register({
       ctx = c;
       wire();
       currentCountry = null;
+      currentRoot = null;
       openCountry(null);
       load(c).then(() => isOpen("albums") && !currentCountry && !openAlbum && !openGroup && renderList(null)).catch(() => {});
     },
@@ -1607,8 +1655,9 @@ register({
   stats: () => ({ albums: albums.size, tracks: [...albums.values()].reduce((n, a) => n + a.tracks.length, 0), groups: groups.size, photos: photos.size, located: located().length, thumbs: [...photos.values()].filter((p) => p.thumb).length,
     countries: countries().map(([n, k]) => `${n}:${k}`), busy,
     phone: [...albums.values()].filter((a) => a.id.startsWith(`${PHONE_ROOT}/`)).map((a) => `${a.name}:${a.photos.length}${a.point ? ":место" : ""}`).sort(), shown, dups: dups && { busy: dups.busy, same: dups.same.length, like: dups.like.length, view: dupView }, open: openAlbum?.title || openGroup?.title || null, country: currentCountry,
-    map: shown ? { albums: albumData().features.length, photos: dotData().features.length } : null, oldFirst }),
+    map: shown ? { albums: albumData().features.length, photos: dotData().features.length } : null, oldFirst,
+    root: currentRoot, sources: sources(), flat: !byCountry }),
   pickFolder: () => pickFolder(),
   forgetFolder: (name) => forgetFolder(dirs.find((d) => d.name === name)),
-  openFirst: (title) => { const a = [...albums.values()].find((x) => !title || x.title === title); if (!a) return false; openCountry(countryOf(a)); openAlbumById(a.id); return true; },
+  openFirst: (title) => { const a = [...albums.values()].find((x) => !title || x.title === title); if (!a) return false; currentRoot = rootOf(a); openCountry(countryOf(a)); openAlbumById(a.id); return true; },
 });

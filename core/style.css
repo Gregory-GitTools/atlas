@@ -2027,16 +2027,38 @@ body.labels-off.numbers-off .carousel .layers-item > span {
   transition: transform 0.25s ease;
 }
 
+/* четвёртая — плеер (core/player-window.js); светится, пока играет */
+.player-toggle {
+  position: fixed;
+  right: var(--side-r);
+  top: calc(var(--top-inset) + 4 * var(--gap) + 3 * var(--button));
+  z-index: 26;
+  transition: transform 0.25s ease;
+}
+
+/* плеер на телефоне — во весь экран поверх карты; «Свернуть» прячет, музыка играет дальше */
+.player-frame {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #1b1b1f;
+}
+
 /* кнопки барабанов — скруглённые квадраты, как значок Atlas в шторке телефона: не сливаются с круглыми кнопками
    барабанов (Грегори 2026-11-24: «поменять форму главных кнопок на скруглённую прямоугольную, как кнопки на Samsung») */
 .search-toggle,
 .places-toggle,
-.wheel-toggle {
+.wheel-toggle,
+.player-toggle {
   border-radius: 28%;
 }
 
 .wheel-toggle.open,
-.places-toggle.open {
+.places-toggle.open,
+.player-toggle.open {
   background: var(--panel);
   color: var(--text);
   box-shadow: var(--shadow);
@@ -2044,7 +2066,8 @@ body.labels-off.numbers-off .carousel .layers-item > span {
 }
 
 .wheel-toggle.open:hover,
-.places-toggle.open:hover {
+.places-toggle.open:hover,
+.player-toggle.open:hover {
   background: var(--panel-hover);
 }
 
@@ -4576,31 +4599,6 @@ body.go-nav-off .go-menu {
 
 .carousel .layers-item:hover .layers-icon.thumb {
   background: var(--panel-hover);
-}
-
-/* «Альбом 2» (content/albums2.js): над сеткой альбома — назад, счёт снимков, «Смотреть»; у ролика — ▶ */
-.a2-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 4px 8px;
-}
-
-.a2-sub {
-  flex: 1;
-  min-width: 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.a2-play {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: #fff;
-  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.6));
-  pointer-events: none;
 }
 
 /* «Музыка» (content/music.js): переключатель плееров, APlayer как есть, у Amplitude — свой вид */
