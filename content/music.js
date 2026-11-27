@@ -1,6 +1,7 @@
 // Музыка — свои песни с двумя плеерами на выбор (Грегори 2026-11-25: «Сделай новую кнопку музыки с двумя найденными
-// плеерами»): APlayer (готовый вид со списком и обложками) и AmplitudeJS (вид свой, на кнопках и ползунке атласа);
-// переключатель — вверху панели, выбор помнится. Песни — папка с компьютера (доступ хранится в этом браузере, как
+// плеерами»): APlayer (готовый вид со списком и обложками) и AmplitudeJS (вид свой, на кнопках и ползунке атласа).
+// Выбор плеера — кнопками в барабане четвёртой кнопки «Плееры» (Грегори 2026-11-27: «Выбор плееров сделай в новой
+// карусели»), не в панели; выбор помнится. Песни — папка с компьютера (доступ хранится в этом браузере, как
 // в «Альбоме 2») или файлы, выбранные на месте (везде, и на телефоне; до перезапуска). Название, исполнитель и
 // обложка — из тегов ID3 mp3, иначе «Исполнитель - Название» из имени файла и cover/folder.jpg рядом с песней.
 // Панель закрыли — музыка играет дальше, кнопка остаётся отмеченной; её крестик — пауза и закрыть.
@@ -50,7 +51,6 @@ const panel = createPanel({ id: "music", title: "Музыка", icon: svg(NOTE_D
 // «Добавить папку с музыкой…» — значком в шапке, а не строкой (Грегори 2026-11-26)
 const addBtn = panel.addButton(svg(FOLDER_ADD_D), "Добавить папку с музыкой…", () => addFolder());
 addBtn.hidden = !canFolders();
-const switcher = h("div", "mu-switch");
 const host = h("div", "mu-player");
 const list = h("div", "home-list mu-list");
 const note = h("p", "pb-hint mu-note");
@@ -193,20 +193,6 @@ function paintNote() {
   note.textContent = status || (reading ? "Читаю папки…" : songs.length ? "" : "Добавьте папку с музыкой или выберите файлы — песни играют прямо здесь и никуда не отправляются");
   note.hidden = !note.textContent;
 }
-function paintSwitch() {
-  switcher.replaceChildren(...Object.entries(PLAYERS).map(([id, p]) => {
-    const b = Object.assign(h("button", `text-btn mu-pick${id === which ? " on" : ""}`, p.title), { type: "button" });
-    b.dataset.player = id;
-    b.addEventListener("click", () => {
-      if (id === which) return;
-      which = id;
-      localStorage.setItem(PLAYER_KEY, id);
-      paintSwitch();
-      mount();
-    });
-    return b;
-  }));
-}
 function render() {
   list.replaceChildren();
   for (const d of dirs) {
@@ -221,9 +207,8 @@ function render() {
     list.append(line);
   }
   list.append(row(FILE_ICON, picked.length ? `Выбрать файлы… (выбрано ${picked.length})` : "Выбрать файлы…", "Песни с этого устройства — до перезапуска", () => input.click()));
-  paintSwitch();
   paintNote();
-  panel.body.replaceChildren(list, note, switcher, host);
+  panel.body.replaceChildren(list, note, host);
 }
 
 // ---------- плееры ----------
@@ -308,9 +293,10 @@ panel.onClose(() => {
 register({
   id: "content/music",
   kind: "content",
+  drum: "player", // кнопки «APlayer» и «Amplitude» в барабане плееров, не в разделах
   title: "Музыка",
   tone: "my",
-  hint: "Свои песни — с компьютера или телефона; два плеера на выбор: APlayer и Amplitude",
+  hint: "Свои песни — с компьютера или телефона в плеере APlayer или Amplitude",
   icon: ICON,
   sends: "ничего: песни играют с устройства; программы плееров (APlayer, AmplitudeJS) — с jsdelivr",
   column: {
@@ -325,6 +311,15 @@ register({
       if (dirs.length) readAll();
     },
     items: () => [],
+    players: Object.entries(PLAYERS).map(([id, p]) => ({ id, title: p.title })),
+    player: () => which,
+    // другой плеер — песни те же, играют в нём
+    pick: (id) => {
+      if (id === which || !PLAYERS[id]) return;
+      which = id;
+      localStorage.setItem(PLAYER_KEY, id);
+      if (started) mount();
+    },
     choose: () => {},
     // играет — кнопка отмечена и без панели; её крестик — пауза и закрыть
     isOpen: () => isOpen("music") || playing(),

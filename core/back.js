@@ -39,6 +39,3 @@ addEventListener("keydown", (e) => {
   e.preventDefault();
   history.back();
 });
-
-// для проверки
-export const backDepth = () => stack.length;

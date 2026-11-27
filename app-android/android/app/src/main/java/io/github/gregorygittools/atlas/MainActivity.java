@@ -179,6 +179,12 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface public String version() {
             try { return getPackageManager().getPackageInfo(getPackageName(), 0).versionName; } catch (Exception e) { return ""; }
         }
+        // музыкальное приложение телефона (Грегори 2026-11-27: «плеер… от телефона») — какое выбрано у системы;
+        // false — такого нет
+        @JavascriptInterface public boolean openMusic() {
+            try { startActivity(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_MUSIC).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return true; }
+            catch (Exception e) { return false; }
+        }
         // файл сайта (GPX, KML, настройки) — в «Загрузки» телефона (Грегори 2026-11-22: «на телефоне не сработал
         // экспорт GPX»: ссылка с download в WebView ничего не делает). Ответ: "" — сохранено, "ask" — ждём
         // разрешения (Android 9 и старше), иначе — текст ошибки

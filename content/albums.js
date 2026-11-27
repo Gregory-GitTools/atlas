@@ -14,14 +14,16 @@
 // клетка со значком LIVE, ролик оживает в галерее. Дубликаты (2026-11-08) — одинаковые и похожие снимки в
 // своих папках, лишние копии — в папку «[Повторы]»
 import { register, isMobile } from "../core/modules.js";
-import { trackIcon, FOLDER_ADD_D, GLOBE_D, sortButton } from "../core/icons.js";
+import { trackIcon, FOLDER_ADD_D, GLOBE_D, PLUS_D, sortButton } from "../core/icons.js";
 import * as settings from "../core/settings.js";
 import { createPanel, isOpen, homeList } from "../core/panel.js";
 import { repoFiles, repoUrl } from "../core/repo.js";
 import { flagUrl } from "../core/flags.js";
 import { countryAt } from "../core/borders.js";
 import { emit, on } from "../core/events.js";
-import { parseFile } from "./tracks.js";
+import { parseFile } from "./track-file.js";
+import { readMeta, exifr } from "./albums-meta.js";
+import { parseStory, decode } from "./albums-story.js";
 import { setSearchMode, searchMode } from "../core/search.js";
 import { cacheGet, cacheSet, cacheDelete } from "../core/storage.js";
 import { track, claimLayers } from "../core/popups.js";
@@ -34,7 +36,7 @@ const STACK_D = "M22 16V4c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1
 const CAMERA_D = "M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM9 2 7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z";
 const ICON = svg(STACK_D);
 // строка «Открыть папку…» в списке — тот же плюс, что «Открыть файл…» у треков
-const OPEN_ICON = svg("M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z");
+const OPEN_ICON = svg(PLUS_D);
 const FOLDER_ICON = svg("M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z");
 const BACK = svg("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z", 20);
 const COLOR = "#7c4dff"; // --tone-my
@@ -84,6 +86,16 @@ const photos = new Map(); // "album/0:Фото/Рига/r.jpg" → { id, album, 
 let scan = 0, ctx = null, loading = null;
 // свои папки со снимками (Грегори 2026-11-03: «+ Добавить папку») — доступ к каждой в IndexedDB albums/dirs
 let dirs = [], needsAccess = false, busy = false, checked = 0;
+// что сейчас делает обход — строкой над списком, она меняется на месте, список не перестраивается (Грегори 2026-11-27:
+// «Если зайти в большую папку то не видна процесса сканирования. Все висит и мигает»): обход папок, место каждого
+// альбома (до 25 снимков), даты и места всех снимков — в фоне, ближние к карте первыми
+let phase = { step: "", done: 0, total: 0 };
+function progress() {
+  if (phase.step === "walk") { let d = 0, f = 0; for (const x of found.values()) { d += x.dirs; f += x.files; } return `Обхожу папки… папок ${d}, снимков ${f}`; }
+  if (phase.step === "probe") return `Ищу, где сняты альбомы… ${phase.done} из ${phase.total}`;
+  if (phase.step === "finish") return `Читаю даты и места всех снимков… альбомов ${phase.done} из ${phase.total}, снимков ${checked}`;
+  return "Читаю альбомы…";
+}
 const canFolders = () => "showDirectoryPicker" in window && !isMobile();
 // папки галереи телефона — альбомы (Грегори 2026-11-24: «показывать»; приложение 1.9 — AtlasPhotos.all/place):
 // снимки — по адресам https://phone.invalid/… (Photos.java), место — из EXIF по одному снимку
@@ -164,43 +176,7 @@ async function walk(handle, path, token, root) {
 
 // ---------- рассказ альбома (подписи-экскурсии, как в travel-earth, Грегори 2026-09-30: «положить текстовые
 // файлы в альбомы как экскурсии») ----------
-// Формат для Блокнота: «# Название» — название рассказа (иначе имя файла); «## Раздел» — заголовок;
-// строка, где только имя снимка из этой папки, — абзац сразу под ней становится подписью к снимку;
-// остальное — абзацы рассказа (пустая строка — новый абзац). Несколько файлов — по порядку имён.
-// Кодировка — UTF-8, не читается — Windows-1251 (старый Блокнот)
-export function parseStory(texts, names) {
-  const byName = new Map(names.map((n) => [n.toLowerCase(), n]));
-  // имя без расширения тоже годится: «IMG_1234» — и для IMG_1234.HEIC, и для живого фото
-  for (const n of names) { const k = n.replace(/\.[^.]+$/, "").toLowerCase(); if (!byName.has(k)) byName.set(k, n); }
-  const blocks = [], captions = new Map();
-  let title = "", para = [], photo = null;
-  const endPara = () => {
-    if (!para.length) return;
-    const text = para.join(" ");
-    if (photo) { captions.set(photo.toLowerCase(), text); blocks.push({ type: "photo", file: photo, text }); photo = null; } else blocks.push({ type: "p", text });
-    para = [];
-  };
-  const endPhoto = () => { if (photo) { blocks.push({ type: "photo", file: photo, text: "" }); photo = null; } };
-  for (const [name, text] of [...texts].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))) {
-    for (const raw of text.replace(/^\uFEFF/, "").split(/\r?\n/)) {
-      const line = raw.trim();
-      if (!line) { endPara(); continue; }
-      const head = /^(#{1,3})\s+(.+)/.exec(line);
-      if (head) {
-        endPara(); endPhoto();
-        if (head[1] === "#" && !title) title = head[2]; else blocks.push({ type: "h", text: head[2] });
-        continue;
-      }
-      const file = byName.get(line.toLowerCase());
-      if (file) { endPara(); endPhoto(); photo = file; continue; }
-      para.push(line);
-    }
-    endPara(); endPhoto();
-    if (!title) title = name.replace(/\.(txt|md)$/i, "");
-  }
-  return blocks.length ? { title, blocks, captions } : null;
-}
-const decode = (bytes) => { try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { return new TextDecoder("windows-1251").decode(bytes); } };
+// разбор и формат файлов — content/albums-story.js
 function loadStory(a) {
   return (a.storyLoad ??= Promise.all(a.texts.map(async (t) => {
     const bytes = t.handle ? await (await t.handle.getFile()).arrayBuffer() : await fetch(t.url).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.status))));
@@ -259,95 +235,16 @@ function tally(g) {
 }
 
 // ---------- EXIF: координаты и дата, помнятся на устройстве ----------
-// unpkg не ответил — та же версия с jsdelivr (Грегори 2026-11-24: «альбом не загружается» — без программы
-// обход стоял, список пустой)
-let exifrLoad = null, noExif = false, scanErr = ""; // scanErr — почему обход своей папки не удался (строкой в списке)
+let noExif = false, scanErr = ""; // scanErr — почему обход своей папки не удался (строкой в списке)
 // что нашёл обход в каждой своей папке — в её строке списка (Грегори 2026-11-24: папка добавлена, а «Альбомов пока нет»
 // без объяснений): папки → { dirs: прочитано папок, files: снимков и роликов, bad: не открылось папок, done }
 const found = new Map();
-const exifr = () => (exifrLoad ??= import("https://unpkg.com/exifr@7.1.3/dist/full.esm.mjs")
-  .catch(() => import("https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.esm.mjs"))
-  .then((m) => m.default || m).catch((err) => { exifrLoad = null; throw err; }));
-const OPTS = { tiff: true, exif: true, gps: true, xmp: false, icc: false, iptc: false, jfif: false, ihdr: false, translateValues: false };
-
+// место и дата снимка — один раз (content/albums-meta.js); программа чтения не загрузилась — без них
 async function exifOf(p) {
   if (p.rec) return p.rec;
-  let key = p.key, file = null;
-  // снимок телефона: дата — из галереи (настоящее время), место — EXIF через приложение; «-» — место не
-  // разрешено: без места и не запоминаем (разрешат — прочитается)
-  if (p.phone) {
-    const hit = await cacheGet(key).catch(() => null);
-    checked++;
-    if (hit) return (p.rec = hit);
-    let ll = "";
-    try { ll = AtlasPhotos.place(p.phone); } catch { /* старое приложение */ }
-    const [lat, lon] = ll.split(",").map(Number), rec = { ...(p.at ? { date: p.at } : {}), ...(ll.includes(",") ? { lat, lon } : {}) };
-    if (ll !== "-") cacheSet(key, rec).catch(() => {});
-    return (p.rec = rec);
-  }
-  try {
-    if (p.handle) { file = await p.handle.getFile(); key = `exif/local/${p.path}|${file.size}|${file.lastModified}`; }
-    const hit = await cacheGet(key).catch(() => null);
-    if (hit) { checked++; return (p.rec = hit); }
-    if (p.video) {
-      const rec = file ? await movMeta(file).catch(() => ({})) : {};
-      cacheSet(key, rec).catch(() => {});
-      checked++;
-      return (p.rec = rec);
-    }
-    // у снимка из репозитория EXIF — в начале файла: хватает первых 128 КБ
-    const src = file || await fetch(p.url, { headers: { Range: "bytes=0-131071" } }).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.status))));
-    const lib = await (noExif ? Promise.reject(new Error("exifr")) : exifr()); // не загрузилась — снимок без места, но в память не пишем: прочитается при «Повторить»
-    const rec = {};
-    try {
-      const e = await lib.parse(src, OPTS);
-      if (Number.isFinite(e?.latitude) && Number.isFinite(e?.longitude) && (e.latitude || e.longitude)) Object.assign(rec, { lat: e.latitude, lon: e.longitude });
-      // у уменьшенных копий в «Альбомах» остаётся только дата сохранения (DateTime) — тоже годится
-      const d = [e?.DateTimeOriginal, e?.CreateDate, e?.ModifyDate].find((x) => x instanceof Date);
-      if (d) rec.date = d.getTime();
-      // часовой пояс съёмки («+03:00») — снимок встаёт на трек точно по времени (фото на треке)
-      const tz = /^([+-])(\d\d):?(\d\d)$/.exec(String(e?.OffsetTimeOriginal || e?.OffsetTime || "").trim());
-      if (d && tz) rec.tz = (tz[1] === "-" ? -1 : 1) * (Number(tz[2]) * 60 + Number(tz[3]));
-    } catch { /* без EXIF */ }
-    cacheSet(key, rec).catch(() => {});
-    checked++;
-    return (p.rec = rec);
-  } catch {
-    // файл не прочитался (нет сети, облачная заглушка) — без координат, но и в память не пишем
-    checked++;
-    return (p.rec = {});
-  }
-}
-
-// дата и место ролика — из его оглавления (атом moov, QuickTime/MP4), сам ролик не читается: дата —
-// com.apple.quicktime.creationdate (местное время, как у снимков), иначе mvhd (секунды с 1904 года);
-// место — строка ISO 6709 «+59.4370+024.7536+012.000/» (iPhone, Android)
-async function movMeta(file) {
-  const bytes = async (o, n) => new Uint8Array(await file.slice(o, o + n).arrayBuffer());
-  let o = 0, moov = null;
-  while (o + 8 <= file.size) {
-    const b = await bytes(o, 16), v = new DataView(b.buffer);
-    let size = v.getUint32(0);
-    const type = String.fromCharCode(...b.subarray(4, 8));
-    if (size === 1) size = Number(v.getBigUint64(8)); else if (size === 0) size = file.size - o;
-    if (size < 8) break;
-    if (type === "moov") { moov = await bytes(o, Math.min(size, 16 << 20)); break; }
-    o += size;
-  }
-  const rec = {};
-  if (!moov) return rec;
-  const text = new TextDecoder("latin1").decode(moov);
-  const local = text.match(/(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)[+-]\d{2}:?\d{2}/);
-  const i = text.indexOf("mvhd");
-  if (local) rec.date = new Date(local[1]).getTime();
-  else if (i > 0) {
-    const v = new DataView(moov.buffer);
-    const t = moov[i + 4] === 1 ? Number(v.getBigUint64(i + 8)) : v.getUint32(i + 8);
-    if (t > 0) rec.date = (t - 2082844800) * 1000;
-  }
-  const at = text.match(/([+-]\d{2}\.\d{3,})([+-]\d{3}\.\d{3,})/);
-  if (at && (+at[1] || +at[2])) Object.assign(rec, { lat: +at[1], lon: +at[2] });
-  return rec;
+  p.rec = await readMeta(p, noExif);
+  checked++;
+  return p.rec;
 }
 
 async function locate(a) {
@@ -364,7 +261,8 @@ const trackCount = (n) => (n ? plural(n, "трек", "трека", "треков
 // «Избранного» — название поездки)
 const trackTitle = (a) => (a.parent && (a.title === "Снимки поездки" || a.title === "Избранное") ? groups.get(a.parent)?.title || a.title : a.title);
 const sendTracks = () => emit("album-tracks", [...albums.values()].flatMap((a) => a.tracks.map((t) => ({ key: t.key, name: t.name.replace(/\.\w+$/, ""),
-  file: t.name, handle: t.handle, dir: t.dir, root: t.root, albumId: a.id, albumTitle: trackTitle(a) }))));
+  file: t.name, handle: t.handle, dir: t.dir, root: t.root, albumId: a.id, albumTitle: trackTitle(a),
+  where: () => pathText(`${a.id}/${t.name}`), copy: () => copyPath(t.root, a.id.split("/").slice(1)) }))));
 const countryOf = (a) => (a.group ? tally(a).country : a.country?.name) || NO_COUNTRY;
 
 // ---------- обход ----------
@@ -414,11 +312,15 @@ async function scanAll() {
   await listRepo().catch(() => {});
   listPhone();
   nest("Альбомы");
+  phase = { step: "walk", done: 0, total: 0 };
   if (!needsAccess) for (const d of dirs) { await walk(d, d.name, token, d); if (token !== scan) return; found.get(d).done = true; refresh(); }
   if (token !== scan) return;
   for (const d of dirs) nest(d.name);
   sendTracks();
+  phase = { step: "probe", done: 0, total: albums.size };
   for (const a of albums.values()) {
+    phase.done++;
+    refresh();
     for (const id of a.photos.slice(0, PROBE)) {
       const r = await exifOf(photos.get(id));
       if (r.lat) { a.point = [r.lon, r.lat]; break; }
@@ -434,6 +336,7 @@ async function scanAll() {
     for (;;) {
       if (token !== scan) return;
       const rest = [...albums.values()].filter((a) => !a.done);
+      phase = { step: "finish", done: albums.size - rest.length, total: albums.size };
       if (!rest.length) break;
       const c = ctx?.map.getCenter();
       const dist = (a) => (a.point && c ? Math.hypot(a.point[0] - c.lng, a.point[1] - c.lat) : 1e9);
@@ -441,6 +344,7 @@ async function scanAll() {
       refresh();
     }
     busy = false;
+    phase = { step: "", done: 0, total: 0 };
     refresh();
   })();
 }
@@ -481,9 +385,14 @@ const isoOf = (name) => [...albums.values()].find((a) => a.country?.name === nam
 const queue = [];
 let working = 0;
 const fileOf = async (p) => (p.handle ? p.handle.getFile() : (await fetch(p.url)).blob());
-function thumbOf(p) {
-  if (p.thumbing) return p.thumbing;
-  p.thumbing = new Promise((resolve) => { queue.push([p, resolve]); pump(); });
+// first — клетка на экране: вперёд очереди (иначе в большой папке она ждёт, пока сделаются миниатюры для карты)
+function thumbOf(p, first = false) {
+  if (p.thumbing) {
+    const i = first ? queue.findIndex((q) => q[0] === p) : -1;
+    if (i > 0) queue.unshift(...queue.splice(i, 1));
+    return p.thumbing;
+  }
+  p.thumbing = new Promise((resolve) => { if (first) queue.unshift([p, resolve]); else queue.push([p, resolve]); pump(); });
   return p.thumbing;
 }
 function pump() {
@@ -664,11 +573,19 @@ function drawMap() {
   ctx.map.getSource("albums-tracks")?.setData(trackData());
   setStripItems("albums", onMap().filter((p) => p.thumb).map(stripItem));
 }
+// пока читаются снимки — строка хода меняется сразу, карта и список — не чаще раза в 1,5 с, не под нажатием и только
+// если в них что-то изменилось
+let lastDraw = 0, drawLater = 0, pressing = false;
 function refresh() {
   cancelAnimationFrame(frame);
   frame = requestAnimationFrame(() => {
+    for (const el of panel.body.querySelectorAll(".al-progress")) el.textContent = progress();
+    const wait = busy ? 1500 - (performance.now() - lastDraw) : 0;
+    clearTimeout(drawLater);
+    if (wait > 0 || pressing) { drawLater = setTimeout(refresh, Math.max(wait, 300)); return; }
+    lastDraw = performance.now();
     drawMap();
-    if (isOpen("albums") && !openAlbum && !searchText && !dupView) { if (openGroup) renderGroup(true); else renderList(currentCountry); }
+    if (isOpen("albums") && !openAlbum && !searchText && !dupView && !waitingFor) { if (openGroup) renderGroup(true, true); else renderList(currentCountry, "", true); }
   });
 }
 const stripItem = (p) => ({ id: p.id, coordinates: pt(p), thumb: p.thumb, title: [p.album.title, photoDate(p)].filter(Boolean).join(" · "),
@@ -702,6 +619,19 @@ function showPhoto(p) {
   track(new ctx.maplibregl.Popup({ offset: p.img && ctx.map.getZoom() >= THUMB_ZOOM ? 26 : 8, maxWidth: "300px" }))
     .setLngLat(pt(p)).setDOMContent(box).addTo(ctx.map).on("close", () => { selectStripItem(null, p.id); if (popupPhoto === p.id) popupPhoto = null; });
   if (p.thumb) selectStripItem(p.id);
+}
+
+// снимок на карте — его альбом в панели, клетка выделена и прокручена к середине; карта стоит (Грегори 2026-11-27:
+// «Нужно что бы при клике на карте фокус прыгал в этот альбом в панели»)
+function focusPhoto(p) {
+  if (openAlbum !== p.album) { currentRoot = rootOf(p.album); currentCountry = countryOf(topOf(p.album)); openAlbumById(p.album.id, false); }
+  tappedCell = p.id;
+  const cell = [...panel.body.querySelectorAll(".al-cell")].find((c) => c.dataset.id === p.id);
+  if (!cell) return;
+  if (cell.parentElement.hidden) cell.parentElement.previousElementSibling?.click(); // свёрнутый день — раскрыть
+  for (const c of panel.body.querySelectorAll(".al-cell.focus")) c.classList.remove("focus");
+  cell.classList.add("focus");
+  cell.scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
 // у поездки — снимки всех её альбомов подряд, без «Избранного» (там копии)
@@ -793,15 +723,20 @@ const h = (tag, cls, text) => Object.assign(document.createElement(tag), { class
 const btn = (icon, title, fn) => { const b = h("button", "pb-btn"); b.innerHTML = icon; b.title = title; b.addEventListener("click", fn); return b; };
 let currentCountry = null, openAlbum = null, openGroup = null, searchText = "";
 
-// миниатюра, которая сама просит картинку, когда видна
+// палец или кнопка мыши нажаты в панели — список под ними не перестраивается
+panel.body.addEventListener("pointerdown", () => { pressing = true; });
+for (const t of ["pointerup", "pointercancel"]) addEventListener(t, () => { pressing = false; });
+
+// миниатюра, которая сама просит картинку, когда видна; запас — по прокрутке панели (по окну он обрезался краем
+// панели: клетки чуть ниже видимых не готовились заранее и при прокрутке появлялись пустыми)
 const seen = new IntersectionObserver((entries) => {
   for (const e of entries) {
     if (!e.isIntersecting) continue;
     seen.unobserve(e.target);
     const p = photos.get(e.target.dataset.photo);
-    if (p) thumbOf(p).then((src) => { if (src) e.target.src = src; else if (p.noFrame) noFrame(e.target, p); });
+    if (p) thumbOf(p, true).then((src) => { if (src) e.target.src = src; else if (p.noFrame) noFrame(e.target, p); });
   }
-}, { rootMargin: "200px" });
+}, { root: panel.body, rootMargin: "200px" });
 // ролик, который браузер не показывает (HEVC с iPhone, Грегори 2026-11-02: Азоры) — клетка со значком
 // плёнки и подписью почему, а не пустое место; у альбома — подсказка, что поможет
 const NO_CLIP = "Этот браузер не показывает видео с iPhone (формат HEVC)";
@@ -902,9 +837,11 @@ function setFold(items, sortable = false, groupable = false) {
   groupBtn.hidden = !groupable;
   groupBtn.classList.toggle("on", byCountry);
   groupBtn.title = byCountry ? "Разгруппировать" : "Сгруппировать по странам";
-  // дубликаты — внутри открытой своей папки
+  // дубликаты — в открытой своей папке, в «Все папки» — во всех своих папках (Грегори 2026-11-27: «Дубликаты нужно
+  // искать в указанной папке (в окне все папки) во всех папках»)
   const r = root();
-  dupBtn.hidden = dupView || !r || ![...photos.values()].some((p) => p.handle && rootOf(p.album) === r);
+  dupBtn.hidden = dupView || ![...photos.values()].some((p) => p.handle && under(r)(p.album));
+  dupBtn.title = r ? "Найти дубликаты снимков" : "Найти дубликаты снимков во всех папках";
   panel.setIcon(dupView ? FIND_DUPS : undefined);
   const all = allFolders(items), open = all.length > 0 && all.every((g) => expanded.has(g.id));
   foldBtn.hidden = !all.length;
@@ -928,8 +865,10 @@ function accessRow() {
   return b;
 }
 
-function renderList(country, query = "") {
+let listSig = "";
+function renderList(country, query = "", quiet = false) {
   const was = openAlbum || openGroup;
+  if (!quiet) waitingFor = null;
   openAlbum = null;
   openGroup = null;
   dupView = false;
@@ -948,18 +887,25 @@ function renderList(country, query = "") {
   const bar = (b) => { const x = h("div", "pb-bar"); x.append(b); return x; };
   // папка не выбрана — папки (первый уровень); в папке — её страны, у списка страны — стрелка к ним
   if (!q && !currentCountry && !flat) {
+    const items = countryItems(), sig = ["home", r, busy, ...items.map((x) => x.title)].join("|");
+    // обход дошёл до нового альбома, а строки те же — список стоит (не мигает, нажатие не теряется)
+    if (quiet && sig === listSig) return;
+    listSig = sig;
     panel.setTitle(r ? rootTitle(r) : "Мои альбомы");
     setFold([], false, !!r);
-    panel.body.replaceChildren(...(r && currentRoot && many ? [bar(upBtn())] : []), ...(busy ? [h("p", "pb-hint", `Читаю снимки… проверено ${checked}`)] : []),
-      homeList(countryItems(), chooseItem));
+    panel.body.replaceChildren(...(r && currentRoot && many ? [bar(upBtn())] : []), ...(busy ? [h("p", "pb-hint al-progress", progress())] : []),
+      homeList(items, chooseItem));
     return;
   }
+  const sig = ["list", r, q, currentCountry, busy, needsAccess, ...list.map((x) => `${x.id}:${from(x)}:${x.group ? tally(x).photos : x.photos.length}`)].join("|");
+  if (quiet && sig === listSig) return;
+  listSig = sig;
   panel.setTitle(q ? "Найденные альбомы" : flat ? rootTitle(r) : currentCountry);
   const nodes = [];
   if (!q && (!flat || many)) nodes.push(bar(flat ? upBtn()
     : btn(BACK, r && many ? `Страны: ${rootTitle(r)}` : "Все страны", () => { currentCountry = null; renderList(null); panel.body.scrollTop = 0; })));
   if (needsAccess && dirs.length) nodes.push(accessRow());
-  if (busy) nodes.push(h("p", "pb-hint", `Читаю снимки… проверено ${checked}`));
+  if (busy) nodes.push(h("p", "pb-hint al-progress", progress()));
   if (q && !list.length) nodes.push(h("p", "pb-hint", "Ничего не нашлось"));
   setFold(list, list.length > 1, !q && !!r);
   nodes.push(...rows(list));
@@ -969,8 +915,11 @@ function renderList(country, query = "") {
 }
 
 // поездка — в той же панели: назад, ▶ все снимки поездки, даты, её альбомы по порядку папок
-function renderGroup(keepScroll) {
+function renderGroup(keepScroll, quiet = false) {
   const g = openGroup, t = tally(g);
+  const sig = ["group", g.id, t.photos, t.from, t.to, ...kidsOf(g).map((x) => x.id)].join("|");
+  if (quiet && sig === listSig) return;
+  listSig = sig;
   panel.setTitle(g.title);
   const bar = h("div", "pb-bar");
   const left = h("div", "tr-bar-left");
@@ -981,7 +930,7 @@ function renderGroup(keepScroll) {
   const keep = panel.body.scrollTop;
   const kids = kidsOf(g);
   setFold(kids);
-  panel.body.replaceChildren(bar, facts, ...rows(kids));
+  panel.body.replaceChildren(bar, facts, pathRow(g), ...rows(kids));
   panel.body.scrollTop = keepScroll ? keep : 0;
 }
 
@@ -1014,10 +963,12 @@ function renderAlbum() {
   const left = h("div", "tr-bar-left");
   const play = btn(PLAYER.play, "Слайд-шоу альбома", () => gallery(a, null, true));
   play.disabled = !a.photos.length;
-  left.append(backBtn(a), play, storyBtn(a));
+  // открыли из трека — стрелка назад в него (Грегори 2026-11-27: «И назад в трек не попасть»)
+  const tb = fromTrack?.album === a.id ? btn(BACK, `Назад в трек «${fromTrack.name}»`, () => emit("track-open", { key: fromTrack.key, ctx, album: { id: a.id, title: a.title } })) : null;
+  left.append(tb || backBtn(a), play, storyBtn(a));
   // трек из папки альбома — в «Моих треках», стрелка оттуда — назад сюда
   for (const t of a.tracks) {
-    const b = btn(trackIcon(20), `Просмотр трека «${t.name.replace(/\.\w+$/, "")}»`, () => emit("track-open", { key: t.key, ctx }));
+    const b = btn(trackIcon(20), `Просмотр трека «${t.name.replace(/\.\w+$/, "")}»`, () => emit("track-open", { key: t.key, ctx, album: { id: a.id, title: a.title } }));
     b.classList.add("al-track");
     left.append(b);
   }
@@ -1057,7 +1008,8 @@ function renderAlbum() {
     blocks.push(grid);
     for (const id of ids) {
     const p = photos.get(id);
-    const cell = h("button", "al-cell");
+    const cell = h("button", "al-cell" + (id === tappedCell ? " focus" : ""));
+    cell.dataset.id = id;
     cell.title = [captionOf(p), photoDate(p), p.name].filter(Boolean).join(" · ");
     const img = lazyImg(p, "");
     cell.append(img);
@@ -1069,6 +1021,7 @@ function renderAlbum() {
     cell.addEventListener("click", () => {
       if (!p.rec?.lat || (touchUI() && tappedCell === id)) { gallery(a, id); return; }
       tappedCell = id;
+      for (const c of panel.body.querySelectorAll(".al-cell.focus")) c.classList.toggle("focus", c === cell);
       ctx.map.flyTo({ center: pt(p), zoom: Math.max(ctx.map.getZoom(), 15), offset: innerWidth <= 600 ? [0, Math.round(innerHeight * 0.22)] : [210, 0], duration: 1500 });
       ctx.map.once("moveend", () => showPhoto(p));
     });
@@ -1079,7 +1032,7 @@ function renderAlbum() {
   // ролики iPhone (.mov) там, где браузер не умеет HEVC, — сразу подсказка (живые фото иначе молча остаются снимками)
   const iphone = a.photos.some((id) => { const p = photos.get(id); return p.noFrame || (!hevc() && /\.mov$/i.test((p.live || p).name)); });
   const keep = openAlbum === renderedAlbum ? panel.body.scrollTop : 0;
-  panel.body.replaceChildren(bar, facts, ...(iphone ? [noClipHint()] : []), ...blocks);
+  panel.body.replaceChildren(bar, facts, pathRow(a), ...(iphone ? [noClipHint()] : []), ...blocks);
   // заново (дочитаны даты) — прокрутка на месте
   panel.body.scrollTop = keep;
   renderedAlbum = openAlbum;
@@ -1087,16 +1040,17 @@ function renderAlbum() {
 const shutDays = new Set(); // свёрнутые дни: «альбом|день», пока открыта страница
 let renderedAlbum = null;
 
-function openAlbumById(id) {
+function openAlbumById(id, fit = true) {
   const a = albums.get(id);
   if (!a) return;
+  if (openAlbum !== a) tappedCell = null;
   openAlbum = a;
   openGroup = null;
   dupView = false;
   renderedAlbum = null; // открыли заново — с начала
   renderAlbum();
   drawMap();
-  fitAlbum(a);
+  if (fit) fitAlbum(a);
   if (!a.done) finish(a).then(() => { refresh(); if (openAlbum === a) renderAlbum(); });
 }
 
@@ -1143,7 +1097,7 @@ const differ = (a, b) => a.reduce((n, bit, i) => n + (bit !== b[i]), 0);
 async function findDups() {
   const run = ++dupRun, token = scan;
   const r = root();
-  const list = [...photos.values()].filter((p) => p.handle && rootOf(p.album) === r && p.album.title !== "Избранное");
+  const list = [...photos.values()].filter((p) => p.handle && under(r)(p.album) && p.album.title !== "Избранное");
   dups = { busy: true, scan, root: r, step: "", done: 0, total: 0, same: [], like: [], keep: new Map(), moving: 0 };
   const step = (text, total) => { Object.assign(dups, { step: text, done: 0, total }); renderDups(); };
   const tick = () => { if (++dups.done % 25 === 0) renderDups(); };
@@ -1198,10 +1152,11 @@ async function findDups() {
 
 const keepOf = (g) => dups.keep.get(g) || [...g].sort((x, y) => (y.size || 0) - (x.size || 0) || y.album.photos.length - x.album.photos.length
   || x.name.length - y.name.length)[0]; // «IMG_1.jpg» раньше «IMG_1 — копия.jpg»
-// где лежит: поездка, альбом (дубликаты ищутся внутри одной своей папки)
+// где лежит: поездка, альбом; искали во всех папках — и своя папка
 function placeOf(a) {
   const parts = [a.title];
   for (let g = a.parent && groups.get(a.parent); g; g = g.parent && groups.get(g.parent)) parts.unshift(g.title);
+  if (dups && !dups.root && dirs.length > 1) parts.unshift(rootOf(a));
   return parts.join(" / ");
 }
 
@@ -1219,7 +1174,7 @@ function renderDups() {
   // успевает нажаться (Грегори 2026-11-26: «этот режим забирает на себя всё управление и не позволяет из него выйти»)
   const progress = dups.busy && panel.body.querySelector(".al-dup-progress");
   if (progress) { progress.textContent = `${dups.step}… ${dups.done} из ${dups.total}`; return; }
-  panel.setTitle(sources().length > 1 ? `Дубликаты: ${rootTitle(dups.root)}` : "Дубликаты");
+  panel.setTitle(sources().length > 1 ? (dups.root ? `Дубликаты: ${rootTitle(dups.root)}` : "Дубликаты во всех папках") : "Дубликаты");
   setFold([]);
   const bar = h("div", "pb-bar");
   bar.append(btn(BACK, "К альбомам", () => { renderList(currentCountry); panel.body.scrollTop = 0; }));
@@ -1280,12 +1235,30 @@ async function askDiskPath(root) {
   await cacheSet("albums/paths", diskPaths).catch(() => {});
   return path;
 }
-async function copyFolderPath(p) {
-  const base = (await pathsOf())[p.root.name] || await askDiskPath(p.root);
+const copyFolderPath = (p) => copyPath(p.root, p.path.split("/").slice(1, -1));
+async function copyPath(d, rel) {
+  const base = (await pathsOf())[d.name] || await askDiskPath(d);
   if (!base) return;
-  const full = [base, ...p.path.split("/").slice(1, -1)].join("\\");
-  try { await navigator.clipboard.writeText(full); ctx?.status(`Путь скопирован: ${full}`); }
+  const full = [base, ...rel].join("\\");
+  try { await navigator.clipboard.writeText(full); ctx?.status(`Путь скопирован: ${full}`); setTimeout(() => ctx?.status(""), 4000); }
   catch { prompt("Скопируйте путь:", full); }
+}
+// где лежит альбом или поездка: путь целиком (своя папка — с диском, если его сказали) и «Скопировать» (Грегори
+// 2026-11-27: «Нужно иметь под рукой возможность или попасть в реальную папку или увидеть полный путь альбома и
+// трека»). Проводник браузер не открывает — путь вставляется в его адресную строку
+function pathText(id) {
+  const parts = id.split("/"), d = dirs.find((x) => x.name === parts[0]), base = d && diskPaths?.[d.name];
+  if (d) return [base || d.name, ...parts.slice(1)].join("\\");
+  return parts[0] === SITE_ROOT ? `Сайт: ${parts.join("/")}` : parts.join(" / ");
+}
+function pathRow(x) {
+  const row = h("div", "al-path");
+  const text = h("span", "al-path-text", pathText(x.id));
+  text.title = text.textContent;
+  row.append(text);
+  const d = dirs.find((y) => y.name === rootOf(x));
+  if (d) row.append(btn(COPY, "Скопировать полный путь к папке — вставьте его в адресную строку Проводника", async () => { await copyPath(d, x.id.split("/").slice(1)); text.textContent = pathText(x.id); }));
+  return row;
 }
 function whereBox(folders) {
   const box = h("div", "al-dup-where");
@@ -1487,7 +1460,7 @@ function countryItems() {
 function dirTitle(d) {
   const st = found.get(d);
   if (!st) return d.name;
-  if (!st.done) return `${d.name} — читаю… папок ${st.dirs}, снимков ${st.files}`;
+  if (!st.done) return `${d.name} — читаю…`;
   const n = [...albums.values()].filter((a) => a.local && a.photos.some((id) => photos.get(id)?.root === d)).length;
   const bad = st.bad ? `, не открылось папок ${st.bad}` : "";
   return st.files ? `${d.name} — альбомов ${n}, снимков ${st.files}${bad}` : `${d.name} — снимков не найдено (папок ${st.dirs}${bad})`;
@@ -1555,7 +1528,7 @@ on("track-photos-wanted", async ({ albumId, from, to, ctx: c, reply }) => {
     const wall = p.video ? null : d - new Date(d).getTimezoneOffset() * 60000;
     const at = p.video ? d : p.rec.tz != null ? wall - p.rec.tz * 60000 : null;
     if ((at ?? wall) < from - DAY || (at ?? wall) > to + DAY) continue;
-    pick.set(p.id, { id: p.id, name: p.name, video: p.video, wall, at, lat: p.rec.lat, lon: p.rec.lon, mine: own.includes(p) });
+    pick.set(p.id, { id: p.id, name: p.name, video: p.video, wall, at, lat: p.rec.lat, lon: p.rec.lon, mine: own.includes(p), albumId: p.album.id, albumTitle: trackTitle(p.album) });
   }
   const list = [...pick.values()];
   // папки есть, а доступа после перезапуска браузера нет — снимков не видно: «Мои треки» покажут кнопку
@@ -1566,19 +1539,49 @@ on("track-photos-wanted", async ({ albumId, from, to, ctx: c, reply }) => {
   reply(out);
 }, { replay: false });
 
-// из трека — назад в его альбом
-on("album-open", async ({ id, ctx: c }) => {
+// из трека — альбом (его папки или снимка на треке); from — трек, «Назад в трек». Панель открывается сразу:
+// большая папка обходится долго, а без доступа к папкам после перезапуска браузера альбома нет вовсе (Грегори
+// 2026-11-27: «После нажатия альбом не читается») — строка хода или «Открыть доступ», альбом — как только его
+// папка пройдена
+let fromTrack = null, albumWait = 0, waitingFor = null;
+on("album-open", async ({ id, title, ctx: c, from }) => {
   ctx = c;
   wire();
-  await load(c).catch(() => {});
+  fromTrack = from ? { ...from, album: id } : null;
+  const run = ++albumWait;
+  if (!albums.has(id)) {
+    let over = false;
+    load(c).catch(() => {}).finally(() => { over = true; });
+    openCountry(currentCountry);
+    panel.setTitle(title || "Альбом");
+    const bar = h("div", "pb-bar");
+    if (from) bar.append(btn(BACK, `Назад в трек «${from.name}»`, () => emit("track-open", { key: from.key, ctx, album: { id, title } })));
+    const why = h("p", "pb-hint", "Открываю альбом…");
+    const ask = needsAccess && dirs.length ? [accessRow()] : [];
+    panel.body.replaceChildren(bar, ...ask, why, h("p", "pb-hint al-progress", progress()));
+    // доступ дадут — обход заново, альбом всё равно откроется; все альбомы известны, как только папки обойдены
+    waitingFor = id;
+    while (!albums.has(id)) {
+      await new Promise((r) => setTimeout(r, 300));
+      if (run !== albumWait || !isOpen("albums") || openAlbum || openGroup || dupView) return;
+      if (needsAccess && dirs.length) why.textContent = "Нет доступа к папкам со снимками — нажмите «Открыть доступ»";
+      else if ((over && !busy) || ["probe", "finish"].includes(phase.step)) {
+        why.textContent = `Альбом «${title || id}» не найден — папку переименовали, перенесли или убрали из альбомов`;
+        return;
+      }
+    }
+    waitingFor = null;
+  }
   const a = albums.get(id);
-  if (!a) return;
   currentRoot = rootOf(a);
   openCountry(countryOf(topOf(a)));
   openAlbumById(id);
 }, { replay: false });
 
 panel.onClose(() => {
+  fromTrack = null;
+  albumWait++;
+  waitingFor = null;
   dupView = false;
   dupRun++;
   dups = null;
@@ -1612,7 +1615,7 @@ function wire() {
     const p = photos.get(f.properties.photo);
     // на телефоне касание снимка, чьё окно уже открыто, — галерея (окно ещё не закрылось: этот обработчик раньше)
     if (p && touchUI() && popupPhoto === p.id) { gallery(p.album, p.id); return; }
-    if (p) showPhoto(p);
+    if (p) { showPhoto(p); focusPhoto(p); }
   });
   // двойной щелчок по снимку — его альбом в галерее, карта не приближается
   map.on("dblclick", (e) => {

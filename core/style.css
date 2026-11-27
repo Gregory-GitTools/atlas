@@ -489,11 +489,9 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 
-/* выбранный размер кнопок и текста (настройки), выбранный плеер («Музыка») */
+/* выбранный размер кнопок и текста (настройки) */
 .size-btn.on,
-.size-btn.on:hover,
-.mu-pick.on,
-.mu-pick.on:hover {
+.size-btn.on:hover {
   border-color: var(--accent);
   background: var(--active);
 }
@@ -2858,6 +2856,28 @@ body.labels-off.numbers-off .carousel .layers-item > span {
   margin: 4px 6px 8px;
 }
 
+/* где лежит альбом или трек: путь целиком (длинный — переносом) и «Скопировать» (Грегори 2026-11-27) */
+.al-path {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: -4px 0 6px 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.al-path-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* снимок, выбранный на карте, — рамкой в альбоме */
+.al-cell.focus {
+  outline: 3px solid var(--tone-my);
+  outline-offset: -3px;
+}
+
 /* день в альбоме: дата, число снимков, стрелка — свернуть */
 .al-day {
   display: flex;
@@ -3150,6 +3170,27 @@ body.has-photo-strip .al-write-ask {
 
 .tk-section {
   margin: 10px 6px 2px;
+}
+
+/* альбомы трека: папка трека и альбомы его снимков — строками (Грегори 2026-11-27) */
+.tk-albums {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.tk-album-n {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* окно снимка трека на карте: его альбом — ссылкой */
+.tk-photo-album {
+  margin-top: 4px;
+  padding-left: 0;
 }
 
 .tk-when {
@@ -4601,13 +4642,7 @@ body.go-nav-off .go-menu {
   background: var(--panel-hover);
 }
 
-/* «Музыка» (content/music.js): переключатель плееров, APlayer как есть, у Amplitude — свой вид */
-.mu-switch {
-  display: flex;
-  gap: 8px;
-  padding: 2px 4px 10px;
-}
-
+/* «Музыка» (content/music.js): APlayer как есть, у Amplitude — свой вид */
 .mu-player [hidden] {
   display: none !important;
 }

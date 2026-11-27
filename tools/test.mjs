@@ -773,6 +773,12 @@ try {
   // столбик; разделы (content/…) — открывает лупа справа вверху, кнопка — сразу панель раздела со списком
   const drumOf = (key) => (key === "places" || key.startsWith("places/") ? "places" : "layers");
   const toggleOf = { places: ".places-toggle", layers: ".wheel-toggle" };
+  // кнопка барабана плееров (четвёртая кнопка справа): открыть барабан, нажать кнопку
+  const playerKey = (key) => `(async () => { const w = (t) => new Promise((r) => setTimeout(r, t));
+    if (document.querySelector(".wheel-player").classList.contains("closed")) { document.querySelector(".player-toggle").click(); await w(400); }
+    document.querySelector('.wheel-player .layers-circle[data-key="${key}"]').click(); await w(400); return true; })()`;
+  const closePlayerDrum = `(async () => { if (!document.querySelector(".wheel-player").classList.contains("closed")) document.querySelector(".player-toggle").click();
+    await new Promise((r) => setTimeout(r, 300)); return true; })()`;
   const openLayers = (key) => key.startsWith("content/") ? `(async () => {
     // лупа открывает поиск с барабаном разделов, а при открытом поиске — закрывает (Грегори 2026-11-04)
     for (let t = 0; t < 3 && document.querySelector(".wheel-content").classList.contains("closed"); t++) {
@@ -1996,13 +2002,14 @@ try {
       await run(gear);
       await run(openLayers("content/albums"));
       await sleep(600);
-      // дубликаты — внутри одной своей папки: среди папок кнопки нет, в папке — есть
+      // дубликаты (Грегори 2026-11-27: «Дубликаты нужно искать в указаной папке (в окне все папки) во всех папках»):
+      // среди папок — во всех, в папке — в ней
       const dupBtn = `document.querySelector('[data-panel="albums"] .panel-head .panel-btn[title="Найти дубликаты снимков"]')`;
-      const dupHome = await run(`!!${dupBtn} && !${dupBtn}.hidden`);
+      const dupHome = await run(`(() => { const b = document.querySelector('[data-panel="albums"] .panel-head .panel-btn[title="Найти дубликаты снимков во всех папках"]'); return !!b && !b.hidden; })()`);
       const openDir = (name) => `[...document.querySelectorAll(".panel:not([hidden]) .home-row")].find((b) => b.firstChild.textContent.startsWith(${JSON.stringify(name + " — ")})).click()`;
       await run(`${openDir("Диск D")}; true`);
       await sleep(400);
-      check("повторы: кнопка в шапке — в своей папке, не в списке папок", !dupHome && (await run(`!!${dupBtn} && !${dupBtn}.hidden`)));
+      check("повторы: кнопка в шапке — в своей папке (в ней), в списке папок — во всех папках", dupHome && (await run(`!!${dupBtn} && !${dupBtn}.hidden`)));
       const hs = await run(`[...document.querySelectorAll('[data-panel="albums"] .panel-head svg')].filter((x) => x.getBoundingClientRect().width).map((x) => Math.round(x.getBoundingClientRect().width))`);
       check("шапка окна: значки крупные — значок окна как в строках списка, в кнопках почти во всю кнопку", hs[0] === 24 && hs.slice(1).every((w) => w === 30), JSON.stringify(hs));
       // стрелка «К альбомам» нажимается и пока идёт поиск (Грегори 2026-11-26: «не позволяет из него выйти»)
@@ -2128,16 +2135,19 @@ try {
         await run(`${am}.openFirst("Поход")`);
         await sleep(800);
         const g1 = await run(`({ ...${as}, facts: document.querySelector(".al-facts").textContent, btn: document.querySelector(".al-track")?.title,
-          lines: atlas.map.getSource("albums-tracks")?.serialize().data.features.length })`);
-        check("альбомы: GPX в папке — альбом и без снимков, на карте — только его линия, в шапке «Просмотр трека»",
-          g1.tracks === 2 && g1.open === "Поход" && /^1 фото · 1 трек/.test(g1.facts) && g1.btn === "Просмотр трека «walk»" && g1.lines === 1, JSON.stringify(g1));
+          lines: atlas.map.getSource("albums-tracks")?.serialize().data.features.length,
+          path: document.querySelector('[data-panel="albums"] .al-path-text')?.textContent || "", copy: !!document.querySelector('[data-panel="albums"] .al-path button') })`);
+        check("альбомы: GPX в папке — альбом и без снимков, на карте — только его линия, в шапке «Просмотр трека»; полный путь папки с кнопкой копирования",
+          g1.tracks === 2 && g1.open === "Поход" && /^1 фото · 1 трек/.test(g1.facts) && g1.btn === "Просмотр трека «walk»" && g1.lines === 1
+          && /Треки.*20240505 Поход/.test(g1.path) && g1.copy, JSON.stringify(g1));
         await run(`document.querySelector(".al-track").click(); true`);
         await sleep(1200);
         const tbar = `[...document.querySelectorAll('[data-panel="tracks"] .pb-bar .pb-btn')].map((b) => b.title || b.dataset.tip || "")`;
-        const g2 = await run(`({ ...${ts}.stats(), panel: !document.querySelector('[data-panel="tracks"]').hidden, albums: !document.querySelector('[data-panel="albums"]').hidden, bar: ${tbar} })`);
-        check("треки: «Просмотр трека» — трек альбома в «Моих треках», стрелка — назад в альбом, без «Удалить»",
-          g2.panel && !g2.albums && g2.open === "Поход у моря" && g2.bar[0] === "Назад в альбом «Поход»" && !g2.bar.some((t) => /^Удалить/.test(t)) && g2.tracks === 0 && g2.albumTracks === 2,
-          JSON.stringify(g2));
+        const g2 = await run(`({ ...${ts}.stats(), panel: !document.querySelector('[data-panel="tracks"]').hidden, albums: !document.querySelector('[data-panel="albums"]').hidden, bar: ${tbar},
+          links: [...document.querySelectorAll('[data-panel="tracks"] .tk-album-link')].map((b) => b.textContent), path: document.querySelector('[data-panel="tracks"] .al-path-text')?.textContent || "" })`);
+        check("треки: «Просмотр трека» — трек альбома в «Моих треках», стрелка — назад в альбом, без «Удалить»; раздел «Альбом» со ссылкой, полный путь",
+          g2.panel && !g2.albums && g2.open === "Поход у моря" && g2.bar[0] === "Назад в альбом «Поход»" && !g2.bar.some((t) => /^Удалить/.test(t)) && g2.tracks === 0 && g2.albumTracks === 2
+          && g2.links.length === 1 && g2.links[0].includes("Поход") && /Треки.*20240505 Поход.*walk\.gpx/.test(g2.path), JSON.stringify(g2));
         // фото на треке по времени: снимок 09:01:40 — посередине трека (точка 10 из 20): кружок на карте,
         // чёрточка на графике, лента «Фото на треке» под графиком; щелчок — снимок выбран, белая точка на треке
         for (let i = 0; i < 20 && !(await run(`!!document.querySelector(".tk-photo")`)); i++) await sleep(500);
@@ -2161,7 +2171,16 @@ try {
           g3.now.includes("<name>Поход к маяку</name>") && g3.orig?.includes("<name>Поход у моря</name>"), JSON.stringify({ ...g3, now: g3.now.slice(0, 300) }));
         await run(`document.querySelector('[data-panel="tracks"] .pb-bar .pb-btn').click(); true`);
         await sleep(1000);
-        const g4 = await run(`({ ...${as}, panel: !document.querySelector('[data-panel="albums"]').hidden, tracks: !document.querySelector('[data-panel="tracks"]').hidden, here: location.protocol })`);
+        const g4 = await run(`({ ...${as}, panel: !document.querySelector('[data-panel="albums"]').hidden, tracks: !document.querySelector('[data-panel="tracks"]').hidden, here: location.protocol,
+          back: document.querySelector('[data-panel="albums"] .pb-bar .pb-btn')?.title })`);
+        // из альбома — «Назад в трек» (Грегори 2026-11-27: «И назад в трек не попасть»)
+        await run(`document.querySelector('[data-panel="albums"] .pb-bar .pb-btn').click(); true`);
+        await sleep(1000);
+        const g4b = await run(`({ ...${ts}.stats(), bar: ${tbar} })`);
+        check("альбом из трека: «Назад в трек» возвращает в трек, а там — снова «Назад в альбом»",
+          g4.back === "Назад в трек «Поход к маяку»" && g4b.open === "Поход к маяку" && g4b.bar[0] === "Назад в альбом «Поход»", JSON.stringify({ back: g4.back, g4b }));
+        await run(`document.querySelector('[data-panel="tracks"] .pb-bar .pb-btn').click(); true`);
+        await sleep(1000);
         // смена панелей не сдвигает историю браузера (раньше «альбом → трек → альбом» уводило со страницы)
         await run(exitMode);
         await sleep(500);
@@ -2179,9 +2198,12 @@ try {
         await run(`[...document.querySelectorAll('[data-panel="tracks"] .tk-album-row')].find((r) => r.textContent.includes("Один трек")).click(); true`);
         await sleep(800);
         g5.bar = await run(tbar);
-        check("треки: «Из альбомов» — треки папок со снимками, у трека — «Открыть альбом»",
-          g5.head === "Из альбомов" && g5.rows.length === 2 && g5.rows.some((r) => r.includes("Поход к маяку") && r.includes("Поход")) && g5.bar[0] === "Ко всем трекам" && g5.bar[1] === "Открыть альбом «Только трек»",
-          JSON.stringify(g5));
+        await run(`[...document.querySelectorAll('[data-panel="tracks"] .pb-bar .pb-btn')].find((b) => (b.title || b.dataset.tip) === "Открыть альбом «Только трек»")?.click(); true`);
+        await sleep(1000);
+        g5.album = await run(`({ open: ${as}.open, back: document.querySelector('[data-panel="albums"] .pb-bar .pb-btn')?.title })`);
+        check("треки: «Из альбомов» — треки папок со снимками, у трека — «Открыть альбом», он открывается, в нём — «Назад в трек»",
+          g5.head === "Из альбомов" && g5.rows.length === 2 && g5.rows.some((r) => r.includes("Поход к маяку") && r.includes("Поход")) && g5.bar[0] === "Ко всем трекам" && g5.bar[1] === "Открыть альбом «Только трек»"
+          && g5.album.open === "Только трек" && g5.album.back === "Назад в трек «Один трек»", JSON.stringify(g5));
         await run(exitMode);
         await run(closeLayers);
         await run(gear);
@@ -2217,8 +2239,14 @@ try {
         file("cover.jpg", jpg, "image/jpeg"), file(".скрыто.mp3", wav, "audio/mpeg"), folder("_служебное", [file("x.wav", wav, "audio/wav")])]);
       window.testMusic = () => new File([wav], "Группа - Третья.wav", { type: "audio/wav" });
       return true; })()`);
-    await run(openLayers("content/music"));
+    // «Музыка» — не в разделах, а кнопками «APlayer» и «Amplitude» в барабане плееров
+    const muDrum = await run(`[...document.querySelectorAll(".wheel-content .layers-circle")].some((b) => b.dataset.key === "content/music")`);
+    // поиск закрыт — окно «Музыки» (слева под строкой поиска) всё равно видно: выбор плеера открывает поиск
+    await run(exitMode);
+    await sleep(300);
+    await run(playerKey("player/aplayer"));
     await sleep(400);
+    const muSeen = await run(`document.querySelector('[data-panel="music"]').offsetHeight > 0 && !document.body.classList.contains("search-hidden")`);
     const muFolders = await run(`import("./core/modules.js").then((m) => "showDirectoryPicker" in window && !m.isMobile())`);
     const muRows = await run(`[...document.querySelectorAll('[data-panel="music"] .home-row .tr-row-title')].map((t) => t.textContent)`);
     const muAdd = await run(`(() => { const b = document.querySelector('[data-panel="music"] .panel-btn[title="Добавить папку с музыкой…"]'); return !!b && !b.hidden; })()`);
@@ -2232,7 +2260,7 @@ try {
     const muFind = await run(`(async () => { const i = document.querySelector(".search-box input"), w = () => new Promise((r) => setTimeout(r, 600));
       i.value = "трет"; i.dispatchEvent(new Event("input")); await w(); const one = ${mu}.stats().rows;
       i.value = ""; i.dispatchEvent(new Event("input")); await w(); return { one, all: ${mu}.stats().rows }; })()`);
-    await run(`document.querySelector('[data-panel="music"] .mu-switch [data-player="amplitude"]').click(); true`);
+    await run(playerKey("player/amplitude"));
     for (let i = 0; i < 40 && !(await run(`(() => { const s = ${mu}.stats(); return s.mounted === "amplitude" && s.rows === ${songsWant}; })()`)); i++) await sleep(300);
     const mu2 = await run(`({ ...${mu}.stats(), title: document.querySelector('[data-panel="music"] .mu-title')?.textContent || "", buttons: document.querySelectorAll('[data-panel="music"] .mu-buttons button').length })`);
     await shot("64-music-amplitude");
@@ -2246,14 +2274,15 @@ try {
     await sleep(300);
     const muClosed = await run(`({ open: ${mu}.column.isOpen(), ph: document.querySelector(".search-box input").placeholder })`);
     await run(`localStorage.removeItem("atlas-music-player"); true`);
+    await run(closePlayerDrum);
     await run(closeLayers);
     const songsOk = PHONE ? mu1.songs.join("|") === "Группа — Третья"
       : mu1.songs.join("|") === "Ансамбль — Тишина:обложка|Певец — Песня:обложка|Группа — Третья";
-    check("музыка: папка и файлы — песни с названиями из тегов и имён, обложки; APlayer и Amplitude показывают все, «Найти песню» прячет неподходящие, крестик закрывает",
-      songsOk && mu1.player === "aplayer" && mu1.ph === "Найти песню" && muRows.includes("Выбрать файлы…") && !muRows.some((r) => r.includes("Добавить папку")) && muAdd === muFolders
+    check("музыка: кнопки APlayer и Amplitude в барабане плееров (не в разделах); папка и файлы — песни с названиями из тегов и имён, обложки; оба плеера показывают все, «Найти песню» прячет неподходящие, крестик закрывает",
+      !muDrum && muSeen && songsOk && mu1.player === "aplayer" && mu1.ph === "Найти песню" && muRows.includes("Выбрать файлы…") && !muRows.some((r) => r.includes("Добавить папку")) && muAdd === muFolders
       && muFind.one === 1 && muFind.all === songsWant && mu2.player === "amplitude" && mu2.buttons === 3 && mu2.title !== ""
       && (PHONE || (muX.hit && /Песни на диске останутся/.test(muX.asked) && muX.dirs === 0 && muX.rows === 1)) && !muClosed.open && muClosed.ph !== "Найти песню",
-      JSON.stringify({ muRows, muAdd, mu1, muFind, mu2, muX, muClosed }));
+      JSON.stringify({ muDrum, muSeen, muRows, muAdd, mu1, muFind, mu2, muX, muClosed }));
   }
 
   // плеер — четвёртая кнопка справа (core/player-window.js, player.html, core/music-player.js; Грегори 2026-11-26):
@@ -2262,13 +2291,19 @@ try {
   // выбранные песни без папки — альбомы по тегу; песня играет — название и обложка в шторке (Media Session)
   if (want("core/player")) {
     const plMob = await run(`import("./core/modules.js").then((m) => m.isMobile())`);
-    const pl0 = await run(`(() => { const b = document.querySelector(".player-toggle"), w = document.querySelector(".wheel-toggle").getBoundingClientRect(), r = b.getBoundingClientRect();
+    // кнопка — барабан плееров (Грегори 2026-11-27: «Выбор плееров сделай в новой карусели»); «Плеер Atlas» в нём
+    const pl0 = await run(`(async () => { const w8 = (t) => new Promise((r) => setTimeout(r, t)), b = document.querySelector(".player-toggle");
+      const w = document.querySelector(".wheel-toggle").getBoundingClientRect(), r = b.getBoundingClientRect(), title = b.title;
+      b.click(); await w8(400);
+      const drum = !document.querySelector(".wheel-player").classList.contains("closed"), keys = [...document.querySelectorAll(".wheel-player .layers-circle")].map((c) => c.ariaLabel);
+      const atlas = () => document.querySelector('.wheel-player .layers-circle[data-key="player/atlas"]');
       const calls = [], fake = { location: { href: "about:blank" }, focus() { calls.push("focus"); } }, was = window.open;
-      window.open = (u, n, f) => { calls.push([u, n, /popup/.test(f)].join()); return fake; }; b.click();
+      window.open = (u, n, f) => { calls.push([u, n, /popup/.test(f)].join()); return fake; }; atlas().click(); await w8(100);
       const href = fake.location.href;
-      window.open = (u, n) => { calls.push("null"); return null; }; b.click(); window.open = was;
-      return { below: Math.round(r.top - w.bottom), right: Math.round(r.right - w.right), title: b.title, calls, href, frame: !!document.querySelector(".player-frame") }; })()`);
-    if (plMob) await run(`document.querySelector(".player-toggle").click(); true`);
+      window.open = (u, n) => { calls.push("null"); return null; }; atlas().click(); await w8(100); window.open = was;
+      b.click(); await w8(300);
+      return { below: Math.round(r.top - w.bottom), right: Math.round(r.right - w.right), title, drum, keys, closed: document.querySelector(".wheel-player").classList.contains("closed"),
+        calls, href, frame: !!document.querySelector(".player-frame") }; })()`);
     for (let i = 0; i < 40 && !(await run(`!!document.querySelector(".player-frame")?.contentWindow?.atlasPlayer`)); i++) await sleep(300);
     const plWay = await run(`(async () => {
       const w = document.querySelector(".player-frame").contentWindow, d = w.document;
@@ -2310,12 +2345,15 @@ try {
     await shot("65-player-album");
     const pl3 = await run(`(async () => { const d = ${pl}.document, f = document.querySelector(".player-frame");
       d.querySelector('.head .btn[title^="Свернуть"]').click(); await new Promise((r) => setTimeout(r, 200)); const hidden = f.hidden;
-      document.querySelector(".player-toggle").click(); await new Promise((r) => setTimeout(r, 200)); const back = !f.hidden;
+      document.querySelector(".player-toggle").click(); await new Promise((r) => setTimeout(r, 400));
+      document.querySelector('.wheel-player .layers-circle[data-key="player/atlas"]').click(); await new Promise((r) => setTimeout(r, 200)); const back = !f.hidden;
       d.querySelector('.head .btn[title="Закрыть плеер"]').click(); await new Promise((r) => setTimeout(r, 200));
       return { hidden, back, gone: !document.querySelector(".player-frame") }; })()`);
     const plAlbums = plWay === "folder" ? "Б|Группа|1,Первый|Певец|2|обложка" : "Выбранные песни|Группа|1,Первый|Певец|2|обложка";
-    check("плеер: четвёртая кнопка под «Слоями»; на компьютере — своё окно player.html (окна запрещены — поверх карты)",
-      pl0.below > 0 && pl0.below < 30 && Math.abs(pl0.right) <= 1 && pl0.title === "Плеер"
+    await run(closePlayerDrum);
+    check("плееры: четвёртая кнопка под «Слоями» — барабан плееров (Atlas, APlayer, Amplitude, YouTube Music, Spotify); «Плеер Atlas» на компьютере — своё окно player.html (окна запрещены — поверх карты)",
+      pl0.below > 0 && pl0.below < 30 && Math.abs(pl0.right) <= 1 && pl0.title === "Плееры" && pl0.drum && pl0.closed
+      && pl0.keys.slice(0, 5).join() === "Плеер Atlas,APlayer,Amplitude,YouTube Music,Spotify"
       && (plMob ? pl0.frame && !pl0.calls.length : pl0.calls.join("|") === ",atlas-player,true|focus|null" && pl0.href === "player.html" && pl0.frame), JSON.stringify(pl0));
     check(`плеер: альбомы из ${plWay === "folder" ? "папок" : "выбранных песен"} — название и исполнитель из тегов, обложки, песни по номерам; песня — в шторке с обложкой`,
       pl1.albums.join() === plAlbums && pl1.cards === 2 && pl1.covers === 1 && pl2.view === "Первый" && pl2.songs.join() === "Два,Раз"
@@ -3338,7 +3376,7 @@ try {
     && lens.s3.layers && !lens.s3.places && lens.s3.under && lens.s3.shift.join() === "0,0"
     && !lens.s4.layers && !lens.s4.places && lens.s4.search && lens.s4.shift.join() === "0,0"
     && lens.s5.content && lens.s5.search && !lens.s6.content && !lens.s6.search && lens.s6.drop
-    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои споты", "Мои треки", "Музыка", "Настройки", "Поиск", "Трек", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
+    && JSON.stringify(lens.keys) === JSON.stringify(["Мои альбомы", "Мои споты", "Мои треки", "Настройки", "Поиск", "Трек", "Экскурсии", "Языки"]) && lens.corner, JSON.stringify(lens));
   await run(`(async () => { document.querySelector(".wheel-toggle").click(); await new Promise((r) => setTimeout(r, 450)); return true; })()`);
   await shot("95c-drum");
   // барабан: в центре промежутки между кнопками больше, к краям меньше, крайние темнее; колёсико

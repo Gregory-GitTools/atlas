@@ -199,7 +199,8 @@ const tell = () => {
   channel?.postMessage({ playing: !audio.paused, title: s ? [s.artist, s.title].filter(Boolean).join(" — ") : "" });
   document.title = s && !audio.paused ? `▶ ${s.title} — Плеер` : "Плеер — Atlas";
 };
-channel?.addEventListener("message", (e) => { if (e.data?.ask) tell(); });
+// крестик у «Плеера Atlas» в барабане плееров — пауза
+channel?.addEventListener("message", (e) => { if (e.data?.ask) tell(); if (e.data?.stop) audio.pause(); });
 addEventListener("pagehide", () => channel?.postMessage({ playing: false, title: "" }));
 
 // ---------- вид ----------

@@ -37,11 +37,11 @@ import { closeOpen, homeList, isOpen as panelOpen, close as closePanel } from ".
 import { GEAR_ICON } from "./settings-panel.js";
 import { ARROW as ROUTE_ARROW } from "./route.js";
 import { backable } from "./back.js";
-import { modules, toggle, available, allowed, onRegister, MODULES } from "./modules.js";
+import { modules, toggle, available, allowed, onRegister, MODULES, isMobile } from "./modules.js";
 import { on, emit, current } from "./events.js";
 import { BASEMAPS, currentBasemap, setBasemap, thumbOf } from "./basemaps.js";
 import * as settings from "./settings.js";
-import { playerButton } from "./player-window.js";
+import { playerButton, openPlayer, stopPlayer, playerPlaying, playerSong, onPlayer } from "./player-window.js";
 
 const svg = (inner) => `<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">${inner}</svg>`;
 // разделы по порядку; значок не задан — берётся у первого модуля раздела. tone — цвет группы кнопок
@@ -74,7 +74,7 @@ export function initLayersPanel(ctx) {
   // ---------- слои ----------
   const active = new Set(settings.get("layers.on", []));
   const save = () => settings.set("layers.on", [...active]);
-  const renderAll = () => drums.forEach((d) => d.render());
+  const renderAll = () => { drums.forEach((d) => d.render()); paint(); };
 
   const switchTo = async (m, turnOn) => {
     // exclusive — в своей группе одновременно включён один (у «Мест» такого нет: Грегори, 2026-10-28)
@@ -152,9 +152,46 @@ export function initLayersPanel(ctx) {
   // последней — «Настройки» (Грегори 2026-11-06: «настройки в верхний барабан»)
   const SETTINGS_ENTRY = { key: "settings", title: "Настройки", icon: GEAR_ICON, tone: "maps", plain: [],
     content: { id: "settings", column: { home: () => emit("settings-open"), isOpen: () => panelOpen("settings"), close: () => closePanel("settings") } } };
-  const contentEntries = () => [SEARCH_ENTRY, ...modules("content").filter(available)
+  const contentEntries = () => [SEARCH_ENTRY, ...modules("content").filter((m) => available(m) && !m.drum)
     .sort((a, b) => MODULES.findIndex((p) => p.includes(a.id)) - MODULES.findIndex((p) => p.includes(b.id)))
     .map((m) => ({ key: m.id, title: m.title, icon: m.icon, tone: m.tone, content: m, plain: [] })), SETTINGS_ENTRY];
+
+  // кнопки барабана плееров (Грегори 2026-11-27: «Выбор плееров сделай в новой карусели. Добавь spotify и какой
+  // нибудь плайер стандартный от Microsoft и телефона»): свой «Плеер Atlas», плееры «Музыки» (APlayer, Amplitude —
+  // её панель с выбранным плеером), сайты YouTube Music и Spotify (в приложении — их приложения, если стоят),
+  // «Медиаплеер» Windows и музыкальное приложение телефона
+  const pIcon = (inner, fill = true) => `<svg viewBox="0 0 24 24" width="24" height="24" ${fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"'}>${inner}</svg>`;
+  const P_ICON = {
+    atlas: pIcon('<path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>'),
+    aplayer: pIcon('<path d="M3 6h12v2H3zm0 4h12v2H3zm0 4h8v2H3zm13 0v6l5-3z"/>'),
+    amplitude: pIcon('<path d="M4 10h2v4H4zm4-4h2v12H8zm4 3h2v6h-2zm4-6h2v18h-2zm4 7h2v4h-2z"/>'),
+    yt: pIcon('<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 4a6 6 0 1 1 0 12 6 6 0 0 1 0-12zm-1.5 3v6l4.5-3z"/>'),
+    spotify: pIcon('<circle cx="12" cy="12" r="10"/><path d="M7 9.5c3.5-1 7.5-.6 10.5 1M7.5 12.8c3-.8 6-.4 8.5 1M8 15.8c2.4-.5 4.6-.3 6.5.8"/>', false),
+    windows: pIcon('<path d="M3 5.5 10.5 4.5v7H3zM11.5 4.4 21 3v8.5h-9.5zM3 12.5h7.5v7L3 18.5zM11.5 12.5H21V21l-9.5-1.4z"/>'),
+    phone: pIcon('<path d="M17 1H7c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 18H7V5h10v14zm-5.5-12v5.3c-.3-.2-.7-.3-1-.3-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2V9h2V7z"/>'),
+  };
+  const pEntry = (key, title, column) => ({ key: `player/${key}`, title, icon: P_ICON[key], tone: "my", plain: [], content: { id: `player/${key}`, column } });
+  // сайт или приложение — открыть и всё: кнопка не светится
+  const away = (key, title, go) => pEntry(key, title, { home: go, isOpen: () => false, close() {} });
+  const ua = navigator.userAgent;
+  const playerEntries = () => {
+    const music = modules("content").find((m) => m.drum === "player" && available(m))?.column;
+    return [
+      pEntry("atlas", "Плеер Atlas", { home: openPlayer, isOpen: playerPlaying, shown: () => false, close: stopPlayer }),
+      ...(music?.players || []).map(({ id, title }) => pEntry(id, title, {
+        // окно «Музыки» — слева под строкой поиска и прячется с ней: поиск закрыт — открыть
+        home: (c) => { setSearch(true); music.pick(id); return music.home(c); },
+        isOpen: () => music.player() === id && music.isOpen(),
+        shown: () => music.player() === id && music.shown(),
+        close: () => music.close(),
+      })),
+      away("yt", "YouTube Music", () => window.open("https://music.youtube.com/", "_blank", "noopener")),
+      away("spotify", "Spotify", () => window.open("https://open.spotify.com/", "_blank", "noopener")),
+      ...(/Windows/.test(ua) && !isMobile() ? [away("windows", "Медиаплеер Windows", () => { location.href = "mswindowsmusic:"; })] : []),
+      ...(window.AtlasApp?.openMusic ? [away("phone", "Музыка телефона", () => window.AtlasApp.openMusic())]
+        : /Android/.test(ua) ? [away("phone", "Музыка телефона", () => { location.href = "intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.APP_MUSIC;end"; })] : []),
+    ];
+  };
 
   // раздел: своё home(ctx), иначе панель слева со списком column.items()
   const openHome = async (m) => {
@@ -183,13 +220,13 @@ export function initLayersPanel(ctx) {
   const arrowBtn = Object.assign(document.createElement("button"), { className: "btn glass wheel-toggle", innerHTML: ARROW });
   const placesBtn = Object.assign(document.createElement("button"), { className: "btn glass places-toggle", innerHTML: GROUPS.find((g) => g.id === PLACES).icon });
   const lensBtn = Object.assign(document.createElement("button"), { className: "btn glass search-toggle" });
-  const playerBtn = playerButton(); // четвёртая — плеер, под кнопками барабанов
+  const playerBtn = playerButton(); // четвёртая — плееры, под кнопками барабанов
   // тающие карусели (Грегори 2026-11-22): открыт один барабан — он выезжает из своей кнопки вниз и сдвигает кнопки
   // ниже; нажали кнопку другого — открытый сразу сворачивается. Нет над ним мыши и пальца — через 5 с шаг назад
   // (карусель растворяется, справа возвращается предыдущая), и так каждые 2 с, пока не растает сам барабан; тогда
   // кнопки поднимаются на свои места
-  const BANDS = ["content", "places", "layers"]; // кнопки сверху вниз
-  const btnOf = { content: lensBtn, places: placesBtn, layers: arrowBtn };
+  const BANDS = ["content", "places", "layers", "player"]; // кнопки сверху вниз
+  const btnOf = { content: lensBtn, places: placesBtn, layers: arrowBtn, player: playerBtn };
   let openName = null;
   let placeStrip = () => {}; // полоса справа — ставится ниже, у столбика барабанов
   const drumOf = (n) => drums.find((d) => d.name === n);
@@ -208,6 +245,11 @@ export function initLayersPanel(ctx) {
     litSearch();
     paintToggle(arrowBtn, "layers", "Слои карты");
     paintToggle(placesBtn, "places", "Места");
+    // плееры: светится и пока что-то играет
+    const music = modules("content").find((m) => m.drum === "player")?.column, song = playerPlaying() && playerSong();
+    paintToggle(playerBtn, "player", "Плееры");
+    if (playerPlaying() || music?.isOpen()) playerBtn.classList.add("open");
+    if (song && openName !== "player") playerBtn.title = `Плееры — играет: ${song}`;
     // кнопка — ещё и индикатор режима строки поиска (Грегори 2026-11-04): режим есть — его значок, даже
     // при закрытом поиске (навигация включена — значок навигации)
     // поиск открыт — значок на цветном фоне; закрыт — сам значок цвета раздела на прозрачном (Грегори
@@ -263,13 +305,12 @@ export function initLayersPanel(ctx) {
       b.style.transform = shift ? `translateY(${shift}px)` : "";
       if (n !== openName) return;
       // offsetTop — место кнопки без сдвига
-      const top = b.offsetTop + b.offsetHeight + gap, below = BANDS.length - i; // и плеер
+      const top = b.offsetTop + b.offsetHeight + gap, below = BANDS.length - 1 - i;
       const room = innerHeight - top - below * (b.offsetHeight + gap) - 2 * gap - b.offsetHeight;
       const d = drumOf(n), h = Math.round(Math.max(BTN + 2 * gap, Math.min(d.need(), room)));
       d.place(top, h);
       shift = h + gap;
     });
-    playerBtn.style.transform = shift ? `translateY(${shift}px)` : "";
     for (const d of drums) d.relayout();
     placeStrip();
     paint();
@@ -277,6 +318,7 @@ export function initLayersPanel(ctx) {
   const toggleDrum = (name) => setDrum(name, openName !== name);
   arrowBtn.addEventListener("click", () => toggleDrum("layers"));
   placesBtn.addEventListener("click", () => toggleDrum("places"));
+  playerBtn.addEventListener("click", () => toggleDrum("player"));
   // лупа: барабан разделов закрыт — поиск и разделы; открыт — свернуть и то, и другое
   lensBtn.addEventListener("click", () => {
     if (openName === "content") { setSearch(false); setDrum("content", false); } else { setSearch(true); setDrum("content", true); }
@@ -307,7 +349,7 @@ export function initLayersPanel(ctx) {
   const spinning = (on) => { spin = on; liveLabels(on); melt(); };
 
   // ---------- барабан ----------
-  // номер барабана: разделы — 1, места — 2, слои — 3; у кнопки — номер барабана и её место, у кнопки карусели —
+  // номер барабана: разделы — 1, места — 2, слои — 3, плееры — 4; у кнопки — номер барабана и её место, у кнопки карусели —
   // ещё и её место в карусели: 3.2.4 (Грегори 2026-11-21: «пронумеровать все панели и их подпанели»)
   function makeDrum(name, entries) {
     const num = BANDS.indexOf(name) + 1;
@@ -513,7 +555,11 @@ export function initLayersPanel(ctx) {
             }
             // панель закрыта, а раздел ещё работает (музыка играет, column.shown) — открыть панель, а не сворачивать
             // «Поиск» — всегда его история (уже выбран — тоже), чтобы было видно, что выбор сработал
-            if (e.key !== "content/navigation" && e.key !== "search" && (e.content.column.shown?.() ?? e.content.column.isOpen())) { emit("panel-fold-request", { fold: !folded }); return; }
+            if (e.key !== "content/navigation" && e.key !== "search" && (e.content.column.shown?.() ?? e.content.column.isOpen())) {
+              // окно спрятано вместе со строкой поиска (барабан плееров открыт без поиска) — показать, а не сворачивать
+              if (!searchOn) { setSearch(true); if (folded) emit("panel-fold-request", { fold: false }); } else emit("panel-fold-request", { fold: !folded });
+              return;
+            }
             openHome(e.content);
           };
           // не в центре — докрутить и выполнить сразу, не дожидаясь конца прокрутки (пока карта летит, кадры
@@ -540,7 +586,8 @@ export function initLayersPanel(ctx) {
     };
   }
 
-  const drums = [makeDrum("layers", layerEntries), makeDrum("places", placeEntries), makeDrum("content", contentEntries)];
+  const drums = [makeDrum("layers", layerEntries), makeDrum("places", placeEntries), makeDrum("content", contentEntries), makeDrum("player", playerEntries)];
+  onPlayer(renderAll);
 
   // свёрнуто ли окно раздела; цель пути — стрелка на кнопке справа вверху, кнопка навигации в барабане светится
   let folded = null;

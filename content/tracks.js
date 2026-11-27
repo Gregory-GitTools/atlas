@@ -14,29 +14,31 @@
 // «album-tracks», здесь — только ссылка (раздел «Из альбомов», стрелка назад — в альбом). Правка пишется в
 // сам файл, исходник — в «[Originals]» рядом (только при первой правке), «Вернуть трек как в файле» — из него
 import { register } from "../core/modules.js";
-import { sortButton, trackIcon } from "../core/icons.js";
+import { sortButton, trackIcon, PLUS_D, GLOBE_D } from "../core/icons.js";
 import { createPanel, isOpen, homeList } from "../core/panel.js";
 import { emit, on, current } from "../core/events.js";
 import { setSearchMode, searchMode } from "../core/search.js";
 import { cacheGet, cacheSet, cacheDelete } from "../core/storage.js";
-import { claimLayers, captureClicks } from "../core/popups.js";
+import { claimLayers, captureClicks, track as keepPopup } from "../core/popups.js";
 import * as settings from "../core/settings.js";
 import { addMapButton } from "../core/controls.js";
 import { openGalleryWith } from "../core/photo-strip.js";
 import { countryAt } from "../core/borders.js";
 import { flagUrl } from "../core/flags.js";
 import { saveFile } from "../core/save-file.js";
+import { COLOR, COLORS, MOVING, PAUSE, climb, clock, day, dec, hm, kindFromFile, km, meters, parseFile, stats } from "./track-file.js";
 
 const svg = (d, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="currentColor"><path d="${d}"/></svg>`;
 // линия трека между двумя точками
 const TRACK_D = "M6 3a3 3 0 0 0-1 5.83V12a4 4 0 0 0 4 4h6a2 2 0 0 1 2 2v.17A3 3 0 1 0 19 18a4 4 0 0 0-4-4H9a2 2 0 0 1-2-2V8.83A3 3 0 0 0 6 3zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2zm12 12a1 1 0 1 1 0 2 1 1 0 0 1 0-2z";
 const ICON = trackIcon();
 const ICON_SMALL = trackIcon(18);
-const OPEN_ICON = svg("M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z");
+const OPEN_ICON = svg(PLUS_D);
 const BACK = svg("M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z", 20);
 const SAVE = svg("M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z", 20);
 const UNDO = svg("M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62A7.95 7.95 0 0 1 12.5 10c3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 10.53 17.15 8 12.5 8z", 20);
 // альбом — стопка снимков, как у «Моих альбомов»
+const COPY = svg("M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z", 18);
 const ALBUM_D = "M22 16V4c0-1.1-.9-2-2-2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2zm-11-4 2.03 2.71L16 11l4 5H8l3-4zM2 6v14c0 1.1.9 2 2 2h14v-2H4V6H2z";
 const DELETE = svg("M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z", 20);
 // правка трека: линия с краями; оранжевое — выбранное, серое пунктиром — то, что уберётся
@@ -49,137 +51,8 @@ const SPIKES = toolIcon('<path d="M2 16l5-2 3-11 3 13 4-2 5 1" stroke="currentCo
 const SPLIT = toolIcon('<path d="M2 12h7M15 12h7" stroke="#3949ab" stroke-width="3"/><path d="M12 4v16" stroke="#ff6d00" stroke-width="2" stroke-dasharray="2 2.5"/>');
 const MERGE = toolIcon('<path d="M2 8h6l4 4M2 16h6l4-4h10" stroke="#3949ab" stroke-width="2.5" stroke-linejoin="round"/>');
 const DRAW = toolIcon('<path d="M3 21l3.5-1 11-11-2.5-2.5-11 11L3 21z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M14 5.5l2.5-2.5 2.5 2.5L16.5 8" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>');
-const COLOR = "#3949ab"; // --tone-track
 const SEL_COLOR = "#ff6d00"; // выбранный кусок
-// цвет трека на карте и в списке — на выбор (без оранжевого: он у выбранного куска)
-const COLORS = [COLOR, "#1e88e5", "#00897b", "#43a047", "#f9a825", "#e53935", "#d81b60", "#8e24aa", "#6d4c41"];
-
-// ---------- разбор файла ----------
-// трек: { id, name, date, segs: [[[lon, lat, ele|null, t|null], …], …] } — куски записи (паузы) — отдельно
-function parseGpx(text) {
-  const doc = new DOMParser().parseFromString(text, "application/xml");
-  if (doc.querySelector("parsererror")) throw new Error("файл не читается");
-  const num = (el, tag) => { const x = el.getElementsByTagName(tag)[0]?.textContent; return x != null && x !== "" ? Number(x) : null; };
-  const pt = (el) => {
-    const t = el.getElementsByTagName("time")[0]?.textContent;
-    return [Number(el.getAttribute("lon")), Number(el.getAttribute("lat")), num(el, "ele"), t ? Date.parse(t) : null];
-  };
-  const segs = [...doc.getElementsByTagName("trkseg")].map((s) => [...s.getElementsByTagName("trkpt")].map(pt));
-  // маршрут (rte) — тоже линия, обычно без времени
-  for (const r of doc.getElementsByTagName("rte")) segs.push([...r.getElementsByTagName("rtept")].map(pt));
-  const name = doc.querySelector("metadata > name, trk > name, rte > name")?.textContent.trim() || "";
-  const note = doc.querySelector("trk > desc, metadata > desc")?.textContent.trim() || "";
-  const creator = doc.documentElement.getAttribute("creator") || "";
-  const color = doc.getElementsByTagNameNS("*", "color")[0]?.textContent.trim();
-  return { name, note, segs, kind: kindFromFile(doc.querySelector("trk > type")?.textContent) || (/ski/i.test(creator) ? "ski" : null), ...(COLORS.includes(color) && { color }) };
-}
-
-function parseKml(text) {
-  const doc = new DOMParser().parseFromString(text, "application/xml");
-  if (doc.querySelector("parsererror")) throw new Error("файл не читается");
-  const segs = [];
-  // gx:Track — точки со временем (так пишет Google)
-  for (const tr of doc.getElementsByTagNameNS("*", "Track")) {
-    const when = [...tr.getElementsByTagNameNS("*", "when")].map((w) => Date.parse(w.textContent));
-    const coords = [...tr.getElementsByTagNameNS("*", "coord")].map((c) => c.textContent.trim().split(/\s+/).map(Number));
-    segs.push(coords.map(([lon, lat, ele], i) => [lon, lat, Number.isFinite(ele) ? ele : null, when[i] || null]));
-  }
-  for (const ls of doc.getElementsByTagName("LineString")) {
-    const c = ls.getElementsByTagName("coordinates")[0]?.textContent.trim() || "";
-    segs.push(c.split(/\s+/).map((x) => x.split(",").map(Number)).map(([lon, lat, ele]) => [lon, lat, Number.isFinite(ele) ? ele : null, null]));
-  }
-  const name = doc.querySelector("Document > name, Placemark > name")?.textContent.trim() || "";
-  return { name, segs };
-}
-
-function parseFile(name, text) {
-  const t = /\.kml$/i.test(name) ? parseKml(text) : parseGpx(text);
-  const segs = t.segs.map((s) => s.filter((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))).filter((s) => s.length > 1);
-  if (!segs.length) throw new Error("в файле нет трека");
-  const first = segs[0][0][3];
-  return { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, name: t.name || name.replace(/\.\w+$/, ""),
-    file: name, date: first || null, kind: t.kind || null, ...(t.note && { note: t.note }), ...(t.color && { color: t.color }), segs };
-}
 export { parseFile };
-
-// ---------- подсчёт ----------
-const R = 6371008.8;
-function meters(a, b) {
-  const rad = Math.PI / 180, dLat = (b[1] - a[1]) * rad, dLon = (b[0] - a[0]) * rad;
-  const x = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * rad) * Math.cos(b[1] * rad) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(x)));
-}
-const MOVING = 0.3; // м/с — медленнее считается стоянкой (около 1 км/ч)
-const PAUSE = 5 * 60 * 1000; // перерыв в записи дольше 5 минут — не время в пути
-// путь между точками — с перепадом высот (Грегори, 2026-11-02: «при расчётах скорости учитывать перепад
-// высот, особенно на горных лыжах — использовать как универсальный»): по склону путь длиннее, чем по
-// карте; на его лыжных днях +3–5 % расстояния и +1–2 км/ч наибольшей скорости, на кайте по воде — почти
-// ничего. Высота сглажена по 5 соседним точкам, иначе дрожание высоты GPS прибавляет путь на ровном месте
-function smoothEle(seg) {
-  // окно поровну с обеих сторон (у концов — уже), чтобы ровный склон не сглаживался в пологий
-  return seg.map((_, i) => {
-    const k = Math.min(2, i, seg.length - 1 - i);
-    const w = seg.slice(i - k, i + k + 1).map((p) => p[2]).filter((e) => e != null);
-    return w.length ? w.reduce((a, b) => a + b, 0) / w.length : null;
-  });
-}
-const along = (a, b, ea, eb) => (ea != null && eb != null ? Math.hypot(meters(a, b), eb - ea) : meters(a, b));
-
-// м — высота меняется хотя бы на столько, иначе это шум GPS (4 м — набор как у Sports Tracker)
-const CLIMB = 4;
-function climb(eles) {
-  let ref = null, up = 0, down = 0;
-  for (const e of eles) {
-    if (e == null) continue;
-    if (ref == null) ref = e;
-    else if (e - ref >= CLIMB) { up += e - ref; ref = e; }
-    else if (ref - e >= CLIMB) { down += ref - e; ref = e; }
-  }
-  return [up, down];
-}
-function stats(t) {
-  let dist = 0, moving = 0, up = 0, down = 0, maxEle = -Infinity, minEle = Infinity, maxSpeed = 0;
-  const profile = []; // [расстояние от начала, высота, скорость км/ч, точка]
-  for (const seg of t.segs) {
-    const [u, d] = climb(seg.map((p) => p[2]));
-    up += u;
-    down += d;
-    const se = smoothEle(seg);
-    seg.forEach((p, i) => {
-      let speed = null;
-      if (i) {
-        const q = seg[i - 1], d = along(q, p, se[i - 1], se[i]);
-        dist += d;
-        if (p[3] && q[3]) {
-          const dt = p[3] - q[3];
-          if (dt > 0 && dt < PAUSE && d / (dt / 1000) > MOVING) moving += dt;
-          if (dt > 0) speed = (d / (dt / 1000)) * 3.6;
-        }
-      }
-      if (p[2] != null) {
-        maxEle = Math.max(maxEle, p[2]);
-        minEle = Math.min(minEle, p[2]);
-      }
-      profile.push([dist, p[2], speed, p]);
-    });
-  }
-  // скорость на графике — сглаженная (среднее по соседним 7 точкам): у GPS скачки
-  const sm = profile.map((x, i) => {
-    const w = profile.slice(Math.max(0, i - 3), i + 4).map((y) => y[2]).filter((v) => v != null);
-    return w.length ? w.reduce((a, b) => a + b, 0) / w.length : null;
-  });
-  profile.forEach((x, i) => { x[2] = sm[i]; if (sm[i] != null) maxSpeed = Math.max(maxSpeed, sm[i]); });
-  const all = t.segs.flat(), times = all.map((p) => p[3]).filter(Boolean);
-  const total = times.length > 1 ? times[times.length - 1] - times[0] : 0;
-  return { dist, total, moving, up, down, maxSpeed, points: all.length,
-    maxEle: Number.isFinite(maxEle) ? maxEle : null, minEle: Number.isFinite(minEle) ? minEle : null, profile };
-}
-
-const dec = (v, n) => v.toFixed(n).replace(".", ","); // по-русски — запятая
-const km = (m) => (m >= 10000 ? `${dec(m / 1000, 1)} км` : m >= 1000 ? `${dec(m / 1000, 2)} км` : `${Math.round(m)} м`);
-const hm = (ms) => { const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)} ч ${String(m % 60).padStart(2, "0")} мин` : `${m} мин`; };
-const day = (t) => (t ? new Date(t).toLocaleDateString("ru", { day: "numeric", month: "long", year: "numeric" }) : "");
-const clock = (t) => (t ? new Date(t).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" }) : "");
 
 // ---------- хранение: только на устройстве ----------
 let index = []; // [{ id, name, date, dist }] — список без точек
@@ -197,7 +70,7 @@ async function getTrack(id) {
 
 // ---------- треки из альбомов ----------
 let albumIndex = []; // [{ key, name, file, handle, dir, root, albumId, albumTitle }] — от «Моих альбомов»
-let albumsAsked = false, cameFrom = null; // cameFrom — трек открыли из альбома: стрелка назад — туда
+let albumsAsked = false, cameFrom = null; // cameFrom — трек открыли из альбома: { key, album: { id, title } }, стрелка назад — туда
 const ORIGINALS = "[Originals]";
 const fromAlbum = (id) => albumIndex.find((e) => e.key === id);
 const backupOf = async (e) => { try { return await (await (await e.dir.getDirectoryHandle(ORIGINALS)).getFileHandle(e.file)).getFile(); } catch { return null; } };
@@ -259,18 +132,20 @@ on("album-tracks", (list) => {
   showOnMap(true).then(() => { if (isOpen("tracks") && !openId) renderList(); });
 });
 // альбом: «Просмотр трека» — этот трек, стрелка назад — в альбом
-on("track-open", async ({ key, ctx: c }) => {
+on("track-open", async ({ key, ctx: c, album }) => {
   ctx = c;
   wire();
   await load();
-  cameFrom = key;
+  const e = fromAlbum(key);
+  cameFrom = { key, album: album || (e && { id: e.albumId, title: e.albumTitle }) };
   panel.open();
   setSearchMode(MODE);
   emit("module", { id: "content/tracks", on: true });
   await showOnMap(true);
   openTrack(key);
 }, { replay: false });
-const toAlbum = (e) => emit("album-open", { id: e.albumId, ctx });
+// альбом — его папки или снимка на треке; оттуда стрелка «Назад в трек»
+const toAlbum = (id, title, t) => emit("album-open", { id, title, ctx, from: t ? { key: t.id, name: t.name } : null });
 const load = () => (loading ??= cacheGet("tracks/index").then((x) => { index = x || []; }).catch(() => {}));
 
 async function addFiles(files) {
@@ -380,8 +255,36 @@ function endsData() {
 }
 const selData = () => fc(selPiece ? [{ type: "Feature", geometry: { type: "MultiLineString", coordinates: selPiece.map((s) => s.map((p) => [p[0], p[1]])) }, properties: {} }] : []);
 const liftData = () => fc(liftPieces ? [{ type: "Feature", geometry: { type: "MultiLineString", coordinates: liftPieces.map((s) => s.map((p) => [p[0], p[1]])) }, properties: {} }] : []);
-const photoData = () => fc(trackPhotos.map((x) => ({ type: "Feature", geometry: { type: "Point", coordinates: x.pt }, properties: { id: x.id, on: x.id === photoPick ? 1 : 0 } })));
-const LAYERS = ["tracks-casing", "tracks-line", "tracks-lift", "tracks-sel", "tracks-photos", "tracks-ends"];
+const photoData = () => fc(trackPhotos.map((x) => ({ type: "Feature", geometry: { type: "Point", coordinates: x.pt },
+  properties: { id: x.id, on: x.id === photoPick ? 1 : 0, img: thumbImgs.get(x.id)?.name || "" } })));
+const LAYERS = ["tracks-casing", "tracks-line", "tracks-lift", "tracks-sel", "tracks-photos", "tracks-ends", "tracks-photo-thumbs"];
+// крупно (от 14) — миниатюры снимков в белой рамке, как в «Моих альбомах» (Грегори 2026-11-27: «И фотки на карту поставим»)
+const THUMB_ZOOM = 14, MAP_THUMB = 88;
+const thumbImgs = new Map(); // id снимка → { name, data } (null — делается или не вышла)
+async function mapThumb(x) {
+  if (thumbImgs.has(x.id)) return;
+  thumbImgs.set(x.id, null);
+  try {
+    const u = await x.thumb();
+    if (!u) return;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = u;
+    await img.decode();
+    const side = Math.min(img.naturalWidth, img.naturalHeight), sx = (img.naturalWidth - side) / 2, sy = (img.naturalHeight - side) / 2, b = 3;
+    const m = Object.assign(document.createElement("canvas"), { width: MAP_THUMB, height: MAP_THUMB }).getContext("2d");
+    m.beginPath(); m.roundRect(0, 0, MAP_THUMB, MAP_THUMB, 12); m.fillStyle = "#fff"; m.fill();
+    m.beginPath(); m.roundRect(b, b, MAP_THUMB - 2 * b, MAP_THUMB - 2 * b, 12 - b); m.clip();
+    m.drawImage(img, sx, sy, side, side, b, b, MAP_THUMB - 2 * b, MAP_THUMB - 2 * b);
+    thumbImgs.set(x.id, { name: `tk-photo-${thumbImgs.size}`, data: m.getImageData(0, 0, MAP_THUMB, MAP_THUMB) });
+    addThumbs();
+    draw();
+  } catch { /* картинка не читается (чужой адрес) — остаётся кружок */ }
+}
+function addThumbs() {
+  if (!shown || !ctx) return;
+  for (const v of thumbImgs.values()) if (v && !ctx.map.hasImage(v.name)) try { ctx.map.addImage(v.name, v.data, { pixelRatio: 2 }); } catch { /* стиль меняется */ }
+}
 function addLayers() {
   const map = ctx.map;
   if (!map.getSource("tracks")) map.addSource("tracks", { type: "geojson", data: lineData() });
@@ -402,11 +305,14 @@ function addLayers() {
   if (!map.getLayer("tracks-photos")) map.addLayer({ id: "tracks-photos", type: "circle", source: "tracks-photos",
     paint: { "circle-radius": ["case", ["==", ["get", "on"], 1], 8, 5.5], "circle-color": "#fff", "circle-stroke-color": "#7c4dff", "circle-stroke-width": ["case", ["==", ["get", "on"], 1], 4, 3] } });
   // начало — зелёная точка, конец — красная, точка с графика — белая в цвет трека
+  addThumbs();
+  if (!map.getLayer("tracks-photo-thumbs")) map.addLayer({ id: "tracks-photo-thumbs", type: "symbol", source: "tracks-photos", minzoom: THUMB_ZOOM, filter: ["!=", ["get", "img"], ""],
+    layout: { "icon-image": ["get", "img"], "icon-padding": 2, "icon-allow-overlap": true, "symbol-sort-key": ["get", "on"] } });
   if (!map.getLayer("tracks-ends")) map.addLayer({ id: "tracks-ends", type: "circle", source: "tracks-ends",
     paint: { "circle-radius": ["match", ["get", "kind"], "here", 7, "spike", 5, 6],
       "circle-color": ["match", ["get", "kind"], "start", "#43a047", "end", "#e53935", "spike", "#e53935", "#fff"],
       "circle-stroke-color": ["match", ["get", "kind"], "here", COLOR, "#fff"], "circle-stroke-width": ["match", ["get", "kind"], "here", 3, 2] } });
-  claimLayers("tracks-line", "tracks-photos");
+  claimLayers("tracks-line", "tracks-photos", "tracks-photo-thumbs");
 }
 function draw() {
   if (!shown || !ctx) return;
@@ -447,7 +353,6 @@ const btn = (icon, title, fn) => { const b = h("button", "pb-btn"); b.innerHTML 
 let searchText = "";
 // шапка списка — как у «Куда» (Грегори 2026-11-22): группировка по странам, импорт, экспорт; свернуть и закрыть —
 // у окна. В открытом треке их нет: там слева — его вид активности (долгое нажатие — сменить)
-const GLOBE_D = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z";
 const IMPORT_D = "M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z";
 const EXPORT_D = "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z";
 const CLEAR_X = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
@@ -941,12 +846,6 @@ const KINDS = [
   ["other", "Другое", "M12,11.5A2.5,2.5 0 0,1 9.5,9A2.5,2.5 0 0,1 12,6.5A2.5,2.5 0 0,1 14.5,9A2.5,2.5 0 0,1 12,11.5M12,2A7,7 0 0,0 5,9C5,14.25 12,22 12,22C12,22 19,14.25 19,9A7,7 0 0,0 12,2Z"],
 ];
 const kindOf = (id) => KINDS.find((k) => k[0] === id);
-function kindFromFile(type) {
-  const s = (type || "").toLowerCase();
-  return /kite/.test(s) ? "kite" : /surf|sup|paddle/.test(s) ? "surf" : /cycl|bik|ride/.test(s) ? "bike" : /run/.test(s) ? "run"
-    : /hik/.test(s) ? "hike" : /walk/.test(s) ? "walk" : /cross|nordic|xc/.test(s) && /ski/.test(s) ? "xc" : /ski|snowboard/.test(s) ? "ski"
-    : /boat|sail|row|kayak|canoe/.test(s) ? "boat" : /driv|car/.test(s) ? "car" : null;
-}
 
 // горные лыжи (Грегори, 2026-11-02: «подсчёт спусков и подъёмов, скорость средняя и максимальная без
 // канатных дорог — специализированные трекеры так и считают»). Высота (сглаженная) поворачивает
@@ -1493,6 +1392,8 @@ async function openTrack(id, keep = false) {
   const raw = photoRaw.get(id);
   if (!again) photoPick = null;
   trackPhotos = raw ? placePhotos(t, raw) : [];
+  for (const x of trackPhotos) mapThumb(x);
+  if (!again) { photoPopup?.remove(); photoPopup = null; }
   { const flat = photoPts(t); s.photoMarks = trackPhotos.map((x) => s.profile.find((r) => r[3] === flat[x.i])?.[0]).filter((d) => d != null); }
   if (!again || !sel || sel.b > last) sel = { a: 0, b: last, v0: 0, v1: last, pin: null };
   if (sel.pin > last) sel.pin = null;
@@ -1506,10 +1407,11 @@ async function openTrack(id, keep = false) {
   const bar = h("div", "pb-bar");
   const left = h("div", "tr-bar-left");
   const e = t.album;
-  if (e && cameFrom === id) left.append(btn(BACK, `Назад в альбом «${e.albumTitle}»`, () => toAlbum(e)));
+  const came = cameFrom?.key === id && cameFrom.album;
+  if (came) left.append(btn(BACK, `Назад в альбом «${came.title}»`, () => toAlbum(came.id, came.title, t)));
   else {
     left.append(btn(BACK, "Ко всем трекам", () => renderList()));
-    if (e) left.append(btn(svg(ALBUM_D, 20), `Открыть альбом «${e.albumTitle}»`, () => toAlbum(e)));
+    if (e) left.append(btn(svg(ALBUM_D, 20), `Открыть альбом «${e.albumTitle}»`, () => toAlbum(e.albumId, e.albumTitle, t)));
   }
   const right = h("div", "tr-bar-left");
   const undo = btn(UNDO, "Назад — отменить последнюю правку", async () => {
@@ -1534,6 +1436,7 @@ async function openTrack(id, keep = false) {
   liftPieces = ski?.lifts.length ? pieces(t, (g) => ski.lifts.some(([a, b]) => g >= a && g <= b)) : null;
   const nodes = [bar, looks(t)];
   if (when) nodes.push(h("div", "tr-facts tk-when", when));
+  nodes.push(trackPath(t));
   // на телефоне вид — только в шапке (Грегори 2026-11-22), на компьютере — и кнопкой здесь
   nodes.push(...(innerWidth > 600 ? [kind] : []), factTiles(s, ski));
 
@@ -1579,6 +1482,7 @@ async function openTrack(id, keep = false) {
   if (c) nodes.push(c, selInfo, tools);
   if (trackPhotos.length) nodes.push(...photoStrip(t));
   else if (t.segs.flat().some((p) => p[3])) { const r = phoneAskRow(); if (r) nodes.push(r); }
+  nodes.push(...albumLinks(t));
   const access = photoRaw.get(t.id)?.access;
   if (access) nodes.push(albumAskRow(access));
 
@@ -1715,16 +1619,89 @@ function photoStrip(t) {
     cell.append(img, h("span", "tk-photo-time", clock(x.t)));
     cell.addEventListener("click", () => {
       if (photoPick === x.id) { x.open(ids); return; }
-      photoPick = x.id;
-      hoverPt = [...x.pt];
-      row.querySelectorAll(".tk-photo").forEach((b) => b.classList.toggle("on", b.dataset.id === x.id));
-      draw();
+      pickPhoto(x);
       if (!ctx.map.getBounds().contains(x.pt)) ctx.map.easeTo({ center: x.pt, duration: 600 });
     });
     cell.addEventListener("dblclick", () => x.open(ids));
     row.append(cell);
   }
   return [head, row];
+}
+
+// снимок выбран — в ленте рамкой (лента прокручена к нему), на треке — белая точка; с карты — и окно снимка с его
+// альбомом (Грегори 2026-11-27: «С треками все классно, но не понятно к какому альбому»)
+let photoPopup = null;
+function pickPhoto(x, popup = false) {
+  photoPick = x.id;
+  hoverPt = [...x.pt];
+  for (const b of panel.body.querySelectorAll(".tk-photo")) {
+    b.classList.toggle("on", b.dataset.id === x.id);
+    if (b.dataset.id === x.id && popup) b.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+  }
+  draw();
+  photoPopup?.remove();
+  photoPopup = null;
+  if (!popup) return;
+  const t = tracks.get(openId), ids = trackPhotos.map((p) => p.id);
+  const box = h("div", "");
+  const img = Object.assign(h("img", "popup-photo"), { alt: "" });
+  Object.assign(img.style, { height: "160px", objectFit: "cover", cursor: "zoom-in" });
+  img.title = "Смотреть снимки трека с этого";
+  img.addEventListener("click", () => x.open(ids));
+  x.thumb().then((u) => { if (u) img.src = u; }).catch(() => {});
+  box.append(img);
+  if (x.albumId) {
+    const a = h("button", "text-btn tk-photo-album");
+    a.type = "button";
+    a.innerHTML = svg(ALBUM_D, 18);
+    a.append(`Альбом «${x.albumTitle}»`);
+    a.title = "Открыть альбом снимка (оттуда — назад в трек)";
+    a.addEventListener("click", () => toAlbum(x.albumId, x.albumTitle, t));
+    box.append(a);
+  } else box.append(h("div", "popup-row", "Галерея телефона"));
+  box.append(h("div", "popup-sub", [clock(x.t), x.name].filter(Boolean).join(" · ")));
+  photoPopup = keepPopup(new ctx.maplibregl.Popup({ offset: ctx.map.getZoom() >= THUMB_ZOOM && thumbImgs.get(x.id) ? 26 : 10, maxWidth: "280px" }))
+    .setLngLat(x.pt).setDOMContent(box).addTo(ctx.map);
+}
+
+// альбомы трека: альбом его папки и альбомы снимков на треке — строками, щелчок — альбом (оттуда «Назад в трек»).
+// Раньше был только значок в шапке и только у трека из папки альбома (Грегори 2026-11-27: «Не понятно когда
+// появляется значек в треках открыть альбом»)
+function albumLinks(t) {
+  const by = new Map();
+  if (t.album) by.set(t.album.albumId, { id: t.album.albumId, title: t.album.albumTitle, n: 0, own: true });
+  for (const x of trackPhotos) {
+    if (!x.albumId) continue;
+    if (!by.has(x.albumId)) by.set(x.albumId, { id: x.albumId, title: x.albumTitle, n: 0 });
+    by.get(x.albumId).n++;
+  }
+  if (!by.size) return [];
+  const list = h("div", "tk-albums");
+  for (const a of by.values()) {
+    const b = h("button", "text-btn tk-album-link");
+    b.type = "button";
+    b.innerHTML = svg(ALBUM_D, 20);
+    b.append(a.title);
+    if (a.n || a.own) b.append(h("span", "tk-album-n", [a.own ? "папка трека" : "", a.n ? `фото на треке: ${a.n}` : ""].filter(Boolean).join(", ")));
+    b.title = `Открыть альбом «${a.title}» (оттуда — назад в трек)`;
+    b.addEventListener("click", () => toAlbum(a.id, a.title, t));
+    list.append(b);
+  }
+  return [h("div", "pb-sub tk-section", by.size > 1 ? `Альбомы · ${by.size}` : "Альбом"), list];
+}
+
+// где лежит трек: файл в папке альбома — путь целиком и «Скопировать»; свой — на этом устройстве
+function trackPath(t) {
+  const row = h("div", "al-path");
+  const e = t.album;
+  const text = h("span", "al-path-text", e?.where ? e.where() : `На этом устройстве${t.file ? ` · из файла «${t.file}»` : ""}`);
+  text.title = text.textContent;
+  row.append(text);
+  if (e?.copy) {
+    const b = btn(COPY, "Скопировать полный путь к папке — вставьте его в адресную строку Проводника", async () => { await e.copy(); text.textContent = e.where(); });
+    row.append(b);
+  }
+  return row;
 }
 
 // в приложении снимков галереи на треке нет, потому что не дали разрешения (или дали только на выбранные) —
@@ -1779,6 +1756,8 @@ async function openPanel() {
 
 panel.onClose(() => {
   stopDrawing();
+  photoPopup?.remove();
+  photoPopup = null;
   spikePts = [];
   liftPieces = null;
   openId = null;
@@ -1798,13 +1777,17 @@ function wire() {
   ctx.map.on("style.load", () => { if (shown) { addLayers(); draw(); } });
   // щелчок по линии — открыть этот трек
   ctx.map.on("click", "tracks-line", (e) => { const id = e.features[0]?.properties.id; if (!drawing && id && id !== openId) openTrack(id); });
-  // кружок снимка на треке — галерея снимков трека с него
-  ctx.map.on("click", "tracks-photos", (e) => {
-    const x = trackPhotos.find((p) => p.id === e.features[0]?.properties.id);
-    if (x && !drawing) x.open(trackPhotos.map((p) => p.id));
-  });
-  ctx.map.on("mouseenter", "tracks-photos", () => { ctx.map.getCanvas().style.cursor = "pointer"; });
-  ctx.map.on("mouseleave", "tracks-photos", () => { ctx.map.getCanvas().style.cursor = ""; });
+  // снимок на треке — выбран (в ленте, окно с его альбомом), ещё раз — галерея снимков трека с него
+  for (const layer of ["tracks-photos", "tracks-photo-thumbs"]) {
+    ctx.map.on("click", layer, (e) => {
+      const x = trackPhotos.find((p) => p.id === e.features[0]?.properties.id);
+      if (!x || drawing || e.defaultPrevented) return;
+      e.preventDefault();
+      if (photoPick === x.id) x.open(trackPhotos.map((p) => p.id)); else pickPhoto(x, true);
+    });
+    ctx.map.on("mouseenter", layer, () => { ctx.map.getCanvas().style.cursor = "pointer"; });
+    ctx.map.on("mouseleave", layer, () => { ctx.map.getCanvas().style.cursor = ""; });
+  }
   ctx.map.on("click", drawClick);
   ctx.map.on("mouseenter", "tracks-line", () => { ctx.map.getCanvas().style.cursor = "pointer"; });
   ctx.map.on("mouseleave", "tracks-line", () => { ctx.map.getCanvas().style.cursor = ""; });
@@ -1834,7 +1817,7 @@ register({
     close: () => panel.close(),
   },
   // для проверки
-  stats: () => ({ tracks: index.length, albumTracks: albumIndex.length, shown, open: openId ? tracks.get(openId)?.name : null, fromAlbum: cameFrom }),
+  stats: () => ({ tracks: index.length, albumTracks: albumIndex.length, shown, open: openId ? tracks.get(openId)?.name : null, fromAlbum: cameFrom?.key || null }),
   addText: (name, text) => addFiles([new File([text], name)]),
   exportAll: () => exportAll().then(() => lastExport),
   headKind: () => { const t = panel.el.querySelector(".panel-title"); t.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })); return !!panel.el.querySelector(".tk-kind-head .tk-kind-list:not([hidden])"); },
